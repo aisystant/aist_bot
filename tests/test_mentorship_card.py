@@ -32,12 +32,16 @@ from clients.mentorship_service import MentorshipServiceError
 
 MENTOR_TG_ID = 100
 
-# Реальный фиксированный текст сервиса (DS-MCP/mentorship-service/src/tools/
-# get-participant-card.ts) — не зависит от участника/пустоты списков.
+# Fixed text of the service (DS-MCP/mentorship-service/src/tools/get-participant-card.ts,
+# PR #1 of 28.09 added the mentor-side incompleteness sentence). The service is the
+# source of truth: this constant mirrors it, independent of the participant / list emptiness.
 CORRESPONDENCE_NOTE = (
     "Строка в recentMetadataActivity — сообщение без сохранённого текста (участник не дал согласие "
     "или строка историческая), это не пустое сообщение. В обоих списках только сообщения, "
-    "распознанные ботом как адресованные наставнику; пустые списки не доказывают, что участник не писал."
+    "распознанные ботом как адресованные наставнику; пустые списки не доказывают, что участник не писал. "
+    "Реплики наставника в архиве неполны: сохраняются только текстовые ответы через «Ответить» на "
+    "сообщение участника (в группе; так же при загрузке истории), личная переписка вживую не видна, "
+    "сбои записи теряют часть. Отсутствие реплики не значит, что участнику не ответили."
 )
 
 
@@ -131,6 +135,7 @@ async def test_card_success_sends_card_by_dm_and_confirms_in_group(monkeypatch):
         "recentMetadataActivity": [{}],
         "recentNotes": [{"body": "прогресс медленный, но стабильный"}],
         "correspondenceNote": CORRESPONDENCE_NOTE,
+        "mentorSideCoverage": "partial",
     }
     get_card_mock = AsyncMock(return_value=card)
     monkeypatch.setattr(mentorship.mentorship_service, "get_participant_card", get_card_mock)

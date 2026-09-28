@@ -54,6 +54,9 @@ async def test_readiness_reports_ready_dependencies() -> None:
                 "queue_maxsize": 1000,
                 "dropped_queue_full": 0,
                 "dropped_write_failed": 0,
+                "skipped_no_reply": 0,
+                "skipped_recipient_unresolved": 0,
+                "skipped_recipient_not_participant": 0,
             },
         },
     }
@@ -83,6 +86,9 @@ async def test_readiness_bounds_database_wait() -> None:
                 "queue_maxsize": 1000,
                 "dropped_queue_full": 0,
                 "dropped_write_failed": 0,
+                "skipped_no_reply": 0,
+                "skipped_recipient_unresolved": 0,
+                "skipped_recipient_not_participant": 0,
             },
         },
     }
@@ -110,6 +116,9 @@ async def test_readiness_hides_dependency_exception_details() -> None:
                 "queue_maxsize": 1000,
                 "dropped_queue_full": 0,
                 "dropped_write_failed": 0,
+                "skipped_no_reply": 0,
+                "skipped_recipient_unresolved": 0,
+                "skipped_recipient_not_participant": 0,
             },
         },
     }
@@ -139,3 +148,30 @@ async def test_readiness_mentorship_archive_degraded_does_not_change_http_status
     assert payload["status"] == "ready"
     assert payload["components"]["mentorship_archive"]["status"] == "degraded"
     assert payload["components"]["mentorship_archive"]["dropped_write_failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_readiness_mentorship_archive_skipped_counters_are_visible_but_not_degraded() -> None:
+    """skipped_* are expected routing filters of the mentor branch (reply to a
+    non-participant, no reply, unresolved account), not delivery losses: they
+    must appear in the /ready payload and must NOT turn the component degraded."""
+    import engines.mentorship.archive_tap as archive_tap
+
+    archive_tap._dropped_counters["skipped_no_reply"] += 2
+    archive_tap._dropped_counters["skipped_recipient_unresolved"] += 1
+    archive_tap._dropped_counters["skipped_recipient_not_participant"] += 3
+
+    async def database_ready() -> bool:
+        return True
+
+    payload, status = await readiness_snapshot(
+        database_probe=database_ready,
+        scheduler_probe=lambda: "ready",
+    )
+
+    archive = payload["components"]["mentorship_archive"]
+    assert status == 200
+    assert archive["status"] == "ready"
+    assert archive["skipped_no_reply"] == 2
+    assert archive["skipped_recipient_unresolved"] == 1
+    assert archive["skipped_recipient_not_participant"] == 3
