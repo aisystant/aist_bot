@@ -40,7 +40,15 @@ _QUEUE_MAXSIZE = 1000
 _MAX_WRITE_ATTEMPTS = 4  # первая попытка + 3 повтора — по одному на каждое значение _BACKOFF_SECONDS
 _BACKOFF_SECONDS = (0.5, 2.0, 5.0)
 
-_dropped_counters: dict[str, int] = {"queue_full": 0, "write_failed": 0}
+# queue_full / write_failed are delivery losses (readiness turns "degraded");
+# skipped_* are expected routing filters of the mentor branch (never degraded).
+_dropped_counters: dict[str, int] = {
+    "queue_full": 0,
+    "write_failed": 0,
+    "skipped_no_reply": 0,
+    "skipped_recipient_unresolved": 0,
+    "skipped_recipient_not_participant": 0,
+}
 
 # (chat_id, message_thread_id) -> создатель темы наставник?. In-memory,
 # заполняется воркером из forum_topic_created-событий (см.
@@ -103,6 +111,9 @@ def queue_stats() -> dict:
         "queue_maxsize": _QUEUE_MAXSIZE,
         "dropped_queue_full": _dropped_counters["queue_full"],
         "dropped_write_failed": _dropped_counters["write_failed"],
+        "skipped_no_reply": _dropped_counters["skipped_no_reply"],
+        "skipped_recipient_unresolved": _dropped_counters["skipped_recipient_unresolved"],
+        "skipped_recipient_not_participant": _dropped_counters["skipped_recipient_not_participant"],
     }
 
 
@@ -264,6 +275,7 @@ async def _process_one(event: RawMessageEvent) -> None:
     — здесь, не в middleware."""
     from db.queries.consent import get_consent_grant
     from db.queries.mentorship import (
+        find_participant_id,
         get_or_create_participant,
         get_stream_reader_role,
         lookup_participant_stream,
@@ -288,18 +300,27 @@ async def _process_one(event: RawMessageEvent) -> None:
         # Наставник пишет об участнике — адресата берём из reply (честное
         # ограничение MVP: без reply некому положить ответ наставника).
         if event.reply_to_user_id is None:
+            _dropped_counters["skipped_no_reply"] += 1
             return
         participant_account_id = await resolve_ory_id_from_chat(event.reply_to_user_id)
         if participant_account_id is None:
+            _dropped_counters["skipped_recipient_unresolved"] += 1
+            return
+        # Search only, never create (docs/processes/process-19): a mentor's reply
+        # to a third party (another reader, an outsider) must not enrol that person
+        # as a participant. Same rule as _resolve_related_participant.
+        reader_account_id = account_id
+        participant_id = await find_participant_id(reader_account_id, ctx.stream_id, participant_account_id)
+        if participant_id is None:
+            _dropped_counters["skipped_recipient_not_participant"] += 1
             return
     else:
         participant_account_id = account_id
+        reader_account_id = ctx.reader_account_id
+        participant_id = await get_or_create_participant(reader_account_id, ctx.stream_id, participant_account_id)
 
     consent_scope = "mentor_archive_dm" if channel == "dm" else "mentor_archive_group"
     consent_granted = await get_consent_grant(participant_account_id, consent_scope)
-
-    reader_account_id = account_id if author_is_mentor else ctx.reader_account_id
-    participant_id = await get_or_create_participant(reader_account_id, ctx.stream_id, participant_account_id)
 
     reply_to_participant_id = await _resolve_related_participant(
         event.reply_to_user_id,

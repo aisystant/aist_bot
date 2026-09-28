@@ -27,12 +27,16 @@ from db.queries.mentorship import StreamChatContext
 MENTOR_ID = "11111111-1111-1111-1111-111111111111"
 PARTICIPANT_ID = "22222222-2222-2222-2222-222222222222"
 
-# Реальный фиксированный текст сервиса (DS-MCP/mentorship-service/src/tools/
-# get-participant-card.ts) — не зависит от участника/пустоты списков.
+# Fixed text of the service (DS-MCP/mentorship-service/src/tools/get-participant-card.ts,
+# PR #1 of 28.09 added the mentor-side incompleteness sentence). The service is the
+# source of truth: this constant mirrors it, independent of the participant / list emptiness.
 CORRESPONDENCE_NOTE = (
     "Строка в recentMetadataActivity — сообщение без сохранённого текста (участник не дал согласие "
     "или строка историческая), это не пустое сообщение. В обоих списках только сообщения, "
-    "распознанные ботом как адресованные наставнику; пустые списки не доказывают, что участник не писал."
+    "распознанные ботом как адресованные наставнику; пустые списки не доказывают, что участник не писал. "
+    "Реплики наставника в архиве неполны: сохраняются только текстовые ответы через «Ответить» на "
+    "сообщение участника (в группе; так же при загрузке истории), личная переписка вживую не видна, "
+    "сбои записи теряют часть. Отсутствие реплики не значит, что участнику не ответили."
 )
 
 
@@ -200,6 +204,7 @@ def test_format_participant_card_shows_note_even_with_non_empty_correspondence()
         "recentMetadataActivity": [],
         "recentNotes": [],
         "correspondenceNote": CORRESPONDENCE_NOTE,
+        "mentorSideCoverage": "partial",
     }
     text = mentorship._format_participant_card(card, "Иван Иванов", "S1")
 
