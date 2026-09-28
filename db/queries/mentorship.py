@@ -208,6 +208,9 @@ async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered
     return result
 
 
+_PARTICIPANT_ID_SQL = "SELECT id FROM public.participant_core WHERE account_id = $1 AND stream_id = $2"
+
+
 async def find_participant_id(reader_account_id: str, stream_id: str, account_id: str) -> Optional[int]:
     """participant_core.id, ЕСЛИ он уже существует — в отличие от
     get_or_create_participant НЕ создаёт новую строку. Для reply-to/forward-
@@ -220,11 +223,7 @@ async def find_participant_id(reader_account_id: str, stream_id: str, account_id
         return None
 
     async def _do(conn: asyncpg.Connection) -> Optional[int]:
-        row = await conn.fetchrow(
-            "SELECT id FROM public.participant_core WHERE account_id = $1 AND stream_id = $2",
-            account_id,
-            stream_id,
-        )
+        row = await conn.fetchrow(_PARTICIPANT_ID_SQL, account_id, stream_id)
         return row["id"] if row else None
 
     return await _with_account_context(pool, reader_account_id, _do)
@@ -235,24 +234,31 @@ async def get_or_create_participant(reader_account_id: str, stream_id: str, part
 
     Выполняется под RLS-контекстом reader_account_id (любой читатель потока
     — участник сам не читатель этой базы, у него нет собственного контекста).
+
+    Устойчива к гонке двух одновременных первых сообщений: когда в базе есть
+    UNIQUE(account_id, stream_id) (миграция 2026-09-28-wp578-participant-core-unique),
+    проигравший INSERT получает UniqueViolationError и читает строку победителя;
+    без ограничения поведение прежнее (ошибки нет, возможен дубль).
     """
     pool = await get_mentorship_pool()
     if pool is None:
         raise RuntimeError("MENTORSHIP_URL is not configured — mentorship module disabled")
 
     async def _do(conn: asyncpg.Connection) -> int:
-        row = await conn.fetchrow(
-            "SELECT id FROM public.participant_core WHERE account_id = $1 AND stream_id = $2",
-            participant_account_id,
-            stream_id,
-        )
+        row = await conn.fetchrow(_PARTICIPANT_ID_SQL, participant_account_id, stream_id)
         if row is not None:
             return row["id"]
-        row = await conn.fetchrow(
-            "INSERT INTO public.participant_core (account_id, stream_id) VALUES ($1, $2) RETURNING id",
-            participant_account_id,
-            stream_id,
-        )
+        try:
+            # Savepoint: a unique violation must not abort the outer RLS transaction,
+            # the re-read below runs inside it.
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "INSERT INTO public.participant_core (account_id, stream_id) VALUES ($1, $2) RETURNING id",
+                    participant_account_id,
+                    stream_id,
+                )
+        except asyncpg.UniqueViolationError:
+            row = await conn.fetchrow(_PARTICIPANT_ID_SQL, participant_account_id, stream_id)
         return row["id"]
 
     return await _with_account_context(pool, reader_account_id, _do)
