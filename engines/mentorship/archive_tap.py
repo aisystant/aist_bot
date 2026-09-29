@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Union
@@ -91,6 +92,11 @@ class TopicCreatedEvent:
 
 
 QueueItem = Union[RawMessageEvent, TopicCreatedEvent]
+
+
+def _frames_only(exc: BaseException) -> str:
+    """Стек вызовов без текста исключения (в нём бывают данные строки БД)."""
+    return "".join(traceback.format_tb(exc.__traceback__))
 
 
 def get_archive_queue() -> asyncio.Queue:
@@ -168,8 +174,12 @@ class _QueueWriterMixin:
     async def __call__(self, handler, event: TelegramObject, data: dict):
         try:
             self._maybe_enqueue(event)
-        except Exception:  # noqa: BLE001 — наблюдатель не должен ронять основной путь бота
-            logger.exception("[MentorshipArchive] сбой в _maybe_enqueue, сообщение не архивировано")
+        except Exception as exc:  # noqa: BLE001 — наблюдатель не должен ронять основной путь бота
+            logger.error(
+                "[MentorshipArchive] сбой в _maybe_enqueue, сообщение не архивировано: %s\n%s",
+                type(exc).__name__,
+                _frames_only(exc),
+            )
         return await handler(event, data)
 
     def _put(self, item: QueueItem) -> None:
@@ -178,9 +188,8 @@ class _QueueWriterMixin:
         except asyncio.QueueFull:
             _dropped_counters["queue_full"] += 1
             logger.error(
-                "[MentorshipArchive] очередь переполнена (%d), потеряно chat_id=%s",
+                "[MentorshipArchive] очередь переполнена (%d), элемент потерян",
                 _QUEUE_MAXSIZE,
-                getattr(item, "telegram_chat_id", "?"),
             )
 
 
@@ -387,22 +396,18 @@ async def _write_with_retry(*, write_archive_entry, **kwargs) -> None:
         except Exception as exc:  # noqa: BLE001 — воркер обязан пережить любую ошибку одной записи
             last_error = exc
             logger.warning(
-                "[MentorshipArchive] попытка %d/%d записи не удалась chat=%s msg=%s: %s",
+                "[MentorshipArchive] попытка %d/%d записи не удалась: %s",
                 attempt,
                 _MAX_WRITE_ATTEMPTS,
-                kwargs.get("telegram_chat_id"),
-                kwargs.get("telegram_message_id"),
-                exc,
+                type(exc).__name__,
             )
             if attempt >= _MAX_WRITE_ATTEMPTS:
                 break
     _dropped_counters["write_failed"] += 1
     logger.error(
-        "[MentorshipArchive] запись отброшена после %d попыток chat=%s msg=%s: %s",
+        "[MentorshipArchive] запись отброшена после %d попыток: %s",
         _MAX_WRITE_ATTEMPTS,
-        kwargs.get("telegram_chat_id"),
-        kwargs.get("telegram_message_id"),
-        last_error,
+        type(last_error).__name__,
     )
 
 
@@ -423,7 +428,14 @@ async def mentorship_archive_worker() -> None:
                 await _process_topic_created(item)
             else:
                 await _process_one(item)
-        except Exception:  # noqa: BLE001 — воркер не должен падать целиком из-за одного элемента
-            logger.exception("[MentorshipArchive] необработанная ошибка обработки элемента очереди: %r", item)
+        except Exception as exc:  # noqa: BLE001 — воркер не должен падать целиком из-за одного элемента
+            # Не логируем элемент (в нём текст участника, ПД) и сообщение
+            # исключения (asyncpg кладёт в него данные строки): только тип и кадры стека.
+            logger.error(
+                "[MentorshipArchive] необработанная ошибка обработки элемента очереди (%s): %s\n%s",
+                type(item).__name__,
+                type(exc).__name__,
+                _frames_only(exc),
+            )
         finally:
             queue.task_done()
