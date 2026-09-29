@@ -155,8 +155,7 @@ async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered
     role = await get_stream_reader_role(registered_by_account_id, stream_id)
     if role is None:
         logger.warning(
-            "[Mentorship] register_stream_chat отклонён: account=%s не читатель потока %s",
-            registered_by_account_id,
+            "[Mentorship] register_stream_chat отклонён: вызывающий не читатель потока %s",
             stream_id,
         )
         return "not_stream_reader"
@@ -194,15 +193,12 @@ async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered
         result = await _with_account_context(pool, registered_by_account_id, _do)
     except asyncpg.exceptions.UniqueViolationError:
         logger.info(
-            "[Mentorship] register_stream_chat: гонка на chat=%s, повтор после конфликта",
-            telegram_chat_id,
+            "[Mentorship] register_stream_chat: гонка при регистрации, повтор после конфликта",
         )
         result = await _with_account_context(pool, registered_by_account_id, _do)
     logger.info(
-        "[Mentorship] register_stream_chat chat=%s stream=%s by=%s -> %s",
-        telegram_chat_id,
+        "[Mentorship] register_stream_chat stream=%s -> %s",
         stream_id,
-        registered_by_account_id,
         result,
     )
     return result
