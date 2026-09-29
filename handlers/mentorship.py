@@ -37,6 +37,18 @@
     определения участника, что у DM-версии /mentor_note; карточка уже в
     личном чате с ботом, лишней пересылки не нужно.
 
+Голый текст в личке боту (без команды, без пересылки) — если недавно (в
+    пределах тех же 2 часов, что и «активный участник») наставник уже делал
+    forward+/mentor_note или /mentor_card, бот предлагает сохранить этот
+    текст как заметку об этом же участнике (кнопка подтверждения, тот же
+    путь, что у /mentor_note). Живой дефект найден 28.09 (пир-сессия
+    2026-09-28-12-wp578-mentor-dm-not-archived): наставник дважды написал
+    длинный текст в личку боту, ожидая, что это попадёт в архив участника —
+    ничего не сохранилось, никакой подсказки не было. Новый сценарий по
+    решению пилота (эскалация той же сессии), не расширение существующего —
+    он начинает перехватывать голый текст, который раньше уходил в общий
+    fallback без ответа.
+
 Известное сужение MVP: deep-link из дисклеймера группы (t.me/<bot>?start=…)
 не реализован в этом проходе — `/start` уже занят онбордингом
 (handlers/onboarding.py), которого мы намеренно не трогаем в объёме Ф2.
@@ -52,6 +64,7 @@ from dataclasses import dataclass
 from time import time
 
 from aiogram import Router, F
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -522,6 +535,49 @@ async def cmd_mentor_note_dm(message: Message, command: CommandObject) -> None:
         stream_id=stream_id,
         participant_account_id=participant_account_id,
         participant_name=participant_name,
+        body=body,
+    )
+
+
+@mentorship_router.message(F.chat.type == "private", F.text, ~F.text.startswith("/"))
+async def on_mentor_dm_free_text(message: Message) -> None:
+    """Голый текст в личке боту (не команда, не через `/mentor_note`) — если
+    у наставника есть свежий «активный участник» (тот же словарь и TTL, что
+    у forward-версии `/mentor_note` выше), предложить сохранить этот текст
+    как заметку о нём вместо того, чтобы дать ему молча уйти в общий fallback
+    (живой дефект 28.09, MC-sessions:2026-09/28/2026-09-28-12-
+    wp578-mentor-dm-not-archived).
+
+    Дешёвая проверка сначала, а не `_resolve_reader` — `_active_participant`
+    пуст для всех, кто ни разу не проходил через forward+`/mentor_note`/
+    `/mentor_card`, то есть для подавляющего большинства участников
+    (обычных, не наставников): для них этот хендлер не делает ни одного
+    сетевого вызова, только чтение in-memory словаря по telegram id.
+
+    `SkipHandler` при несовпадении обязателен, не бессодержательный
+    `return` — этот хендлер стоит в общей цепочке роутеров ДО SM/fallback
+    (handlers/__init__.py), голый `return` остановил бы маршрутизацию и
+    молча проглотил бы личное сообщение КАЖДОГО пользователя бота, а не
+    только наставника (тот же паттерн уже применяется в handlers/hermes.py
+    для той же причины)."""
+    active = _active_participant.get(message.from_user.id)
+    if active is None or time() - active.set_at > _ACTIVE_PARTICIPANT_TTL_SECONDS:
+        raise SkipHandler
+
+    body = (message.text or "").strip()
+    if not body:
+        raise SkipHandler
+
+    mentor_account_id = await resolve_ory_id_from_chat(message.from_user.id)
+    if mentor_account_id is None:
+        raise SkipHandler
+
+    await _stage_pending_note(
+        message,
+        mentor_account_id=mentor_account_id,
+        stream_id=active.stream_id,
+        participant_account_id=active.participant_account_id,
+        participant_name=active.participant_name,
         body=body,
     )
 

@@ -23,6 +23,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from db.queries.mentorship import StreamChatContext
+from tests.mentorship_helpers import make_dm_message as _make_dm_message
 
 MENTOR_ID = "11111111-1111-1111-1111-111111111111"
 PARTICIPANT_ID = "22222222-2222-2222-2222-222222222222"
@@ -38,20 +39,6 @@ CORRESPONDENCE_NOTE = (
     "сообщение участника (в группе; так же при загрузке истории), личная переписка вживую не видна, "
     "сбои записи теряют часть. Отсутствие реплики не значит, что участнику не ответили."
 )
-
-
-def _make_dm_message(*, reply_to_message=None, from_user_id=100):
-    from aiogram.types import Message, User, Chat
-
-    msg = MagicMock(spec=Message)
-    msg.from_user = MagicMock(spec=User)
-    msg.from_user.id = from_user_id
-    msg.chat = MagicMock(spec=Chat)
-    msg.chat.id = from_user_id  # личка: chat.id совпадает с user id
-    msg.chat.type = "private"
-    msg.reply_to_message = reply_to_message
-    msg.reply = AsyncMock()
-    return msg
 
 
 def _make_forwarded_from_participant(participant_user_id: int, *, full_name: str = "Иван Иванов"):
