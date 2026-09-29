@@ -31,6 +31,28 @@ def make_group_message(*, from_user_id=MENTOR_TG_ID, target_user_id=200):
     return msg
 
 
+def make_dm_message(*, from_user_id=MENTOR_TG_ID, text=None, reply_to_message=None):
+    """A private (DM) message to the bot. Used by test_mentorship_card_dm.py
+    and test_mentorship_dm_free_text.py — a third near-identical copy here
+    would have hit P2 (third repetition -> function). test_mentorship_note_dm.py
+    keeps its own local variant: its callers also need the CommandObject this
+    one doesn't return, so folding it in here would change this helper's
+    signature for callers that don't need it."""
+    from aiogram.types import Chat, Message, User
+
+    msg = MagicMock(spec=Message)
+    msg.from_user = MagicMock(spec=User)
+    msg.from_user.id = from_user_id
+    msg.chat = MagicMock(spec=Chat)
+    msg.chat.id = from_user_id  # личка: chat.id совпадает с user id
+    msg.chat.type = "private"
+    msg.text = text
+    msg.reply_to_message = reply_to_message
+    msg.reply = AsyncMock()
+    msg.bot = AsyncMock()
+    return msg
+
+
 def as_stream_reader(monkeypatch, mentorship, *, streams, account_ids=("mentor-account",)):
     """Caller is linked to an account and reads the given streams; the group is registered to S1.
 
