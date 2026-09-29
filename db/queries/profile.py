@@ -41,6 +41,8 @@ OPTIONAL_CHAT_TABLES = [
     ('dt_tokens', 'chat_id'),
     ('github_connections', 'chat_id'),
     ('google_calendar_connections', 'chat_id'),
+    # WP-554 Ф12: chat_id BIGINT, topic + Chatwoot ids (migration 015, db/queries/helpdesk.py)
+    ('helpdesk_tickets', 'chat_id'),
     ('internship_payment_checks', 'telegram_id'),
     ('oauth_pending_states', 'telegram_user_id'),
     ('ory_tokens', 'chat_id'),
@@ -53,6 +55,35 @@ OPTIONAL_CHAT_TABLES = [
     ('training_settings', 'chat_id'),
     ('workshop_payments', 'telegram_id'),
 ]
+
+# WP-554 Ф12: same contract as OPTIONAL_CHAT_TABLES for bot-owned tables of the
+# `development` schema (none has a foreign key to public.users, so they stay outside
+# the core transaction). learning_history has no writer in the bot: the migration-007
+# trigger materialises it from development.user_events, hence the same user_id key.
+OPTIONAL_DEVELOPMENT_TABLES = [
+    ('learning_history', 'user_id'),
+    ('notification_queue', 'chat_id'),
+    ('nudge_receipt', 'recipient_chat_id'),
+]
+
+# WP-554 Ф12: (schema, table, column) of bot-written learning-pool tables keyed by the
+# Telegram id (the marathon tables call it user_id). Unlike the main-pool lists a
+# missing table here is a failed required leg: migration 025 creates all five.
+LEARNING_CHAT_TABLES = [
+    ('public', 'reminder', 'chat_id'),
+    ('learning', 'marathon_activity', 'user_id'),
+    ('learning', 'marathon_progress', 'user_id'),
+    ('learning', 'marathon_queue', 'user_id'),
+    ('learning', 'marathon_state', 'user_id'),
+]
+
+
+def _main_optional_tables():
+    """(schema, table, column) for every schema-optional table of the main pool."""
+    for table, column in OPTIONAL_CHAT_TABLES:
+        yield 'public', table, column
+    for table, column in OPTIONAL_DEVELOPMENT_TABLES:
+        yield 'development', table, column
 
 
 class IncompleteUserDataDeletion(RuntimeError):
@@ -202,14 +233,16 @@ async def delete_all_user_data(chat_id: int) -> dict:
     failures: list[str] = []
 
     async with pool.acquire() as conn:
-        for table, column in OPTIONAL_CHAT_TABLES:
+        for schema, table, column in _main_optional_tables():
             try:
                 deleted = await conn.execute(
-                    _delete_from_sql(f'public.{table}', f'{column} = $1'), chat_id
+                    _delete_from_sql(f'{schema}.{table}', f'{column} = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
             except asyncpg.exceptions.UndefinedTableError:
-                logger.warning("[DELETE] optional table %s does not exist, skipping", table)
+                logger.warning(
+                    "[DELETE] optional table %s.%s does not exist, skipping", schema, table
+                )
                 result[table] = 0
             except Exception as e:
                 _record_required_cleanup_failure(failures, f"main.{table}", e)
@@ -352,6 +385,21 @@ async def delete_all_user_data(chat_id: int) -> dict:
     else:
         result['secrets_github_connections'] = 0
 
+    # WP-554 Ф12: external-client (MCP) token pairs. account_id is NOT NULL, chat_id
+    # came later (migration 030) and is NULL on older rows, so match on either.
+    try:
+        from db.connection import get_secrets_pool
+        secrets_pool = await get_secrets_pool()
+        async with secrets_pool.acquire() as sconn:
+            deleted = await sconn.execute(
+                'DELETE FROM public.ory_client_tokens WHERE chat_id = $1 OR account_id = $2::uuid',
+                chat_id, account_id,
+            )
+            result['secrets_ory_client_tokens'] = _parse_delete_count(deleted)
+    except Exception as e:
+        _record_required_cleanup_failure(failures, "secrets.ory_client_tokens", e)
+        result['secrets_ory_client_tokens'] = 0
+
     # WP-253 lift-and-shift: subscription.contract (core/access.py) — ключ account_id.
     if account_id:
         try:
@@ -431,6 +479,23 @@ async def delete_all_user_data(chat_id: int) -> dict:
             result['learning_cp_assessments'] = 0
     else:
         result['learning_cp_assessments'] = 0
+
+    # WP-554 Ф12: learning.onboarding_state (referral source, upgrade markers) —
+    # account_id key and gate like cp_assessments above, own required-leg component.
+    if account_id:
+        try:
+            learning_onboarding_pool = await get_learning_pool()
+            async with learning_onboarding_pool.acquire() as loconn:
+                deleted = await loconn.execute(
+                    'DELETE FROM learning.onboarding_state WHERE account_id = $1::uuid',
+                    account_id
+                )
+                result['learning_onboarding_state'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "learning.onboarding_state", e)
+            result['learning_onboarding_state'] = 0
+    else:
+        result['learning_onboarding_state'] = 0
 
     # WP-253 lift-and-shift: discourse_accounts (основной пул, выше) → club_account
     # (community пул) — ключ chat_id напрямую, без account_id (db/queries/discourse.py).
@@ -573,6 +638,20 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:
         _record_required_cleanup_failure(failures, "learning", e)
+
+    # WP-554 Ф12: bot-written learning tables the block above does not cover. One
+    # acquire and one required-leg component per table: a failure names its table.
+    for schema, table, column in LEARNING_CHAT_TABLES:
+        try:
+            learning_chat_pool = await get_learning_pool()
+            async with learning_chat_pool.acquire() as lcconn:
+                deleted = await lcconn.execute(
+                    _delete_from_sql(f'{schema}.{table}', f'{column} = $1'), chat_id
+                )
+            result[f'learning_{table}'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, f"learning.{table}", e)
+            result[f'learning_{table}'] = 0
 
     # WP-268 Phase 5 G5 Tier2: user_sessions вынесены в health BD
     # WP-253 G4 (8 мая): + request_traces переехал в health (writer core/tracing.py)
