@@ -678,6 +678,10 @@ _F12_LEGS = [
     ("learning", "DELETE FROM learning.marathon_state", "learning.marathon_state", "learning_marathon_state"),
     ("learning", "DELETE FROM learning.onboarding_state", "learning.onboarding_state", "learning_onboarding_state"),
     ("secrets", "DELETE FROM public.ory_client_tokens", "secrets.ory_client_tokens", "secrets_ory_client_tokens"),
+    # added after the cold review: tables that block or resurrect the deletion
+    ("main", "DELETE FROM public.user_milestone_offers", "main.user_milestone_offers", "user_milestone_offers"),
+    ("main", "DELETE FROM public.user_milestones", "main.user_milestones", "user_milestones"),
+    ("secrets", "DELETE FROM public.external_auth_codes", "secrets.external_auth_codes", "secrets_external_auth_codes"),
 ]
 _F12_MAIN_LEGS = [leg for leg in _F12_LEGS if leg[0] == "main"]
 _F12_STRICT_LEGS = [leg for leg in _F12_LEGS if leg[0] != "main"]
@@ -740,6 +744,8 @@ def test_f12_each_bot_table_is_deleted_by_its_own_subject_key(monkeypatch):
             ("DELETE FROM development.learning_history WHERE user_id = $1", chat),
             ("DELETE FROM development.notification_queue WHERE chat_id = $1", chat),
             ("DELETE FROM development.nudge_receipt WHERE recipient_chat_id = $1", chat),
+            ("DELETE FROM public.user_milestone_offers WHERE user_id = $1", chat),
+            ("DELETE FROM public.user_milestones WHERE user_id = $1", chat),
         ],
         "learning": [
             ("DELETE FROM public.reminder WHERE chat_id = $1", chat),
@@ -752,6 +758,10 @@ def test_f12_each_bot_table_is_deleted_by_its_own_subject_key(monkeypatch):
         "secrets": [
             (
                 "DELETE FROM public.ory_client_tokens WHERE chat_id = $1 OR account_id = $2::uuid",
+                (_F12_CHAT_ID, _F12_ACCOUNT_ID),
+            ),
+            (
+                "DELETE FROM public.external_auth_codes WHERE chat_id = $1 OR account_id = $2::uuid",
                 (_F12_CHAT_ID, _F12_ACCOUNT_ID),
             ),
         ],
@@ -779,16 +789,24 @@ def test_f12_without_account_id_tokens_still_go_by_chat_id_and_onboarding_is_ski
     assert result["learning_onboarding_state"] == 0
 
 
+def _f12_failures():
+    """Two error classes: a database refusal and a timeout that is not a PostgresError."""
+    leaked = f"key ({_F12_CHAT_ID}) {_F12_ACCOUNT_ID}"
+    return [
+        pytest.param(lambda: asyncpg.exceptions.InsufficientPrivilegeError(f"permission denied for {leaked}"), id="privilege"),
+        pytest.param(lambda: TimeoutError(f"timed out for {leaked}"), id="timeout"),
+    ]
+
+
+@pytest.mark.parametrize("make_error", _f12_failures())
 @pytest.mark.parametrize("pool, fragment, component, key", _F12_LEGS, ids=_F12_IDS)
 def test_f12_failing_leg_is_named_and_blocks_the_identity_finalizer(
-    monkeypatch, pool, fragment, component, key
+    monkeypatch, pool, fragment, component, key, make_error
 ):
     """A real failure (not an absent table) must not read as success, must name exactly its
-    own leg, and must leave ory_identity in place so the retry can resolve the account."""
-    error = asyncpg.exceptions.InsufficientPrivilegeError(
-        f"permission denied for key ({_F12_CHAT_ID}) {_F12_ACCOUNT_ID}"
-    )
-    _f12_setup(monkeypatch, injected=(pool, fragment, error))
+    own leg, must not stop the other legs, and must leave ory_identity in place so the
+    retry can resolve the account."""
+    conns = _f12_setup(monkeypatch, injected=(pool, fragment, make_error()))
 
     with pytest.raises(IncompleteUserDataDeletion) as raised:
         asyncio.run(delete_all_user_data(_F12_CHAT_ID))
@@ -799,6 +817,9 @@ def test_f12_failing_leg_is_named_and_blocks_the_identity_finalizer(
     assert "persona_ory_identity" not in failure.partial_result
     assert str(_F12_CHAT_ID) not in str(failure)
     assert _F12_ACCOUNT_ID not in str(failure)
+    for _pool, other_fragment, other_component, _key in _F12_LEGS:
+        attempted = [sql for sql, _args in conns[_pool].executed]
+        assert any(other_fragment in sql for sql in attempted), f"{other_component} was never attempted"
 
 
 @pytest.mark.parametrize("pool, fragment, component, key", _F12_MAIN_LEGS, ids=[leg[3] for leg in _F12_MAIN_LEGS])
@@ -825,9 +846,15 @@ def test_f12_learning_and_secrets_tables_must_exist(monkeypatch, pool, fragment,
     assert raised.value.failed_components == (component,)
 
 
+def _rendered_log(caplog) -> str:
+    """Every record as the formatter prints it, traceback included (exc_info is rendered)."""
+    formatter = logging.Formatter("%(message)s")
+    return "\n".join(formatter.format(record) for record in caplog.records)
+
+
 def test_f12_failure_logs_carry_no_subject_identifiers(monkeypatch, caplog):
     """The database error text carries the key value (asyncpg DETAIL); the leg log must
-    name the component and the exception class only."""
+    name the component and the exception class only, with no traceback attached."""
     error = asyncpg.exceptions.InsufficientPrivilegeError(
         f"permission denied for key ({_F12_CHAT_ID}) {_F12_ACCOUNT_ID}"
     )
@@ -837,7 +864,144 @@ def test_f12_failure_logs_carry_no_subject_identifiers(monkeypatch, caplog):
         with pytest.raises(IncompleteUserDataDeletion):
             asyncio.run(delete_all_user_data(_F12_CHAT_ID))
 
-    logged = "\n".join(record.getMessage() for record in caplog.records)
+    logged = _rendered_log(caplog)
     assert "learning.marathon_state (InsufficientPrivilegeError)" in logged
     assert str(_F12_CHAT_ID) not in logged
     assert _F12_ACCOUNT_ID not in logged
+
+
+def test_f12_skip_log_names_the_table_but_not_the_subject(monkeypatch, caplog):
+    error = asyncpg.exceptions.UndefinedTableError("relation does not exist")
+    _f12_setup(monkeypatch, injected=("main", "DELETE FROM development.nudge_receipt", error))
+
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    logged = _rendered_log(caplog)
+    assert "development.nudge_receipt" in logged
+    assert str(_F12_CHAT_ID) not in logged
+
+
+@pytest.mark.parametrize("pool, fragment, component, key", _F12_MAIN_LEGS, ids=[leg[3] for leg in _F12_MAIN_LEGS])
+def test_f12_undefined_column_in_a_main_leg_is_a_failure_not_a_skip(monkeypatch, pool, fragment, component, key):
+    """Only a missing table is skippable; a wrong column name means the key is wrong."""
+    error = asyncpg.exceptions.UndefinedColumnError('column "x" does not exist')
+    _f12_setup(monkeypatch, injected=(pool, fragment, error))
+
+    with pytest.raises(IncompleteUserDataDeletion) as raised:
+        asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert raised.value.failed_components == (component,)
+
+
+def test_f12_onboarding_is_keyed_by_the_persona_account_not_by_the_dt_token_id(monkeypatch):
+    """The Digital Twin id from secrets.dt_tokens is a different identifier."""
+    conns = _f12_setup(monkeypatch)
+    conns["secrets"].fetchrow_result = {"dt_user_id": "00000000-0000-0000-0000-00000000dead"}
+
+    asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    onboarding = [args for sql, args in conns["learning"].executed if "learning.onboarding_state" in sql]
+    assert onboarding == [(_F12_ACCOUNT_ID,)]
+
+
+class _AbortAwareConn:
+    """PostgreSQL-like double: an error inside a plain transaction aborts it until it ends."""
+
+    def __init__(self, inner, error_fragment, error):
+        self.inner = inner
+        self.error_fragment = error_fragment
+        self.error = error
+        self.depth = 0
+        self.aborted = False
+
+    def transaction(self):
+        conn = self
+
+        class _Transaction:
+            async def __aenter__(self):
+                conn.depth += 1
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                conn.depth -= 1
+                if exc_type is not None or conn.depth == 0:
+                    conn.aborted = False
+                return False
+
+        return _Transaction()
+
+    async def execute(self, sql, *args):
+        if self.aborted:
+            raise asyncpg.exceptions.InFailedSQLTransactionError("current transaction is aborted")
+        if self.error_fragment in sql:
+            if self.depth == 1:
+                self.aborted = True
+            raise self.error
+        return await self.inner.execute(sql, *args)
+
+    async def fetchval(self, sql, *args):
+        return await self.inner.fetchval(sql, *args)
+
+    async def fetchrow(self, sql, *args):
+        return await self.inner.fetchrow(sql, *args)
+
+
+def test_f12_skipped_missing_table_does_not_poison_the_later_main_legs(monkeypatch):
+    """The 2026-08-07 incident class: one absent table inside a shared transaction aborts
+    every statement after it. The optional legs must stay outside any transaction."""
+    conns = _f12_setup(monkeypatch)
+    conn = _AbortAwareConn(
+        conns["main"],
+        "DELETE FROM development.notification_queue",
+        asyncpg.exceptions.UndefinedTableError("relation does not exist"),
+    )
+    monkeypatch.setattr(profile_queries, "get_pool", _async_value(_DeletePool(conn=conn)))
+
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert result["notification_queue"] == 0
+    assert result["nudge_receipt"] == 0
+    assert result["user_milestones"] == 0
+
+
+def _async_value(value):
+    async def getter():
+        return value
+
+    return getter
+
+
+def _executed_order(conns, pool):
+    return [sql for sql, _args in conns[pool].executed]
+
+
+def test_f12_source_tables_are_deleted_before_their_derived_tables(monkeypatch):
+    """marathon_activity is upserted nightly from marathon_state; auth codes must go before
+    the token pairs an exchange would create from them."""
+    conns = _f12_setup(monkeypatch)
+
+    asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    learning = _executed_order(conns, "learning")
+    state_at = next(i for i, sql in enumerate(learning) if "learning.marathon_state" in sql)
+    activity_at = next(i for i, sql in enumerate(learning) if "learning.marathon_activity" in sql)
+    assert state_at < activity_at
+    secrets = _executed_order(conns, "secrets")
+    codes_at = next(i for i, sql in enumerate(secrets) if "public.external_auth_codes" in sql)
+    tokens_at = next(i for i, sql in enumerate(secrets) if "public.ory_client_tokens" in sql)
+    assert codes_at < tokens_at
+
+
+def test_f12_tables_with_a_foreign_key_to_users_are_deleted_before_the_users_row(monkeypatch):
+    """user_milestones and user_milestone_offers reference users(telegram_id) without a
+    cascade (migrations 027, 028): the users delete fails while one of their rows exists."""
+    conns = _f12_setup(monkeypatch)
+
+    asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    main = _executed_order(conns, "main")
+    users_at = next(i for i, sql in enumerate(main) if sql.startswith("DELETE FROM public.users "))
+    for table in ("user_milestone_offers", "user_milestones"):
+        table_at = next(i for i, sql in enumerate(main) if f"DELETE FROM public.{table} " in sql)
+        assert table_at < users_at, table

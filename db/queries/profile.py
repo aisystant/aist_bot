@@ -53,6 +53,10 @@ OPTIONAL_CHAT_TABLES = [
     ('training_children', 'chat_id'),
     ('training_progress', 'chat_id'),
     ('training_settings', 'chat_id'),
+    # WP-554 Ф12 (review): foreign key to users(telegram_id) without ON DELETE CASCADE
+    # (migrations 027, 028): a leftover row would make the users delete below fail.
+    ('user_milestone_offers', 'user_id'),
+    ('user_milestones', 'user_id'),
     ('workshop_payments', 'telegram_id'),
 ]
 
@@ -69,13 +73,18 @@ OPTIONAL_DEVELOPMENT_TABLES = [
 # WP-554 Ф12: (schema, table, column) of bot-written learning-pool tables keyed by the
 # Telegram id (the marathon tables call it user_id). Unlike the main-pool lists a
 # missing table here is a failed required leg: migration 025 creates all five.
+# marathon_state goes before marathon_activity: the nightly batch derives the latter from it.
 LEARNING_CHAT_TABLES = [
     ('public', 'reminder', 'chat_id'),
-    ('learning', 'marathon_activity', 'user_id'),
-    ('learning', 'marathon_progress', 'user_id'),
-    ('learning', 'marathon_queue', 'user_id'),
     ('learning', 'marathon_state', 'user_id'),
+    ('learning', 'marathon_activity', 'user_id'),
+    ('learning', 'marathon_queue', 'user_id'),
+    ('learning', 'marathon_progress', 'user_id'),
 ]
+
+# WP-554 Ф12 (review): auth codes go before token pairs, so an exchange in flight cannot
+# re-create the pair after its rows are gone. Both tables have chat_id and account_id.
+SECRETS_CLIENT_TABLES = ['external_auth_codes', 'ory_client_tokens']
 
 
 def _main_optional_tables():
@@ -385,20 +394,22 @@ async def delete_all_user_data(chat_id: int) -> dict:
     else:
         result['secrets_github_connections'] = 0
 
-    # WP-554 Ф12: external-client (MCP) token pairs. account_id is NOT NULL, chat_id
-    # came later (migration 030) and is NULL on older rows, so match on either.
-    try:
-        from db.connection import get_secrets_pool
-        secrets_pool = await get_secrets_pool()
-        async with secrets_pool.acquire() as sconn:
-            deleted = await sconn.execute(
-                'DELETE FROM public.ory_client_tokens WHERE chat_id = $1 OR account_id = $2::uuid',
-                chat_id, account_id,
-            )
-            result['secrets_ory_client_tokens'] = _parse_delete_count(deleted)
-    except Exception as e:
-        _record_required_cleanup_failure(failures, "secrets.ory_client_tokens", e)
-        result['secrets_ory_client_tokens'] = 0
+    # WP-554 Ф12: external-client (MCP) auth codes and token pairs. account_id is NOT NULL,
+    # chat_id came to the token table later (migration 030) and is NULL on older rows, so
+    # match on either.
+    for table in SECRETS_CLIENT_TABLES:
+        try:
+            from db.connection import get_secrets_pool
+            secrets_pool = await get_secrets_pool()
+            async with secrets_pool.acquire() as sconn:
+                deleted = await sconn.execute(
+                    _delete_from_sql(f'public.{table}', 'chat_id = $1 OR account_id = $2::uuid'),
+                    chat_id, account_id,
+                )
+            result[f'secrets_{table}'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, f"secrets.{table}", e)
+            result[f'secrets_{table}'] = 0
 
     # WP-253 lift-and-shift: subscription.contract (core/access.py) — ключ account_id.
     if account_id:
