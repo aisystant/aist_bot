@@ -13,10 +13,22 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+import asyncpg
+
 from db.connection import get_pool
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
+
+_ORY_ID_UNIQUE_CONSTRAINT = "users_ory_id_key"
+
+
+class OryAccountAlreadyLinked(Exception):
+    """The Ory account is already attached to another Telegram row in public.users.
+
+    One person with two Telegram accounts in the bot: the second one cannot take the
+    same ory_id (unique constraint). Callers show a clear message instead of a 500.
+    """
 
 
 
@@ -98,13 +110,22 @@ async def link_ory(telegram_id: int, ory_id: str, email: Optional[str] = None) -
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute('''
-            UPDATE public.users
-            SET ory_id = $2, email = COALESCE($3, email),
-                tier = CASE WHEN tier = 'T0' THEN 'T1' ELSE tier END,
-                updated_at = $4
-            WHERE telegram_id = $1
-        ''', telegram_id, ory_id, email, datetime.utcnow())
+        try:
+            result = await conn.execute('''
+                UPDATE public.users
+                SET ory_id = $2, email = COALESCE($3, email),
+                    tier = CASE WHEN tier = 'T0' THEN 'T1' ELSE tier END,
+                    updated_at = $4
+                WHERE telegram_id = $1
+            ''', telegram_id, ory_id, email, datetime.utcnow())
+        except asyncpg.UniqueViolationError as exc:
+            if exc.constraint_name != _ORY_ID_UNIQUE_CONSTRAINT:
+                raise
+            logger.warning(
+                f"[Identity] ory_id {ory_id[:8]}... is already linked to another "
+                f"telegram row; telegram_id={telegram_id} not linked"
+            )
+            raise OryAccountAlreadyLinked(telegram_id) from exc
         if result != 'UPDATE 0':
             logger.info(f"[Identity] Linked ory_id={ory_id} for telegram_id={telegram_id}")
 
