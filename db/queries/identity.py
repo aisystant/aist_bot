@@ -13,11 +13,23 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+import asyncpg
+
 from db.connection import get_pool
 from db.queries import bot_profile
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
+
+_ORY_ID_UNIQUE_CONSTRAINT = "users_ory_id_key"
+
+
+class OryAccountAlreadyLinked(Exception):
+    """The Ory account is already attached to another Telegram row in public.users.
+
+    One person with two Telegram accounts in the bot: the second one cannot take the
+    same ory_id (unique constraint). Callers show a clear message instead of a 500.
+    """
 
 
 
@@ -125,7 +137,16 @@ async def link_ory(telegram_id: int, ory_id: str, email: Optional[str] = None) -
     async def _write():
         pool = await get_pool()
         async with pool.acquire() as conn:
-            return await conn.fetchrow(_LINK_ORY_RETURNING, telegram_id, ory_id, email)
+            try:
+                return await conn.fetchrow(_LINK_ORY_RETURNING, telegram_id, ory_id, email)
+            except asyncpg.UniqueViolationError as exc:
+                if exc.constraint_name != _ORY_ID_UNIQUE_CONSTRAINT:
+                    raise
+                logger.warning(
+                    f"[Identity] ory_id {ory_id[:8]}... is already linked to another "
+                    f"telegram row; telegram_id={telegram_id} not linked"
+                )
+                raise OryAccountAlreadyLinked(telegram_id) from exc
 
     if mirror_lock is not None:
         async with mirror_lock:

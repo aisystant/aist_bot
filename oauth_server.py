@@ -1580,6 +1580,39 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     )
 
 
+_SUPPORT_TELEGRAM = "@ssm_tg"
+
+_ORY_ALREADY_LINKED_TEXT = (
+    "Этот аккаунт уже привязан к другому вашему Telegram-аккаунту в боте, поэтому "
+    "подключить его здесь не получилось.\n\n"
+    "Войдите с того Telegram, где вы подключали аккаунт раньше, или напишите в "
+    f"поддержку: {_SUPPORT_TELEGRAM}."
+)
+
+
+async def _ory_already_linked_response(telegram_user_id: int) -> web.Response:
+    """Friendly answer when the Ory account belongs to another Telegram row (was a 500)."""
+    if _bot_instance:
+        try:
+            await _bot_instance.send_message(chat_id=telegram_user_id, text=_ORY_ALREADY_LINKED_TEXT)
+        except Exception as e:
+            logger.error(f"[OryOAuth] Failed to notify user {telegram_user_id}: {e}")
+    return web.Response(
+        text=f"""
+        <html>
+        <head><title>Аккаунт уже привязан</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h1>Аккаунт уже привязан</h1>
+            <p>Этот аккаунт уже привязан к другому вашему Telegram-аккаунту в боте.</p>
+            <p>Войдите с того Telegram, где вы подключали аккаунт раньше, или напишите в поддержку: {_SUPPORT_TELEGRAM}.</p>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=409,
+    )
+
+
 async def ory_callback_handler(request: web.Request) -> web.Response:
     """Обрабатывает OAuth callback от Ory (WP-187: бот+Ory, T0→T1).
 
@@ -1680,6 +1713,19 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
     ory_id = userinfo["sub"]
     email = userinfo.get("email")
 
+    # Привязываем ory_id к telegram_id (T0→T1) ДО сохранения токенов: при конфликте
+    # (аккаунт Ory уже у другой строки) у проигравшей строки не остаётся чужих токенов.
+    from db.queries.identity import OryAccountAlreadyLinked, link_ory
+    try:
+        linked = await link_ory(telegram_user_id, ory_id, email)
+    except OryAccountAlreadyLinked:
+        return await _ory_already_linked_response(telegram_user_id)
+
+    if linked:
+        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
+    else:
+        logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
+
     # Сохраняем Ory tokens для Gateway MCP (WP-209 Ф0)
     refresh_token = tokens.get("refresh_token")
     expires_in = tokens.get("expires_in", 3600)
@@ -1703,15 +1749,6 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
         # Обновляем in-memory tokens для Gateway MCP
         from clients.gateway_mcp import gateway_mcp
         gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token or "", expires_at, ory_id)
-
-    # Привязываем ory_id к telegram_id (T0→T1)
-    from db.queries.identity import link_ory
-    linked = await link_ory(telegram_user_id, ory_id, email)
-
-    if linked:
-        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
-    else:
-        logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
 
     # WP-227 Ф6: backfill ЦД при T0→T1 OAuth (вариант B).
     # T0 пользователь впервые получает ory_id — создаём запись в digital_twins.
