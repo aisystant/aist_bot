@@ -96,6 +96,10 @@ class RateLimitMiddleware(BaseMiddleware):
         return True
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
+        # Деньги уже списаны: платёж нельзя терять из-за лимита сообщений.
+        if isinstance(event, Message) and event.successful_payment is not None:
+            return await handler(event, data)
+
         user_id = None
         if isinstance(event, Message) and event.from_user:
             user_id = event.from_user.id
@@ -117,6 +121,10 @@ class MaintenanceMiddleware(BaseMiddleware):
     """
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
+        # Обрабатываем завершённую оплату, даже если включён режим обслуживания.
+        if isinstance(event, Message) and event.successful_payment is not None:
+            return await handler(event, data)
+
         if not MAINTENANCE_MODE:
             return await handler(event, data)
 
