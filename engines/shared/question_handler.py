@@ -495,6 +495,28 @@ async def generate_answer(
     return answer
 
 
+# Реплика короче этого порога в живом диалоге не годится как запрос поиска сама по себе («да», «опиши»)
+SHORT_REPLY_CHARS = 25
+# Сколько символов прошлого вопроса берём в запрос поиска
+RETRIEVAL_PREVIOUS_QUESTION_CHARS = 300
+
+
+def build_retrieval_query(question: str, conversation_messages: Optional[List[Dict]]) -> str:
+    """Запрос предпоиска знаний (РП-498 Ф17).
+
+    Короткая реплика в живом диалоге («да», «опиши») без темы бесполезна для поиска: ищем по
+    последнему содержательному вопросу пользователя вместе с репликой. Без истории и для реплики
+    длиннее порога запрос не меняется. Последнее сообщение истории - сама реплика.
+    """
+    if not conversation_messages or len(question) >= SHORT_REPLY_CHARS:
+        return question
+    for message in reversed(conversation_messages[:-1]):
+        content = message.get('content')
+        if message.get('role') == 'user' and isinstance(content, str) and len(content) >= SHORT_REPLY_CHARS:
+            return f"{content[:RETRIEVAL_PREVIOUS_QUESTION_CHARS]} {question}"
+    return question
+
+
 async def handle_question_with_tools(
     question: str,
     intern: dict,
@@ -597,6 +619,8 @@ async def handle_question_with_tools(
     # результаты в {knowledge_section}. Claude видит релевантные документы
     # даже если не вызовет search_knowledge tool.
     from .context_pipeline import assemble_context
+    # Запрос поиска: для короткой реплики в живом диалоге - с прошлым вопросом (РП-498 Ф17)
+    search_query = build_retrieval_query(question, conversation_messages)
     async with span("consultation.assemble_context", tier=tier):
         sections = await assemble_context(
             tier=tier,
@@ -605,7 +629,7 @@ async def handle_question_with_tools(
             bot_context=bot_context or "",
             personal_claude_md=personal_claude_md or "",
             ui_tier=ui_tier,
-            question=question,
+            question=search_query,
         )
 
     # Загружаем шаблон промпта и подставляем переменные
@@ -760,8 +784,8 @@ async def handle_question_with_tools(
     # Fallback: если шлюз вернул пусто → идём без инжекта (Claude сам позовёт).
     pre_results = ""
     try:
-        async with span("consultation.presearch_p3", query_len=len(question)):
-            raw_presearch = await gateway_mcp.knowledge_search(question, limit=6)
+        async with span("consultation.presearch_p3", query_len=len(search_query)):
+            raw_presearch = await gateway_mcp.knowledge_search(search_query, limit=6)
         if raw_presearch:
             fragments = []
             seen = set()
@@ -783,7 +807,7 @@ async def handle_question_with_tools(
         synthetic_id = "presearch_0"
         inject = [
             {"role": "assistant", "content": [{"type": "tool_use", "id": synthetic_id,
-                "name": "search_knowledge", "input": {"query": question}}]},
+                "name": "search_knowledge", "input": {"query": search_query}}]},
             {"role": "user", "content": [{"type": "tool_result",
                 "tool_use_id": synthetic_id, "content": pre_results}]},
         ]

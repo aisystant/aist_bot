@@ -163,6 +163,8 @@ GitHub raw URL                raw.githubusercontent.com/.../DP.AISYS.014-aist-bo
 
 **Решение:** `collect_pre_search` вызывает `gateway_mcp.knowledge_search(query=question, limit=5)` ДО Claude. До 5 результатов × 1500 символов → preпiend в system prompt как «ИНФОРМАЦИЯ ИЗ БАЗЫ ЗНАНИЙ (pre-search)». Claude всё равно может вызвать tool для уточнения.
 
+**Запрос для короткой реплики (РП-498 Ф17):** текст запроса оба предпоиска (`collect_pre_search` и P3-вставка в `handle_question_with_tools`) получают из `build_retrieval_query`. Реплика короче 25 символов («да», «опиши») в диалоге с историей ищется вместе с последним содержательным вопросом пользователя (до 300 символов): поиск по самой реплике ничего не находит. Без истории и для длинной реплики запрос не меняется.
+
 **Коммит `a9473d2`:** передаётся `telegram_user_id=intern.get('chat_id')`. Без этого Gateway возвращал 401 → pre-search всегда пуст.
 
 ### 6.4. Error handling
