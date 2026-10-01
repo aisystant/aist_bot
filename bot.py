@@ -79,7 +79,7 @@ from core.topics import (
 
 # ============= ИНФРАСТРУКТУРА (из core/) =============
 from core.storage import PostgresStorage
-from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware, UpdateDedupMiddleware
+from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware, install_update_dedup
 
 # ============= СОСТОЯНИЯ FSM (re-exports для обратной совместимости) =============
 from handlers.onboarding import OnboardingStates
@@ -113,6 +113,7 @@ async def _validate_middleware():
         TracingMiddleware,
         ConsultationPassthroughMiddleware,
         UpdateDedupMiddleware,
+        install_update_dedup,
     )
     from config.settings import DEVELOPER_CHAT_ID, MAINTENANCE_MODE, ALLOWED_TESTERS, MAINTENANCE_REDIRECT_BOT
     logger.info("✅ Middleware validation passed")
@@ -522,9 +523,9 @@ async def main():
     # Регистрируем middleware (порядок важен: Dedup → Maintenance → RateLimit → Logging → Passthrough → Tracing)
     # Dedup ПЕРВЫМ: webhook-retry (WP-7 incident 2026-07-10) должен отсекаться
     # до любой другой логики, иначе повторный update всё равно тратит DB round-trip.
-    update_dedup = UpdateDedupMiddleware()
-    dp.message.middleware(update_dedup)
-    dp.callback_query.middleware(update_dedup)
+    # It is an OUTER middleware (install_update_dedup): an inner one runs again after every
+    # SkipHandler and would drop the update for the next handler as a "retry".
+    install_update_dedup(dp)
     # WP-578 Ф2: наблюдатель архива переписки наставника — enqueue-only, сразу
     # после Dedup, ДО RateLimit (Р1: дроп по частоте сообщений не должен
     # терять переписку, которую наставник обязан видеть). DRR-f2 §1.

@@ -81,6 +81,10 @@ class TestMiddlewareImports:
         from core.middleware import UpdateDedupMiddleware
         assert UpdateDedupMiddleware is not None
 
+    def test_import_install_dedup(self):
+        from core.middleware import install_update_dedup
+        assert callable(install_update_dedup)
+
     def test_config_imports(self):
         """Все константы из config.settings, используемые в middleware, существуют."""
         from config.settings import (
