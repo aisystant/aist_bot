@@ -588,8 +588,8 @@ class FeedDigestState(BaseState):
 
         До РП-498 Ф17 свободный текст Ленты получал одноразовый ответ без памяти: на реплику
         «опиши» бот не помнил, о чём шла речь. Текст с «?» уходил в консультацию и раньше
-        (глобальное событие). False — консультация недоступна (флаг выключен или State Machine
-        не поднята): вызывающий отвечает по-старому.
+        (глобальное событие). False — консультация недоступна (флаг выключен, State Machine не поднята
+        или переход не удался): вызывающий отвечает по-старому.
         """
         if not FEED_QUESTIONS_VIA_CONSULTATION:
             return False
@@ -598,10 +598,15 @@ class FeedDigestState(BaseState):
         if not (dispatcher and dispatcher.is_sm_active):
             return False
         context_topic = await self._week_topics(self._get_chat_id(user))
-        await dispatcher.go_to(
-            user, "common.consultation",
-            context={'question': question, 'context_topic': context_topic},
-        )
+        try:
+            await dispatcher.go_to(
+                user, "common.consultation",
+                context={'question': question, 'context_topic': context_topic},
+            )
+        except Exception:
+            # State Machine глушит исключение стейта, и читатель остался бы без ответа и без сообщения
+            logger.error("[Feed] go_to consultation failed, answering one-shot", exc_info=True)
+            return False
         return True
 
     async def _handle_question(self, user, question: str) -> None:
