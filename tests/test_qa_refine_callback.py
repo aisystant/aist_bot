@@ -25,7 +25,8 @@ from handlers.callbacks import cb_qa_feedback  # noqa: E402
 CHAT_ID = 12345
 QA_ID = 77
 NOW = datetime(2026, 10, 1, 10, 0, 0)
-QA = {"id": QA_ID, "question": "опиши роль", "answer": "Ответ про роль", "created_at": NOW}
+QA = {"id": QA_ID, "chat_id": CHAT_ID, "question": "опиши роль", "answer": "Ответ про роль", "created_at": NOW}
+FOREIGN_QA = {**QA, "chat_id": CHAT_ID + 1, "answer": "Чужой ответ, который не должен попасть к другому читателю"}
 
 
 def make_callback(data: str) -> MagicMock:
@@ -116,3 +117,30 @@ async def test_thumbs_up_still_marks_answer_helpful():
 
     env.helpful.assert_awaited_once_with(QA_ID, True)
     env.log_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_comment_button_of_own_record_starts_comment_mode():
+    with Collaborators() as env:
+        await cb_qa_feedback(make_callback(f"qa_comment_{QA_ID}"), AsyncMock())
+
+    env.dispatcher.go_to.assert_awaited_once()
+    args, kwargs = env.dispatcher.go_to.await_args
+    assert args[1] == "common.consultation"
+    assert kwargs["context"] == {"comment_mode": True, "comment_qa_id": QA_ID}
+
+
+# callback_data приходит от клиента: чужой номер записи не должен ни читаться, ни меняться
+@pytest.mark.asyncio
+@pytest.mark.parametrize("data", [f"qa_helpful_{QA_ID}", f"qa_refine_{QA_ID}", f"qa_comment_{QA_ID}"])
+async def test_buttons_of_a_foreign_record_are_ignored(data):
+    callback = make_callback(data)
+
+    with Collaborators(qa=FOREIGN_QA) as env:
+        await cb_qa_feedback(callback, AsyncMock())
+
+    env.helpful.assert_not_awaited()         # оценка чужой записи не пишется
+    env.log_event.assert_not_awaited()
+    env.dispatcher.go_to.assert_not_awaited()  # ни чужой ответ в запрос, ни режим замечания к чужой записи
+    for call in callback.message.answer.await_args_list:
+        assert FOREIGN_QA["answer"] not in str(call)  # чужой текст не показывается
