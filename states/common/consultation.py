@@ -420,6 +420,8 @@ class ConsultationState(BaseState):
     name = "common.consultation"
     display_name = {"ru": "Консультация", "en": "Consultation", "es": "Consulta", "fr": "Consultation"}
     keyboard_type = "none"
+    # Кнопки «Подробнее»/«Обратная связь» делают go_to() в это же состояние; exit() стёр бы диалог.
+    keeps_session_on_reentry = True
 
     def _keep_typing(self, chat_id: int) -> asyncio.Task:
         """Фоновая задача: продлевает typing indicator каждые 4 сек."""
@@ -557,6 +559,16 @@ class ConsultationState(BaseState):
         ctx['consultation_last_activity'] = time.time()
         return ctx
 
+    @staticmethod
+    def _is_last_answer_in_history(ctx: dict, answer: str) -> bool:
+        """True, если answer уже стоит последним ответом бота в истории диалога.
+
+        Сравнение по началу: в истории ответ может быть обрезан или с подписью роли в хвосте.
+        """
+        history = ctx.get('consultation_history') or []
+        head = (answer or '').strip()[:200]
+        return bool(history and head and history[-1].get('a', '').strip().startswith(head))
+
     def _build_history_messages(self, ctx: dict, current_question: str) -> list:
         """Собрать messages[] для Claude из conversation history."""
         messages = []
@@ -656,6 +668,11 @@ class ConsultationState(BaseState):
         is_refinement = context.get('refinement', False)
         previous_answer = context.get('previous_answer', '')
         refinement_round = context.get('refinement_round', 1)
+
+        # «Подробнее» отменяет ожидание замечания: раньше это делал exit() при самопереходе,
+        # теперь его нет, и без снятия флага следующий текст ушёл бы в замечание, а не в диалог.
+        if is_refinement and session_ctx.pop('qa_comment_id', None) is not None and chat_id:
+            await self._save_session_context(chat_id, session_ctx)
 
         # WP-156: Explicit role entry (/navigator) — save in session, show greeting
         force_role = context.get('force_role')
@@ -813,19 +830,28 @@ class ConsultationState(BaseState):
 
                 # Refinement: inject previous answer
                 if is_refinement and previous_answer:
+                    # Ответ уже последним сообщением бота в истории диалога (она идёт в messages
+                    # ниже): второй раз его текст не цитируем, оставляем только указание «подробнее».
+                    if self._is_last_answer_in_history(session_ctx, previous_answer):
+                        quoted_answer = {
+                            'ru': "(он выше в диалоге, последним сообщением бота)",
+                            'en': "(it is above in the dialog, the last bot message)",
+                        }.get(lang, "(see above in the dialog)")
+                    else:
+                        quoted_answer = previous_answer[:800]
                     # Short previous_answer (< 400 chars) means it was a FAQ hit —
                     # it may not be related to the question. Use direct instruction
                     # instead of "expand aspects" which is meaningless in that case.
                     if len(previous_answer) < 400:
                         refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ БОТА:\n{previous_answer[:800]}\n\nПользователь хочет узнать подробнее. Дай конкретный практический ответ на его вопрос, используя найденную информацию. Если предыдущий ответ не отвечал на вопрос напрямую — сосредоточься на точном ответе.",
-                            'en': f"\n\nPREVIOUS BOT ANSWER:\n{previous_answer[:800]}\n\nThe user wants more detail. Give a concrete practical answer to their question using found information. If the previous answer did not directly address the question — focus on answering it precisely.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive a precise practical answer to the user's question.")
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ БОТА:\n{quoted_answer}\n\nПользователь хочет узнать подробнее. Дай конкретный практический ответ на его вопрос, используя найденную информацию. Если предыдущий ответ не отвечал на вопрос напрямую — сосредоточься на точном ответе.",
+                            'en': f"\n\nPREVIOUS BOT ANSWER:\n{quoted_answer}\n\nThe user wants more detail. Give a concrete practical answer to their question using found information. If the previous answer did not directly address the question — focus on answering it precisely.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{quoted_answer}\n\nGive a precise practical answer to the user's question.")
                     else:
                         refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
-                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{quoted_answer}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{quoted_answer}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{quoted_answer}\n\nGive more detail.")
                     bot_context += refinement_instruction
                 elif deep_search:
                     depth_instruction = {

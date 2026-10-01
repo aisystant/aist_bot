@@ -438,9 +438,18 @@ class StateMachine:
         if chat_id and state_name in _MODAL_STATES and current_state_name != state_name:
             self.set_previous_state(chat_id, current_state_name)
 
-        # Выход из текущего стейта (если есть)
+        # Выход из текущего стейта (если есть). Самопереход в стейт с живой сессией
+        # (keeps_session_on_reentry) не вызывает exit(): иначе кнопки консультации стирают диалог.
+        # `is True`, а не truthiness: у подставных стейтов в тестах атрибут может быть заглушкой.
         exit_context = {}
-        if current_state:
+        keeps_session = (
+            current_state is not None
+            and current_state_name == state_name
+            and getattr(current_state, 'keeps_session_on_reentry', False) is True
+        )
+        if keeps_session:
+            logger.info(f"[SM] go_to: re-entry into {state_name}, session kept (exit skipped)")
+        elif current_state:
             exit_context = await current_state.exit(user)
 
         # Объединяем контексты
