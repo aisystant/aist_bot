@@ -6,7 +6,6 @@ from __future__ import annotations
 Роутят callback queries в Dispatcher / State Machine.
 """
 
-import asyncio
 import logging
 
 from aiogram import Router, F
@@ -713,9 +712,10 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
 
     callback_data форматы:
     - qa_helpful_{qa_id}  → записать helpful=True, убрать кнопки
-    - qa_refine_{qa_id}   → загрузить Q&A, re-enter consultation с refinement
+    - qa_refine_{qa_id}   → загрузить Q&A, re-enter consultation с refinement (событие qa_refine, без helpful)
     """
     from handlers import get_dispatcher
+    from db.queries.events import log_event
     from db.queries.qa import get_qa_by_id, update_qa_helpful
 
     data = callback.data
@@ -760,13 +760,6 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             qa_id = int(data.split("_")[-1])
             await callback.answer()
 
-            # Записываем что ответ не помог
-            await update_qa_helpful(qa_id, False)
-
-            # Auto-triage (fire-and-forget)
-            from core.feedback_triage import triage_feedback
-            asyncio.create_task(triage_feedback(qa_id, "not_helpful"))
-
             # Загружаем оригинальный Q&A
             qa = await get_qa_by_id(qa_id)
             if not qa:
@@ -791,6 +784,10 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
                 and abs((h['created_at'] - qa_time).total_seconds()) < 300
             )
             refinement_round = min(same_question_recent + 2, 3)
+
+            # «Подробнее» - просьба углубить ответ, а не оценка «ответ не помог» (РП-498 Ф17):
+            # helpful=false и разбор замечания не ставим, сигнал пишем отдельным событием.
+            await log_event(chat_id, 'qa_refine', {'qa_id': qa_id, 'refinement_round': refinement_round})
 
             # Re-enter consultation с refinement контекстом
             dispatcher = get_dispatcher()
