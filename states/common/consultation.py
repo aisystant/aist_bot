@@ -820,7 +820,8 @@ class ConsultationState(BaseState):
 
                 # --- L3: единый путь → tool_use для ВСЕХ вопросов (T1-T4) ---
                 # LLM сам решает через tools: искать в knowledge base или в bot_info
-                context_topic = self._get_current_topic(user)
+                # Лента передаёт темы недели (РП-498 Ф17); иначе — текущая тема марафона
+                context_topic = context.get('context_topic') or self._get_current_topic(user)
                 intern_dict = self._user_to_dict(user)
                 bot_context = get_self_knowledge(lang)
 

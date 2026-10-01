@@ -670,6 +670,12 @@ WP_VALIDATION_ENABLED = os.getenv("WP_VALIDATION_ENABLED", "true").lower() == "t
 # Включить запись фиксаций в fleeting-notes (для GitHub-пользователей)
 FIXATION_ENABLED = os.getenv("FIXATION_ENABLED", "true").lower() == "true"
 
+# ============= ЛЕНТА → КОНСУЛЬТАЦИЯ (WP-498 Ф17) =============
+
+# Свободный текст в Ленте (без «?») уходит в консультацию: память диалога, роли, кнопки
+# под ответом. "false" возвращает прежний одноразовый ответ Ленты без памяти.
+FEED_QUESTIONS_VIA_CONSULTATION = os.getenv("FEED_QUESTIONS_VIA_CONSULTATION", "true").lower() == "true"
+
 # ============= EXTERNAL SESSION /claude (WP-358) =============
 
 # Marathon/Assessment стейты, в которых SM ждёт ответа пилота. Если пилот
