@@ -791,8 +791,10 @@ async def handle_question_with_tools(
         logger.info(f"P3: synthetic tool-result injected ({len(pre_results)} chars)")
     else:
         messages = base_messages
-        logger.info(f"Consultation: {'multi-turn' if conversation_messages else 'new'} "
-                    f"with {len(messages)} messages (no presearch inject)")
+    # РП-498 Ф17: строка пишется ВСЕГДА. Раньше только при пустом предпоиске, и по ней нельзя
+    # было судить об истории диалога у пользователей, у которых поиск работает.
+    logger.info(f"Consultation: {'multi-turn' if conversation_messages else 'new'} "
+                f"with {len(base_messages)} messages (presearch_inject={bool(pre_results)})")
 
     # WP-7 fix (W14): 2500 недостаточно для русского + tool_use overhead
     # (5 feedback K-category за ночь 2026-04-02). Tool rounds съедают ~700-1000 tok,
