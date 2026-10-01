@@ -1165,8 +1165,12 @@ class ConsultationState(BaseState):
                 await self.enter(user, context={'question': question})
                 return "followup"
 
-        # --- Текст без "?" (≥3 символов) → follow-up вопрос ---
-        if len(text) >= 3:
+        # --- Текст без "?" → follow-up вопрос ---
+        # Пока диалог жив, любая непустая реплика продолжает его: «да», «ок», «опиши» отвечают на
+        # предложение в конце прошлого ответа. В пустой сессии порог 3 символа остаётся: короткий
+        # текст там случаен. Одинокий «?» вопросом не считается.
+        live_dialog = bool(ctx.get('consultation_history')) and not timed_out
+        if len(text) >= 3 or (live_dialog and text not in ('', '?')):
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
                 await self._expire_session(ctx, chat_id)
