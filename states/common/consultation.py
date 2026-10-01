@@ -19,7 +19,7 @@ Persistent Session:
 - После ответа бот остаётся в стейте (enter() → None)
 - Текст без "?" трактуется как follow-up вопрос
 - Claude получает conversation history (последние 3-5 пар)
-- Выход: кнопка "Завершить" / таймаут 5 мин (только без нового вопроса) / глобальная команда
+- Выход: кнопка "Завершить" / таймаут 15 мин (только без нового вопроса) / глобальная команда
 
 Вызывается из любого стейта, где allow_global содержит "consultation".
 Триггер: сообщение начинается с "?"
@@ -251,8 +251,11 @@ def _detect_role(question: str) -> Optional[str]:
 MAX_HISTORY_PAIRS = 5
 # Максимум символов на одну запись истории (обрезка длинных ответов)
 MAX_HISTORY_ENTRY_CHARS = 800
-# Таймаут неактивности (секунды) — авто-выход из консультации
-SESSION_TIMEOUT_SEC = 300  # 5 минут
+# Таймаут неактивности (секунды) — после него новый вопрос начинает сессию заново.
+# РП-498 Ф17: 5 → 15 минут (по базе пауза 5-20 минут между репликами обычна, а Лента
+# после перевода текста в консультацию приносит такие же паузы). Держать равным
+# SM_EXPECTING_REPLY_STATES["common.consultation"] * 60 (config/settings.py, тест-равенство).
+SESSION_TIMEOUT_SEC = 900  # 15 минут
 
 
 
@@ -565,8 +568,15 @@ class ConsultationState(BaseState):
         messages.append({"role": "user", "content": current_question})
         return messages
 
-    def _clear_session(self, ctx: dict) -> dict:
-        """Очистить consultation session данные из context."""
+    def _clear_session(self, ctx: dict, reason: str = "unknown") -> dict:
+        """Очистить consultation session данные из context.
+
+        reason (exit | timeout | end_session | role_entry) попадает в лог: по нему видно,
+        стёрта история по замыслу или потеряна (РП-498 Ф17). Пустую сессию не логируем.
+        """
+        pairs = len(ctx.get('consultation_history') or [])
+        if pairs:
+            logger.info(f"[Consultation] session cleared: reason={reason} pairs={pairs}")
         ctx.pop('consultation_history', None)
         ctx.pop('consultation_last_activity', None)
         ctx.pop('qa_comment_id', None)
@@ -610,10 +620,13 @@ class ConsultationState(BaseState):
             if chat_id:
                 await self._save_session_context(chat_id, session_ctx)
         _paywall_exempt = _is_paywall_exempt(_entry_role, session_ctx)
+        _history = session_ctx.get('consultation_history') or []
         logger.info(
             f"[Consultation] enter: chat_id={chat_id}, force_role={context.get('force_role')}, "
             f"question={bool(context.get('question'))}, paywall_exempt_role={_entry_role}, "
-            f"sticky_free_role={session_ctx.get('active_free_role')}"
+            f"sticky_free_role={session_ctx.get('active_free_role')}, "
+            f"history_pairs={len(_history)}, "
+            f"history_chars={sum(len(p.get('q', '')) + len(p.get('a', '')) for p in _history)}"
         )
         if chat_id and not _paywall_exempt:
             from core.access import access_layer
@@ -655,7 +668,7 @@ class ConsultationState(BaseState):
                 # правды на сессию). Теперь переиспользуем session_ctx;
                 # active_free_role ставим заново ПОСЛЕ _clear_session, т.к.
                 # она его тоже чистит (новая сессия роли).
-                self._clear_session(session_ctx)  # New session for role
+                self._clear_session(session_ctx, reason="role_entry")  # New session for role
                 session_ctx['force_role'] = force_role
                 session_ctx['active_free_role'] = force_role
                 session_ctx['consultation_last_activity'] = time.time()
@@ -962,7 +975,11 @@ class ConsultationState(BaseState):
                     if footer:
                         answer = answer.rstrip() + f"\n\n_{footer}_"
 
-                logger.info(f"Consultation: T{tier}{' role=' + detected_role if detected_role else ''} for user {user_chat_id}")
+                _sticky_role = session_ctx.get('active_free_role')
+                logger.info(
+                    f"Consultation: T{tier}{' role=' + detected_role if detected_role else ''}"
+                    f"{' sticky_role=' + _sticky_role if _sticky_role else ''} for user {user_chat_id}"
+                )
                 _answer_for_history = answer
 
                 response = self._format_response(answer, sources, lang)
@@ -1068,7 +1085,7 @@ class ConsultationState(BaseState):
                 await self.send(user, t('consultation.error', lang))
             return None  # Остаёмся в сессии после замечания
 
-        # --- Проверка таймаута (5 мин неактивности) ---
+        # --- Проверка таймаута (15 мин неактивности, SESSION_TIMEOUT_SEC) ---
         last_activity = ctx.get('consultation_last_activity', 0)
         timed_out = last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC
 
@@ -1081,10 +1098,7 @@ class ConsultationState(BaseState):
             if question:
                 if timed_out:
                     logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
-                    _saved_role = ctx.get('force_role')
-                    self._clear_session(ctx)
-                    if _saved_role:
-                        ctx['force_role'] = _saved_role
+                    await self._expire_session(ctx, chat_id)
                 await self.enter(user, context={'question': question})
                 return "followup"
 
@@ -1092,10 +1106,7 @@ class ConsultationState(BaseState):
         if len(text) >= 3:
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
-                _saved_role = ctx.get('force_role')
-                self._clear_session(ctx)
-                if _saved_role:
-                    ctx['force_role'] = _saved_role
+                await self._expire_session(ctx, chat_id)
             await self.enter(user, context={'question': text})
             return "followup"
 
@@ -1109,10 +1120,21 @@ class ConsultationState(BaseState):
         await self.send(user, t('consultation.session_hint', lang))
         return None
 
+    async def _expire_session(self, ctx: dict, chat_id) -> None:
+        """Таймаут при новом вопросе: очистить историю и сохранить это явно.
+
+        force_role из /navigator переживает таймаут: _clear_session его не снимает.
+        Раньше очистка жила только в общем объекте контекста и сохранялась побочно,
+        при раннем выходе enter() терялась.
+        """
+        self._clear_session(ctx, reason="timeout")
+        if chat_id:
+            await self._save_session_context(chat_id, ctx)
+
     async def _end_session(self, user, ctx: dict, lang: str):
         """Завершить consultation session: очистка history, прощание."""
         chat_id = self._get_chat_id(user)
-        self._clear_session(ctx)
+        self._clear_session(ctx, reason="end_session")
         if chat_id:
             await self._save_session_context(chat_id, ctx)
         await self.send(user, t('consultation.session_ended', lang))
@@ -1124,7 +1146,7 @@ class ConsultationState(BaseState):
         if chat_id:
             try:
                 ctx = await self._load_session_context(user)
-                self._clear_session(ctx)
+                self._clear_session(ctx, reason="exit")
                 await self._save_session_context(chat_id, ctx)
             except Exception as e:
                 logger.warning(f"Consultation exit cleanup error: {e}")
