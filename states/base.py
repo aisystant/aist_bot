@@ -64,6 +64,11 @@ class BaseState(ABC):
     # Полная карта: CLAUDE.md § 10.5
     keyboard_type: str = "inline"
 
+    # Самопереход через go_to() (из состояния X в то же X) по умолчанию вызывает exit() и
+    # заново enter(). Состояние, чья сессия живёт между такими вызовами (диалог консультации:
+    # кнопки «Подробнее»/«Обратная связь»), ставит True, и exit() при самопереходе пропускается.
+    keeps_session_on_reentry: bool = False
+
     # Pending keyboard cleanup (class-level, shared across all states).
     # SM engine записывает сюда ReplyKeyboardRemove при любом переходе в non-reply стейт
     # + при первом контакте пользователя после рестарта бота.

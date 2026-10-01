@@ -19,7 +19,7 @@ Persistent Session:
 - После ответа бот остаётся в стейте (enter() → None)
 - Текст без "?" трактуется как follow-up вопрос
 - Claude получает conversation history (последние 3-5 пар)
-- Выход: кнопка "Завершить" / таймаут 5 мин (только без нового вопроса) / глобальная команда
+- Выход: кнопка "Завершить" / таймаут 15 мин (только без нового вопроса) / глобальная команда
 
 Вызывается из любого стейта, где allow_global содержит "consultation".
 Триггер: сообщение начинается с "?"
@@ -28,6 +28,7 @@ Persistent Session:
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Optional
 
@@ -249,12 +250,41 @@ def _detect_role(question: str) -> Optional[str]:
 
 # Persistent session: максимум пар (user/assistant) в истории
 MAX_HISTORY_PAIRS = 5
-# Максимум символов на одну запись истории (обрезка длинных ответов)
-MAX_HISTORY_ENTRY_CHARS = 800
-# Таймаут неактивности (секунды) — авто-выход из консультации
-SESSION_TIMEOUT_SEC = 300  # 5 минут
+# Усечение истории «голова + хвост» (РП-498 Ф17), пары (голова, хвост) в символах.
+# Последняя пара держится почти целиком: в конце ответа бот предлагает продолжение
+# («Хочешь — опишем?»), и реплика «опиши» / «да» относится именно к нему. Предыдущие пары
+# при добавлении новой сжимаются до смысла. Хранится ровно то, что увидит модель.
+LAST_PAIR_Q = (2500, 500)
+LAST_PAIR_A = (3000, 1000)
+OLD_PAIR_Q = (300, 150)
+OLD_PAIR_A = (300, 300)
+# «Подробнее»: цитата предыдущего ответа в запросе (раньше первые 800 символов)
+PREVIOUS_ANSWER_QUOTE = (1200, 600)
+# Таймаут неактивности (секунды) — после него новый вопрос начинает сессию заново.
+# РП-498 Ф17: 5 → 15 минут (по базе пауза 5-20 минут между репликами обычна, а Лента
+# после перевода текста в консультацию приносит такие же паузы). Держать равным
+# SM_EXPECTING_REPLY_STATES["common.consultation"] * 60 (config/settings.py, тест-равенство).
+SESSION_TIMEOUT_SEC = 900  # 15 минут
 
 
+def _head_tail(text: str, head: int, tail: int) -> str:
+    """Короткий текст целиком; длинный - голова и хвост с маркером пропуска, рез по границе слова.
+
+    Маркер обязателен: без него модель читает склейку головы и хвоста как цельный текст.
+    """
+    if len(text) <= head + tail:
+        return text
+    head_part = text[:head]
+    if not text[head].isspace():  # рез пришёлся на середину слова: недоговорённое слово отбрасываем
+        # (?<!\S): начало совпадения только у границы слова, иначе на длинном слове без пробелов
+        # регулярка перебирает каждую позицию и блокирует цикл событий (до 0,5 с на 3000 символов)
+        head_part = re.sub(r'(?<!\S)\S+$', '', head_part) or head_part
+    tail_part = text[len(text) - tail:]
+    if not text[len(text) - tail - 1].isspace():
+        tail_part = re.sub(r'^\S+', '', tail_part) or tail_part
+    head_part, tail_part = head_part.rstrip(), tail_part.lstrip()
+    omitted = len(text) - len(head_part) - len(tail_part)
+    return f"{head_part}\n[…пропущено {omitted} символов…]\n{tail_part}"
 
 
 
@@ -417,6 +447,8 @@ class ConsultationState(BaseState):
     name = "common.consultation"
     display_name = {"ru": "Консультация", "en": "Consultation", "es": "Consulta", "fr": "Consultation"}
     keyboard_type = "none"
+    # Кнопки «Подробнее»/«Обратная связь» делают go_to() в это же состояние; exit() стёр бы диалог.
+    keeps_session_on_reentry = True
 
     def _keep_typing(self, chat_id: int) -> asyncio.Task:
         """Фоновая задача: продлевает typing indicator каждые 4 сек."""
@@ -541,11 +573,19 @@ class ConsultationState(BaseState):
         await update_intern(chat_id, current_context=ctx)
 
     def _append_history(self, ctx: dict, question: str, answer: str) -> dict:
-        """Добавить пару (вопрос, ответ) в conversation history."""
+        """Добавить пару (вопрос, ответ) в conversation history.
+
+        Новая пара хранится почти целиком, предыдущая последняя сжимается до головы и хвоста.
+        """
         history = ctx.get('consultation_history', [])
+        if history:
+            history[-1] = {
+                'q': _head_tail(history[-1]['q'], *OLD_PAIR_Q),
+                'a': _head_tail(history[-1]['a'], *OLD_PAIR_A),
+            }
         history.append({
-            'q': question[:MAX_HISTORY_ENTRY_CHARS],
-            'a': answer[:MAX_HISTORY_ENTRY_CHARS],
+            'q': _head_tail(question, *LAST_PAIR_Q),
+            'a': _head_tail(answer, *LAST_PAIR_A),
         })
         # Оставляем последние MAX_HISTORY_PAIRS пар
         if len(history) > MAX_HISTORY_PAIRS:
@@ -553,6 +593,18 @@ class ConsultationState(BaseState):
         ctx['consultation_history'] = history
         ctx['consultation_last_activity'] = time.time()
         return ctx
+
+    @staticmethod
+    def _is_last_answer_in_history(ctx: dict, answer: str) -> bool:
+        """True, если answer уже стоит последним ответом бота в истории диалога.
+
+        Сравниваются начало (200 символов) и конец (100): в истории ответ может быть сжат или
+        с подписью роли в хвосте, а два разных ответа редко совпадают и началом, и концом.
+        """
+        history = ctx.get('consultation_history') or []
+        text = (answer or '').strip()
+        stored = history[-1].get('a', '') if history else ''
+        return bool(text and stored.strip().startswith(text[:200]) and text[-100:] in stored)
 
     def _build_history_messages(self, ctx: dict, current_question: str) -> list:
         """Собрать messages[] для Claude из conversation history."""
@@ -565,11 +617,19 @@ class ConsultationState(BaseState):
         messages.append({"role": "user", "content": current_question})
         return messages
 
-    def _clear_session(self, ctx: dict) -> dict:
-        """Очистить consultation session данные из context."""
+    def _clear_session(self, ctx: dict, reason: str = "unknown") -> dict:
+        """Очистить consultation session данные из context.
+
+        reason (exit | timeout | end_session | role_entry) попадает в лог: по нему видно,
+        стёрта история по замыслу или потеряна (РП-498 Ф17). Пустую сессию не логируем.
+        """
+        pairs = len(ctx.get('consultation_history') or [])
+        if pairs:
+            logger.info(f"[Consultation] session cleared: reason={reason} pairs={pairs}")
         ctx.pop('consultation_history', None)
         ctx.pop('consultation_last_activity', None)
         ctx.pop('qa_comment_id', None)
+        ctx.pop('consultation_topic', None)  # темы недели Ленты (РП-498 Ф17)
         ctx.pop('active_free_role', None)  # WP-498 Ф13: не переживает новую сессию
         return ctx
 
@@ -610,10 +670,13 @@ class ConsultationState(BaseState):
             if chat_id:
                 await self._save_session_context(chat_id, session_ctx)
         _paywall_exempt = _is_paywall_exempt(_entry_role, session_ctx)
+        _history = session_ctx.get('consultation_history') or []
         logger.info(
             f"[Consultation] enter: chat_id={chat_id}, force_role={context.get('force_role')}, "
             f"question={bool(context.get('question'))}, paywall_exempt_role={_entry_role}, "
-            f"sticky_free_role={session_ctx.get('active_free_role')}"
+            f"sticky_free_role={session_ctx.get('active_free_role')}, "
+            f"history_pairs={len(_history)}, "
+            f"history_chars={sum(len(p.get('q', '')) + len(p.get('a', '')) for p in _history)}"
         )
         if chat_id and not _paywall_exempt:
             from core.access import access_layer
@@ -634,6 +697,7 @@ class ConsultationState(BaseState):
             if chat_id and qa_id:
                 ctx = await self._load_session_context(user)
                 ctx['qa_comment_id'] = qa_id
+                ctx['consultation_last_activity'] = time.time()  # замечание тоже активность: окно не истекает посреди него
                 await self._save_session_context(chat_id, ctx)
             await self.send(user, t('consultation.comment_prompt', lang))
             return None  # Остаёмся в стейте, ждём текст
@@ -643,6 +707,12 @@ class ConsultationState(BaseState):
         is_refinement = context.get('refinement', False)
         previous_answer = context.get('previous_answer', '')
         refinement_round = context.get('refinement_round', 1)
+
+        # Любой новый вопрос («Подробнее», вопрос с «?», вопрос из Ленты) отменяет ожидание
+        # замечания: «Подробнее» раньше отменял его через exit() при самопереходе, а без снятия флага
+        # следующий текст ушёл бы в замечание, а не в диалог. Запись явная: ответ может не дойти до конца.
+        if question and session_ctx.pop('qa_comment_id', None) is not None and chat_id:
+            await self._save_session_context(chat_id, session_ctx)
 
         # WP-156: Explicit role entry (/navigator) — save in session, show greeting
         force_role = context.get('force_role')
@@ -655,7 +725,7 @@ class ConsultationState(BaseState):
                 # правды на сессию). Теперь переиспользуем session_ctx;
                 # active_free_role ставим заново ПОСЛЕ _clear_session, т.к.
                 # она его тоже чистит (новая сессия роли).
-                self._clear_session(session_ctx)  # New session for role
+                self._clear_session(session_ctx, reason="role_entry")  # New session for role
                 session_ctx['force_role'] = force_role
                 session_ctx['active_free_role'] = force_role
                 session_ctx['consultation_last_activity'] = time.time()
@@ -686,6 +756,11 @@ class ConsultationState(BaseState):
         if not question:
             await self.send(user, t('consultation.no_question', lang))
             return None  # Остаёмся — ждём вопрос
+
+        # Лента передаёт темы недели (РП-498 Ф17): они живут до конца сессии, чтобы и реплики после первого
+        # ответа знали тему. Запоминаем до быстрых путей (ответ о боте, FAQ), иначе первый такой ответ их терял.
+        if context.get('context_topic'):
+            session_ctx['consultation_topic'] = context['context_topic']
 
         # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
@@ -790,7 +865,8 @@ class ConsultationState(BaseState):
 
                 # --- L3: единый путь → tool_use для ВСЕХ вопросов (T1-T4) ---
                 # LLM сам решает через tools: искать в knowledge base или в bot_info
-                context_topic = self._get_current_topic(user)
+                # Темы недели Ленты, запомненные в сессии; иначе - текущая тема марафона
+                context_topic = session_ctx.get('consultation_topic') or self._get_current_topic(user)
                 intern_dict = self._user_to_dict(user)
                 bot_context = get_self_knowledge(lang)
 
@@ -800,19 +876,28 @@ class ConsultationState(BaseState):
 
                 # Refinement: inject previous answer
                 if is_refinement and previous_answer:
+                    # Ответ уже последним сообщением бота в истории диалога (она идёт в messages
+                    # ниже): второй раз его текст не цитируем, оставляем только указание «подробнее».
+                    if self._is_last_answer_in_history(session_ctx, previous_answer):
+                        quoted_answer = {
+                            'ru': "(он выше в диалоге, последним сообщением бота)",
+                            'en': "(it is above in the dialog, the last bot message)",
+                        }.get(lang, "(see above in the dialog)")
+                    else:
+                        quoted_answer = _head_tail(previous_answer, *PREVIOUS_ANSWER_QUOTE)
                     # Short previous_answer (< 400 chars) means it was a FAQ hit —
                     # it may not be related to the question. Use direct instruction
                     # instead of "expand aspects" which is meaningless in that case.
                     if len(previous_answer) < 400:
                         refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ БОТА:\n{previous_answer[:800]}\n\nПользователь хочет узнать подробнее. Дай конкретный практический ответ на его вопрос, используя найденную информацию. Если предыдущий ответ не отвечал на вопрос напрямую — сосредоточься на точном ответе.",
-                            'en': f"\n\nPREVIOUS BOT ANSWER:\n{previous_answer[:800]}\n\nThe user wants more detail. Give a concrete practical answer to their question using found information. If the previous answer did not directly address the question — focus on answering it precisely.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive a precise practical answer to the user's question.")
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ БОТА:\n{quoted_answer}\n\nПользователь хочет узнать подробнее. Дай конкретный практический ответ на его вопрос, используя найденную информацию. Если предыдущий ответ не отвечал на вопрос напрямую — сосредоточься на точном ответе.",
+                            'en': f"\n\nPREVIOUS BOT ANSWER:\n{quoted_answer}\n\nThe user wants more detail. Give a concrete practical answer to their question using found information. If the previous answer did not directly address the question — focus on answering it precisely.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{quoted_answer}\n\nGive a precise practical answer to the user's question.")
                     else:
                         refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
-                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{quoted_answer}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{quoted_answer}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{quoted_answer}\n\nGive more detail.")
                     bot_context += refinement_instruction
                 elif deep_search:
                     depth_instruction = {
@@ -956,14 +1041,21 @@ class ConsultationState(BaseState):
                             resolve_session_type(session_ctx),
                         )
 
+                # В историю - ответ без подписи роли: подпись и «Источники» нужны читателю, а модели
+                # в хвосте ответа нужна последняя фраза (встречное предложение), не подпись.
+                _answer_for_history = answer
+
                 # L1 Role Attribution: footer with role signature
                 if detected_role and role_prompt:
                     footer = get_role_footer(detected_role, lang)
                     if footer:
                         answer = answer.rstrip() + f"\n\n_{footer}_"
 
-                logger.info(f"Consultation: T{tier}{' role=' + detected_role if detected_role else ''} for user {user_chat_id}")
-                _answer_for_history = answer
+                _sticky_role = session_ctx.get('active_free_role')
+                logger.info(
+                    f"Consultation: T{tier}{' role=' + detected_role if detected_role else ''}"
+                    f"{' sticky_role=' + _sticky_role if _sticky_role else ''} for user {user_chat_id}"
+                )
 
                 response = self._format_response(answer, sources, lang)
 
@@ -1052,6 +1144,7 @@ class ConsultationState(BaseState):
                 asyncio.create_task(triage_feedback(qa_comment_id, "comment"))
                 # Очищаем флаг
                 del ctx['qa_comment_id']
+                ctx['consultation_last_activity'] = time.time()
                 if chat_id:
                     await self._save_session_context(chat_id, ctx)
                 # Подтверждение + подсказка с кнопкой "Завершить"
@@ -1068,7 +1161,7 @@ class ConsultationState(BaseState):
                 await self.send(user, t('consultation.error', lang))
             return None  # Остаёмся в сессии после замечания
 
-        # --- Проверка таймаута (5 мин неактивности) ---
+        # --- Проверка таймаута (15 мин неактивности, SESSION_TIMEOUT_SEC) ---
         last_activity = ctx.get('consultation_last_activity', 0)
         timed_out = last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC
 
@@ -1081,21 +1174,19 @@ class ConsultationState(BaseState):
             if question:
                 if timed_out:
                     logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
-                    _saved_role = ctx.get('force_role')
-                    self._clear_session(ctx)
-                    if _saved_role:
-                        ctx['force_role'] = _saved_role
+                    await self._expire_session(ctx, chat_id)
                 await self.enter(user, context={'question': question})
                 return "followup"
 
-        # --- Текст без "?" (≥3 символов) → follow-up вопрос ---
-        if len(text) >= 3:
+        # --- Текст без "?" → follow-up вопрос ---
+        # Пока диалог жив, любая непустая реплика продолжает его: «да», «ок», «опиши» отвечают на
+        # предложение в конце прошлого ответа. В пустой сессии порог 3 символа остаётся: короткий
+        # текст там случаен. Реплика без единой буквы или цифры («.», «👍», одинокий «?») вопросом не считается.
+        live_dialog = bool(ctx.get('consultation_history')) and not timed_out
+        if len(text) >= 3 or (live_dialog and any(ch.isalnum() for ch in text)):
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
-                _saved_role = ctx.get('force_role')
-                self._clear_session(ctx)
-                if _saved_role:
-                    ctx['force_role'] = _saved_role
+                await self._expire_session(ctx, chat_id)
             await self.enter(user, context={'question': text})
             return "followup"
 
@@ -1109,10 +1200,26 @@ class ConsultationState(BaseState):
         await self.send(user, t('consultation.session_hint', lang))
         return None
 
+    async def _expire_session(self, ctx: dict, chat_id) -> None:
+        """Таймаут при новом вопросе: очистить историю и сохранить это явно.
+
+        force_role из /navigator переживает таймаут: _clear_session его не снимает.
+        Раньше очистка жила только в общем объекте контекста и сохранялась побочно,
+        при раннем выходе enter() терялась.
+        """
+        self._clear_session(ctx, reason="timeout")
+        if chat_id:
+            try:
+                await self._save_session_context(chat_id, ctx)
+            except Exception:
+                # State Machine глушит исключение стейта: без перехвата реплика читателя пропала бы молча.
+                # Очистка уйдёт в базу вместе с записью после ответа.
+                logger.warning("[Consultation] timeout cleanup save failed, answering anyway", exc_info=True)
+
     async def _end_session(self, user, ctx: dict, lang: str):
         """Завершить consultation session: очистка history, прощание."""
         chat_id = self._get_chat_id(user)
-        self._clear_session(ctx)
+        self._clear_session(ctx, reason="end_session")
         if chat_id:
             await self._save_session_context(chat_id, ctx)
         await self.send(user, t('consultation.session_ended', lang))
@@ -1124,7 +1231,7 @@ class ConsultationState(BaseState):
         if chat_id:
             try:
                 ctx = await self._load_session_context(user)
-                self._clear_session(ctx)
+                self._clear_session(ctx, reason="exit")
                 await self._save_session_context(chat_id, ctx)
             except Exception as e:
                 logger.warning(f"Consultation exit cleanup error: {e}")

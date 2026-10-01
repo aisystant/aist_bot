@@ -167,6 +167,9 @@ from .settings import (
     DEVELOPER_CHAT_ID,
     MENTOR_CHANNEL_ID,
 
+    # Лента → консультация (WP-498 Ф17)
+    FEED_QUESTIONS_VIA_CONSULTATION,
+
     # Maintenance mode
     MAINTENANCE_MODE,
     MAINTENANCE_REDIRECT_BOT,
@@ -306,6 +309,7 @@ __all__ = [
     'CHANNEL_CONTEXTS',
     'get_channel_context',
     'DEVELOPER_CHAT_ID',
+    'FEED_QUESTIONS_VIA_CONSULTATION',
     'MAINTENANCE_MODE',
     'MAINTENANCE_REDIRECT_BOT',
     'BOT_USERNAME',

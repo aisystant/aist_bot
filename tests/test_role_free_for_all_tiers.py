@@ -176,7 +176,7 @@ def test_consultation_state_registered_as_expecting_reply():
     # Без этого follow-up внутри активной консультации на T4-аккаунте уходил
     # в Hermes вместо ответа роли — handlers/external_session.py:_sm_is_expecting_reply
     # проверяет ровно этот словарь, тот же таймаут, что и SESSION_TIMEOUT_SEC
-    # консультации (5 мин).
+    # консультации (15 мин, РП-498 Ф17).
     from config.settings import SM_EXPECTING_REPLY_STATES
     from states.common.consultation import SESSION_TIMEOUT_SEC
 

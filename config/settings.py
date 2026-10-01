@@ -682,6 +682,12 @@ WP_VALIDATION_ENABLED = os.getenv("WP_VALIDATION_ENABLED", "true").lower() == "t
 # Включить запись фиксаций в fleeting-notes (для GitHub-пользователей)
 FIXATION_ENABLED = os.getenv("FIXATION_ENABLED", "true").lower() == "true"
 
+# ============= ЛЕНТА → КОНСУЛЬТАЦИЯ (WP-498 Ф17) =============
+
+# Свободный текст в Ленте (без «?») уходит в консультацию: память диалога, роли, кнопки
+# под ответом. "false" возвращает прежний одноразовый ответ Ленты без памяти.
+FEED_QUESTIONS_VIA_CONSULTATION = os.getenv("FEED_QUESTIONS_VIA_CONSULTATION", "true").lower() == "true"
+
 # ============= EXTERNAL SESSION /claude (WP-358) =============
 
 # Marathon/Assessment стейты, в которых SM ждёт ответа пилота. Если пилот
@@ -697,8 +703,9 @@ SM_EXPECTING_REPLY_STATES: dict[str, int] = {
     # WP-498 Ф13 (05.09, находка Fable-ревью): без этой строки follow-up внутри
     # активной консультации (Наставник и др.) у T4-аккаунтов уходил в Hermes
     # вместо ответа роли — персистентная сессия консультации работала только
-    # на первое сообщение. 5 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC.
-    "common.consultation": 5,
+    # на первое сообщение. 15 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC
+    # (РП-498 Ф17: было 5; равенство проверяет tests/test_role_free_for_all_tiers.py).
+    "common.consultation": 15,
 }
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============

@@ -6,7 +6,6 @@ from __future__ import annotations
 Роутят callback queries в Dispatcher / State Machine.
 """
 
-import asyncio
 import logging
 
 from aiogram import Router, F
@@ -327,6 +326,14 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
+# Кнопки, которые обрабатывает FeedDigestState.handle_callback (feed_get_digest, feed_topics_menu и
+# feed_reset_topics разбираются в cb_feed_actions раньше). Новая кнопка дайджеста добавляется сюда.
+_DIGEST_BUTTONS = (
+    "feed_fixation", "feed_detail_", "feed_back_to_digest", "feed_ask_question", "feed_whats_next",
+    "feed_skip", "feed_history", "feed_hist_", "feed_back_to_menu", "feed_my_progress",
+)
+
+
 @callbacks_router.callback_query(F.data.startswith("feed_"))
 async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка всех Feed-специфичных callback-ов через SM."""
@@ -375,6 +382,17 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
 
         elif current_state.startswith("feed."):
             # Пользователь уже в Feed-стейте — передаём callback в SM
+            await dispatcher.route_callback(intern, callback)
+
+        elif current_state == "common.consultation" and data.startswith(_DIGEST_BUTTONS):
+            # РП-498 Ф17: после вопроса в Ленте читатель остаётся в консультации. Кнопка дайджеста
+            # возвращает его в Ленту тихо (без повторного показа дайджеста) и выполняется как обычно,
+            # иначе нажатие «Фиксация» терялось бы, а следующий текст ушёл бы в консультацию как вопрос.
+            # Кнопки других экранов Ленты (темы, напоминания, старт) дайджест не обрабатывает: они идут
+            # в else-ветку ниже, как раньше.
+            await state.clear()
+            await dispatcher.go_to(intern, "feed.digest", context={"consultation_complete": True})
+            intern = await get_intern(callback.message.chat.id)
             await dispatcher.route_callback(intern, callback)
 
         else:
@@ -713,9 +731,10 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
 
     callback_data форматы:
     - qa_helpful_{qa_id}  → записать helpful=True, убрать кнопки
-    - qa_refine_{qa_id}   → загрузить Q&A, re-enter consultation с refinement
+    - qa_refine_{qa_id}   → загрузить Q&A, re-enter consultation с refinement (событие qa_refine, без helpful)
     """
     from handlers import get_dispatcher
+    from db.queries.events import log_event
     from db.queries.qa import get_qa_by_id, update_qa_helpful
 
     data = callback.data
@@ -760,13 +779,6 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             qa_id = int(data.split("_")[-1])
             await callback.answer()
 
-            # Записываем что ответ не помог
-            await update_qa_helpful(qa_id, False)
-
-            # Auto-triage (fire-and-forget)
-            from core.feedback_triage import triage_feedback
-            asyncio.create_task(triage_feedback(qa_id, "not_helpful"))
-
             # Загружаем оригинальный Q&A
             qa = await get_qa_by_id(qa_id)
             if not qa:
@@ -791,6 +803,10 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
                 and abs((h['created_at'] - qa_time).total_seconds()) < 300
             )
             refinement_round = min(same_question_recent + 2, 3)
+
+            # «Подробнее» - просьба углубить ответ, а не оценка «ответ не помог» (РП-498 Ф17):
+            # helpful=false и разбор замечания не ставим, сигнал пишем отдельным событием.
+            await log_event(chat_id, 'qa_refine', {'qa_id': qa_id, 'refinement_round': refinement_round})
 
             # Re-enter consultation с refinement контекстом
             dispatcher = get_dispatcher()
