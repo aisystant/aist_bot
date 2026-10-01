@@ -68,6 +68,24 @@ def test_short_reply_without_any_substantive_question_stays_as_is():
     assert build_retrieval_query("ок", messages) == "ок"
 
 
+@pytest.mark.parametrize("reply_length, expected_combined", [(24, True), (25, False)])
+def test_reply_threshold_is_25_characters(reply_length, expected_combined):
+    reply = "а" * reply_length
+    messages = dialog((PREVIOUS_QUESTION, "Ответ. " + OFFER), reply=reply)
+
+    expected = f"{PREVIOUS_QUESTION} {reply}" if expected_combined else reply
+    assert build_retrieval_query(reply, messages) == expected
+
+
+@pytest.mark.parametrize("previous_length, used", [(24, False), (25, True)])
+def test_previous_question_must_be_substantive_from_25_characters(previous_length, used):
+    previous = "в" * previous_length
+    messages = dialog((previous, "Ответ"), reply="да")
+
+    expected = f"{previous} да" if used else "да"
+    assert build_retrieval_query("да", messages) == expected
+
+
 def test_previous_question_is_cut_to_300_characters():
     long_question = "слово " * 200
     messages = dialog((long_question, "Ответ"), reply="да")

@@ -326,6 +326,14 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
+# Кнопки, которые обрабатывает FeedDigestState.handle_callback (feed_get_digest, feed_topics_menu и
+# feed_reset_topics разбираются в cb_feed_actions раньше). Новая кнопка дайджеста добавляется сюда.
+_DIGEST_BUTTONS = (
+    "feed_fixation", "feed_detail_", "feed_back_to_digest", "feed_ask_question", "feed_whats_next",
+    "feed_skip", "feed_history", "feed_hist_", "feed_back_to_menu", "feed_my_progress",
+)
+
+
 @callbacks_router.callback_query(F.data.startswith("feed_"))
 async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка всех Feed-специфичных callback-ов через SM."""
@@ -376,10 +384,12 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
             # Пользователь уже в Feed-стейте — передаём callback в SM
             await dispatcher.route_callback(intern, callback)
 
-        elif current_state == "common.consultation":
+        elif current_state == "common.consultation" and data.startswith(_DIGEST_BUTTONS):
             # РП-498 Ф17: после вопроса в Ленте читатель остаётся в консультации. Кнопка дайджеста
             # возвращает его в Ленту тихо (без повторного показа дайджеста) и выполняется как обычно,
             # иначе нажатие «Фиксация» терялось бы, а следующий текст ушёл бы в консультацию как вопрос.
+            # Кнопки других экранов Ленты (темы, напоминания, старт) дайджест не обрабатывает: они идут
+            # в else-ветку ниже, как раньше.
             await state.clear()
             await dispatcher.go_to(intern, "feed.digest", context={"consultation_complete": True})
             intern = await get_intern(callback.message.chat.id)
