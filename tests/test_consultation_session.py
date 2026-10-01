@@ -507,3 +507,68 @@ async def test_refine_quotes_long_previous_answer_head_and_tail():
     assert previous[:200] in bot_context
     assert OFFER in bot_context          # хвост предыдущего ответа не потерян
     assert "[…пропущено " in bot_context
+
+
+# =============================================================================
+# Короткие реплики в живом диалоге («да», «ок») продолжают его, а не считаются случайным вводом
+# =============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["да", "ок", "а?"])
+async def test_short_reply_in_live_dialog_continues_the_dialog(text):
+    state = make_state()
+    user = FakeContextDb(2010, live_session()).user()
+
+    with patch.object(state, "enter", new=AsyncMock(return_value=None)) as enter, \
+         patch.object(state, "send", new=AsyncMock()) as send:
+        event = await state.handle(user, SimpleNamespace(text=text))
+
+    assert event == "followup"
+    enter.assert_awaited_once_with(user, context={"question": text})
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_short_text_in_empty_session_still_gets_the_hint():
+    from i18n import t
+
+    state = make_state()
+    user = FakeContextDb(2011, {}).user()
+
+    with patch.object(state, "enter", new=AsyncMock()) as enter, \
+         patch.object(state, "send", new=AsyncMock()) as send:
+        event = await state.handle(user, SimpleNamespace(text="да"))
+
+    assert event is None
+    enter.assert_not_awaited()
+    assert send.await_args.args[1] == t("consultation.session_hint", "ru")
+
+
+@pytest.mark.asyncio
+async def test_bare_question_mark_in_live_dialog_gets_the_hint():
+    state = make_state()
+    user = FakeContextDb(2012, live_session()).user()
+
+    with patch.object(state, "enter", new=AsyncMock()) as enter, \
+         patch.object(state, "send", new=AsyncMock()) as send:
+        event = await state.handle(user, SimpleNamespace(text="?"))
+
+    assert event is None
+    enter.assert_not_awaited()
+    send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_short_reply_after_the_window_ends_the_session():
+    state = make_state()
+    expired = live_session(consultation_last_activity=time.time() - 16 * 60)
+    db = FakeContextDb(2013, expired)
+
+    with patch.object(state, "enter", new=AsyncMock()) as enter, \
+         patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)):
+        event = await state.handle(db.user(), SimpleNamespace(text="да"))
+
+    assert event == "done"
+    enter.assert_not_awaited()
+    assert "consultation_history" not in db.ctx
