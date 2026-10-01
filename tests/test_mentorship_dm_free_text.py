@@ -147,3 +147,43 @@ async def test_active_participant_present_stages_pending_note(monkeypatch):
     reply_text = message.reply.await_args.args[0]
     assert "Иван Иванов" in reply_text
     assert "черновик заметки про участника" in reply_text
+
+
+async def _matches(mentorship, message) -> bool:
+    """Run the real router filters of on_mentor_dm_free_text on a message, without a Dispatcher."""
+    handler = next(
+        h for h in mentorship.mentorship_router.message.handlers if h.callback is mentorship.on_mentor_dm_free_text
+    )
+    matched, _ = await handler.check(message)
+    return matched
+
+
+@pytest.mark.asyncio
+async def test_ordinary_user_does_not_match():
+    """The cheap check is a router filter: for an ordinary user the handler is not matched at all, so their
+    text does not take a second pass through the inner middlewares (a SkipHandler would cost that pass)."""
+    import handlers.mentorship as mentorship
+
+    message = make_dm_message(from_user_id=999, text="кто такой наставник?")
+
+    assert await _matches(mentorship, message) is False
+
+
+@pytest.mark.asyncio
+async def test_fresh_active_participant_matches(monkeypatch):
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    _set_active_participant(mentorship, from_user_id=100)
+
+    assert await _matches(mentorship, make_dm_message(from_user_id=100, text="заметка")) is True
+
+
+@pytest.mark.asyncio
+async def test_expired_participant_does_not_match(monkeypatch):
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "time", lambda: 99999.0)
+    _set_active_participant(mentorship, from_user_id=100, set_at=0.0)
+
+    assert await _matches(mentorship, make_dm_message(from_user_id=100, text="заметка")) is False

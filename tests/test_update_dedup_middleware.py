@@ -11,6 +11,7 @@ These tests go through a real aiogram Dispatcher and the real install_update_ded
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -114,3 +115,12 @@ async def test_next_update_is_handled(make_update):
     await feed(dp, make_update(1), make_update(2))
 
     assert calls == ["skip", "answer", "skip", "answer"]
+
+
+def test_bot_registers_dedup_via_helper():
+    """No test runs main() of bot.py, so a source check guards the registration: the dedup goes through
+    install_update_dedup (outer) and is never instantiated and registered as an inner middleware again."""
+    source = (Path(REPO_ROOT) / "bot.py").read_text(encoding="utf-8")
+
+    assert "install_update_dedup(dp)" in source
+    assert "UpdateDedupMiddleware()" not in source
