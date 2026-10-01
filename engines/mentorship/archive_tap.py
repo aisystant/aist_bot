@@ -9,9 +9,12 @@ DB-проверки (регистрация чата/участника, рол�
 писать ли строку вообще: молчаливо пропускает всё, что не относится ни к
 одному зарегистрированному потоку.
 
-Регистрация (bot.py): dp.message.middleware(ArchiveTapMiddleware()) сразу
-после UpdateDedupMiddleware, ДО RateLimitMiddleware — чтобы дроп по частоте
-сообщений не терял переписку, которую наставник обязан видеть.
+Регистрация (bot.py): dp.message.middleware(ArchiveTapMiddleware()) первым
+inner-слоем (UpdateDedupMiddleware стоит outer и срабатывает раньше), ДО
+RateLimitMiddleware — чтобы дроп по частоте сообщений не терял переписку,
+которую наставник обязан видеть. Inner-слой aiogram выполняется на каждый
+совпавший handler: после SkipHandler снимок попадёт в очередь второй раз,
+запись архива это переживает (ON CONFLICT ... DO UPDATE).
 dp.edited_message.outer_middleware(ArchiveTapEditMiddleware()) — outer, не
 inner: у dp.edited_message нет ни одного зарегистрированного handler'а,
 а inner middleware в aiogram выполняется только вокруг совпавшего handler'а

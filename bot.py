@@ -520,11 +520,13 @@ async def main():
             return True  # handled
         return False  # propagate
 
-    # Регистрируем middleware (порядок важен: Dedup → Maintenance → RateLimit → Logging → Passthrough → Tracing)
-    # Dedup ПЕРВЫМ: webhook-retry (WP-7 incident 2026-07-10) должен отсекаться
-    # до любой другой логики, иначе повторный update всё равно тратит DB round-trip.
-    # It is an OUTER middleware (install_update_dedup): an inner one runs again after every
-    # SkipHandler and would drop the update for the next handler as a "retry".
+    # Middleware order matters: Dedup (outer, once per update), then the inner chain
+    # ArchiveTap -> Maintenance -> RateLimit -> Logging -> Passthrough -> Tracing.
+    # The inner chain runs for every MATCHED handler, so after a SkipHandler it runs again for the
+    # next one: keep SkipHandler off hot paths (use a router filter instead).
+    # Dedup goes first among the bot's layers: a webhook retry (WP-7 incident 2026-07-10) is dropped
+    # before any other bot logic. It is OUTER (install_update_dedup): as an inner layer it ran again
+    # after every SkipHandler and dropped the update for the next handler as a "retry".
     install_update_dedup(dp)
     # WP-578 Ф2: наблюдатель архива переписки наставника — enqueue-only, сразу
     # после Dedup, ДО RateLimit (Р1: дроп по частоте сообщений не должен
