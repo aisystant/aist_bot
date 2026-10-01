@@ -376,6 +376,15 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
             # Пользователь уже в Feed-стейте — передаём callback в SM
             await dispatcher.route_callback(intern, callback)
 
+        elif current_state == "common.consultation":
+            # РП-498 Ф17: после вопроса в Ленте читатель остаётся в консультации. Кнопка дайджеста
+            # возвращает его в Ленту тихо (без повторного показа дайджеста) и выполняется как обычно,
+            # иначе нажатие «Фиксация» терялось бы, а следующий текст ушёл бы в консультацию как вопрос.
+            await state.clear()
+            await dispatcher.go_to(intern, "feed.digest", context={"consultation_complete": True})
+            intern = await get_intern(callback.message.chat.id)
+            await dispatcher.route_callback(intern, callback)
+
         else:
             logger.warning(f"[CB] User in state '{current_state}' clicked '{data}', routing to feed.digest")
             await callback.answer()

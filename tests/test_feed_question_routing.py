@@ -206,3 +206,50 @@ async def test_chain_feed_text_enters_consultation_and_remembers_feed_as_previou
     consultation.enter.assert_awaited_once()
     assert consultation.enter.await_args.args[1] == {"question": "опиши", "context_topic": "Внимание, Собранность"}
     assert sm.get_next_state(CONSULTATION, "done", CHAT_ID) == DIGEST  # возврат из консультации — в Ленту
+
+
+@pytest.mark.asyncio
+async def test_chain_consultation_refusal_returns_to_feed_without_redrawing_it(digest, week):
+    """Консультация показала экран оплаты и ответила «done»: читатель тихо возвращается в Ленту."""
+    consultation = ConsultationProbe()
+    consultation.enter = AsyncMock(return_value="done")
+    sm = StateMachine()
+    sm.register_all([digest, consultation])
+    sm._transitions = {
+        DIGEST: {"events": {}, "allow_global": ["consultation"]},
+        CONSULTATION: {"events": {"done": "_previous"}},
+    }
+    db_state = {"current": DIGEST}  # состояние пользователя «в базе»: go_to() перечитывает его после каждой записи
+
+    async def fake_update_state(chat_id, state_name):
+        db_state["current"] = state_name
+
+    async def fake_get_intern(chat_id):
+        return {**make_user(), "current_state": db_state["current"]}
+
+    bot_dispatcher = SimpleNamespace(is_sm_active=True, go_to=sm.go_to)
+
+    with patch("handlers.get_dispatcher", return_value=bot_dispatcher), \
+         patch("db.queries.update_user_state", new=AsyncMock(side_effect=fake_update_state)) as update_state, \
+         patch("db.queries.get_intern", new=AsyncMock(side_effect=fake_get_intern)), \
+         patch.object(digest, "enter", new=AsyncMock()) as digest_enter:
+        await sm.handle(make_user(), text_message("опиши"))
+
+    assert [call.args for call in update_state.await_args_list] == [(CHAT_ID, CONSULTATION), (CHAT_ID, DIGEST)]
+    assert db_state["current"] == DIGEST
+    consultation.enter.assert_awaited_once()
+    digest_enter.assert_not_awaited()  # возврат тихий: меню и дайджест не перерисовываются
+
+
+@pytest.mark.asyncio
+async def test_failed_go_to_falls_back_to_one_shot_answer(digest, week):
+    """State Machine глушит исключение стейта: без запасного пути читатель остался бы без ответа."""
+    user = make_user()
+    broken = MagicMock(is_sm_active=True, go_to=AsyncMock(side_effect=RuntimeError("переход не удался")))
+
+    with patch("handlers.get_dispatcher", return_value=broken), \
+         patch.object(digest, "_handle_question", new=AsyncMock()) as one_shot:
+        result = await digest.handle(user, text_message("опиши"))
+
+    assert result is None
+    one_shot.assert_awaited_once_with(user, "опиши")
