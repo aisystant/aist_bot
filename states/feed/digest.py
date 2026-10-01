@@ -27,7 +27,13 @@ from db.queries.feed import (
 from db.queries.activity import record_active_day, get_activity_stats
 from engines.feed.planner import generate_multi_topic_digest
 from engines.shared import handle_question
-from config import get_logger, FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN
+from config import (
+    get_logger,
+    FeedWeekStatus,
+    FEED_SESSION_DURATION_MAX,
+    FEED_SESSION_DURATION_MIN,
+    FEED_QUESTIONS_VIA_CONSULTATION,
+)
 
 logger = get_logger(__name__)
 
@@ -475,7 +481,8 @@ class FeedDigestState(BaseState):
 
         # Иначе — это вопрос к материалу
         if len(text) >= 3:
-            await self._handle_question(user, text)
+            if not await self._ask_via_consultation(user, text):
+                await self._handle_question(user, text)
 
         return None
 
@@ -570,18 +577,40 @@ class FeedDigestState(BaseState):
             await self.send(user, t('errors.try_again', lang))
             return None
 
+    async def _week_topics(self, chat_id: int) -> Optional[str]:
+        """Темы текущей недели Ленты через запятую (контекст вопроса) или None."""
+        week = await get_current_feed_week(chat_id)
+        topics = week.get('accepted_topics', []) if week else []
+        return ", ".join(topics) if topics else None
+
+    async def _ask_via_consultation(self, user, question: str) -> bool:
+        """Передать вопрос консультации: у неё память диалога, роли и кнопки под ответом.
+
+        До РП-498 Ф17 свободный текст Ленты получал одноразовый ответ без памяти: на реплику
+        «опиши» бот не помнил, о чём шла речь. Текст с «?» уходил в консультацию и раньше
+        (глобальное событие). False — консультация недоступна (флаг выключен или State Machine
+        не поднята): вызывающий отвечает по-старому.
+        """
+        if not FEED_QUESTIONS_VIA_CONSULTATION:
+            return False
+        from handlers import get_dispatcher  # внутри функции: handlers импортирует states
+        dispatcher = get_dispatcher()
+        if not (dispatcher and dispatcher.is_sm_active):
+            return False
+        context_topic = await self._week_topics(self._get_chat_id(user))
+        await dispatcher.go_to(
+            user, "common.consultation",
+            context={'question': question, 'context_topic': context_topic},
+        )
+        return True
+
     async def _handle_question(self, user, question: str) -> None:
         """Обрабатывает вопрос пользователя."""
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
         # Получаем контекст (темы недели)
-        week = await get_current_feed_week(chat_id)
-        context_topics = None
-        if week:
-            topics = week.get('accepted_topics', [])
-            if topics:
-                context_topics = ", ".join(topics)
+        context_topics = await self._week_topics(chat_id)
 
         # Получаем профиль
         intern = await get_intern(chat_id)

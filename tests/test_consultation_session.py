@@ -342,3 +342,24 @@ def test_is_last_answer_in_history(stored, previous, expected):
 
 def test_is_last_answer_in_history_false_without_history():
     assert ConsultationState._is_last_answer_in_history({}, "A" * 500) is False
+
+
+# =============================================================================
+# Лента → консультация: темы недели доходят до модели
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_feed_topics_reach_the_model_and_marathon_topic_is_the_fallback():
+    state = make_state()
+    db = FakeContextDb(2007, {})
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         model_call_patched(state, "Ответ") as model:
+        user = {**db.user(), "current_topic": "Тема марафона"}
+        await state.enter(user, context={"question": "как устроена оперативная память", "context_topic": "Внимание, Собранность"})
+        assert model.await_args.kwargs["context_topic"] == "Внимание, Собранность"
+
+        user = {**db.user(), "current_topic": "Тема марафона"}
+        await state.enter(user, context={"question": "а как её тренировать"})
+        assert model.await_args.kwargs["context_topic"] == "Тема марафона"
