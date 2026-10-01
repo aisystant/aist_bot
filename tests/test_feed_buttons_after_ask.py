@@ -54,8 +54,9 @@ def make_dispatcher() -> MagicMock:
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_digest_button_in_consultation_returns_to_feed_silently_and_runs_the_action():
-    callback = make_callback("feed_fixation")
+@pytest.mark.parametrize("data", ["feed_fixation", "feed_detail_2", "feed_skip", "feed_history", "feed_hist_5", "feed_my_progress"])
+async def test_digest_button_in_consultation_returns_to_feed_silently_and_runs_the_action(data):
+    callback = make_callback(data)
     before, after = make_intern(CONSULTATION), make_intern(DIGEST)
     dispatcher = make_dispatcher()
 
@@ -66,6 +67,23 @@ async def test_digest_button_in_consultation_returns_to_feed_silently_and_runs_t
     dispatcher.go_to.assert_awaited_once_with(before, DIGEST, context={"consultation_complete": True})
     dispatcher.route_callback.assert_awaited_once_with(after, callback)  # действие выполняется уже в Ленте
     callback.message.edit_reply_markup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("data", ["feed_topic_3", "feed_confirm", "feed_start_now"])
+async def test_button_of_another_feed_screen_in_consultation_still_reopens_the_digest(data):
+    # дайджест эти кнопки не обрабатывает: у него нет answer() для неизвестных данных, индикатор бы завис
+    callback = make_callback(data)
+    intern = make_intern(CONSULTATION)
+    dispatcher = make_dispatcher()
+
+    with patch("handlers.get_dispatcher", return_value=dispatcher), \
+         patch("handlers.callbacks.get_intern", new=AsyncMock(return_value=intern)):
+        await cb_feed_actions(callback, AsyncMock())
+
+    callback.message.edit_reply_markup.assert_awaited_once()
+    dispatcher.go_to.assert_awaited_once_with(intern, DIGEST)
+    dispatcher.route_callback.assert_not_awaited()
 
 
 @pytest.mark.asyncio

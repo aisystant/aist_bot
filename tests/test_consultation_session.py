@@ -82,6 +82,25 @@ async def test_followup_inside_window_keeps_history():
 
 
 @pytest.mark.asyncio
+async def test_failed_cleanup_save_after_the_window_does_not_lose_the_reply():
+    # State Machine глушит исключение стейта: без перехвата реплика читателя пропала бы молча
+    state = make_state()
+    ctx = {
+        "consultation_history": [{"q": "старый вопрос", "a": "старый ответ"}],
+        "consultation_last_activity": time.time() - 16 * 60,
+    }
+    user = make_user(1006, ctx)
+
+    with patch.object(state, "enter", new=AsyncMock(return_value=None)) as enter, \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=RuntimeError("база недоступна"))):
+        event = await state.handle(user, SimpleNamespace(text="новая тема разговора"))
+
+    assert event == "followup"
+    enter.assert_awaited_once_with(user, context={"question": "новая тема разговора"})
+    assert "consultation_history" not in ctx  # очистка есть в памяти и уйдёт в базу с записью после ответа
+
+
+@pytest.mark.asyncio
 async def test_followup_after_window_clears_history_and_saves_it_explicitly():
     state = make_state()
     ctx = {
@@ -452,6 +471,23 @@ async def test_feed_topics_live_until_the_session_ends():
 
     state._clear_session(db.ctx, reason="exit")
     assert "consultation_topic" not in db.ctx  # с концом сессии темы уходят
+
+
+@pytest.mark.asyncio
+async def test_feed_topics_are_kept_when_the_first_answer_is_a_fast_bot_answer():
+    state = make_state()
+    db = FakeContextDb(2019, {})
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         patch("states.common.consultation.save_qa", new=AsyncMock(return_value=None)), \
+         model_call_patched(state, "Ответ") as model:
+        # первый вопрос из Ленты - о боте: отвечает быстрый путь, модель не зовётся
+        await state.enter(db.user(), context={"question": "что ты умеешь?", "context_topic": "Внимание, Собранность"})
+        model.assert_not_awaited()
+
+        await state.enter(db.user(), context={"question": "как тренировать внимание"})
+        assert model.await_args.kwargs["context_topic"] == "Внимание, Собранность"
 
 
 @pytest.mark.asyncio

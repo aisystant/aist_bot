@@ -757,6 +757,11 @@ class ConsultationState(BaseState):
             await self.send(user, t('consultation.no_question', lang))
             return None  # Остаёмся — ждём вопрос
 
+        # Лента передаёт темы недели (РП-498 Ф17): они живут до конца сессии, чтобы и реплики после первого
+        # ответа знали тему. Запоминаем до быстрых путей (ответ о боте, FAQ), иначе первый такой ответ их терял.
+        if context.get('context_topic'):
+            session_ctx['consultation_topic'] = context['context_topic']
+
         # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
 
@@ -860,10 +865,7 @@ class ConsultationState(BaseState):
 
                 # --- L3: единый путь → tool_use для ВСЕХ вопросов (T1-T4) ---
                 # LLM сам решает через tools: искать в knowledge base или в bot_info
-                # Лента передаёт темы недели (РП-498 Ф17); они живут до конца сессии, чтобы и реплики
-                # после первого ответа знали тему. Иначе — текущая тема марафона.
-                if context.get('context_topic'):
-                    session_ctx['consultation_topic'] = context['context_topic']
+                # Темы недели Ленты, запомненные в сессии; иначе - текущая тема марафона
                 context_topic = session_ctx.get('consultation_topic') or self._get_current_topic(user)
                 intern_dict = self._user_to_dict(user)
                 bot_context = get_self_knowledge(lang)
@@ -1207,7 +1209,12 @@ class ConsultationState(BaseState):
         """
         self._clear_session(ctx, reason="timeout")
         if chat_id:
-            await self._save_session_context(chat_id, ctx)
+            try:
+                await self._save_session_context(chat_id, ctx)
+            except Exception:
+                # State Machine глушит исключение стейта: без перехвата реплика читателя пропала бы молча.
+                # Очистка уйдёт в базу вместе с записью после ответа.
+                logger.warning("[Consultation] timeout cleanup save failed, answering anyway", exc_info=True)
 
     async def _end_session(self, user, ctx: dict, lang: str):
         """Завершить consultation session: очистка history, прощание."""

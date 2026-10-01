@@ -240,7 +240,7 @@
 | `question` | TEXT | — | |
 | `answer` | TEXT | — | Ответ бота (консультация) |
 | `mcp_sources` | TEXT | `'[]'` | JSON tool results |
-| `helpful` | BOOLEAN | — | Оценка пользователя (thumbs up/down) |
+| `helpful` | BOOLEAN | — | Оценка пользователя: 👍 пишет `true`. `false` с РП-498 Ф17 не пишет никто (кнопка «Подробнее» не оценка, явной 👎 нет); старые строки с `false` остались от прежней логики. Доля «полезных» среди новых оценок всегда 100% |
 | `user_comment` | TEXT | — | Комментарий к оценке |
 | `created_at` | TIMESTAMP | `NOW()` | |
 
