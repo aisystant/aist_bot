@@ -26,7 +26,12 @@ os.environ.setdefault("DATABASE_URL", "[REDACTED-DATABASE-URL]localhost:5432/fak
 os.environ.setdefault("DEVELOPER_CHAT_ID", "123456")
 
 from core.machine import StateMachine  # noqa: E402
-from states.common.consultation import SESSION_TIMEOUT_SEC, ConsultationState  # noqa: E402
+from states.common.consultation import (  # noqa: E402
+    MAX_HISTORY_PAIRS,
+    SESSION_TIMEOUT_SEC,
+    ConsultationState,
+    _head_tail,
+)
 
 LOGGER_NAME = "states.common.consultation"
 CONSULTATION = "common.consultation"
@@ -274,7 +279,10 @@ async def test_refine_button_cancels_comment_mode_and_extends_dialog():
         await sm.go_to(db.user(), CONSULTATION, context=refine)
 
     assert "qa_comment_id" not in db.ctx  # следующий текст пойдёт в диалог, а не в замечание
-    assert db.ctx["consultation_history"] == [PAIR, {"q": PAIR["q"], "a": "Подробный ответ"}]
+    first, second = db.ctx["consultation_history"]
+    assert first["q"] == PAIR["q"]
+    assert first["a"].startswith(LONG_ANSWER[:100]) and first["a"].endswith(LONG_ANSWER[-100:])  # пара стала старой: голова и хвост
+    assert second == {"q": PAIR["q"], "a": "Подробный ответ"}
     messages = model.await_args.kwargs["conversation_messages"]
     assert messages == [
         {"role": "user", "content": PAIR["q"]},
@@ -363,3 +371,139 @@ async def test_feed_topics_reach_the_model_and_marathon_topic_is_the_fallback():
         user = {**db.user(), "current_topic": "Тема марафона"}
         await state.enter(user, context={"question": "а как её тренировать"})
         assert model.await_args.kwargs["context_topic"] == "Тема марафона"
+
+
+# =============================================================================
+# Усечение истории «голова + хвост»: последняя пара почти целиком, в хвосте ответа - встречный вопрос
+# =============================================================================
+
+OFFER = "Хочешь — опишем, что конкретно делает эта роль сейчас?"
+
+
+def long_text(words: int, ending: str = "") -> str:
+    return " ".join(f"слово{i}" for i in range(words)) + ending
+
+
+def test_head_tail_returns_short_text_unchanged():
+    assert _head_tail("коротко", 10, 10) == "коротко"
+    assert _head_tail("x" * 20, 10, 10) == "x" * 20  # ровно по границе
+
+
+def test_head_tail_keeps_both_ends_and_reports_omitted_count():
+    text = long_text(2000, " " + OFFER)
+
+    result = _head_tail(text, 3000, 1000)
+
+    assert result.startswith("слово0 слово1 ")
+    assert result.endswith(OFFER)
+    omitted = int(result.split("[…пропущено ")[1].split(" символов…]")[0])
+    head, tail = result.split(f"\n[…пропущено {omitted} символов…]\n")
+    assert omitted == len(text) - len(head) - len(tail)
+    assert text.startswith(head) and text.endswith(tail)
+
+
+def ragged_text(words: int) -> str:
+    """Слова разной длины: места реза попадают в разные позиции внутри слов."""
+    return " ".join("б" * (3 + i % 7) + str(i) for i in range(words))
+
+
+@pytest.mark.parametrize("words", range(1000, 1010))  # соседние длины сдвигают места реза
+def test_head_tail_cuts_on_word_boundaries(words):
+    text = ragged_text(words)
+
+    head, rest = _head_tail(text, 3000, 1000).split("\n[…пропущено ")
+    tail = rest.split("…]\n")[1]
+
+    assert head.split()[-1] in text.split()   # последнее слово головы целое
+    assert tail.split()[0] in text.split()    # первое слово хвоста целое
+
+
+def test_head_tail_hard_cut_when_text_has_no_spaces():
+    result = _head_tail("x" * 100, 20, 10)
+
+    assert result.startswith("x" * 20 + "\n[…пропущено 70 символов…]\n")
+    assert result.endswith("x" * 10)
+
+
+def test_last_pair_keeps_closing_offer_of_long_answer():
+    state = make_state()
+    answer = long_text(250, " " + OFFER)  # около 2000 символов
+    assert 1500 < len(answer) <= 4000  # лимит последней пары: голова 3000 + хвост 1000
+
+    ctx = state._append_history({}, "опиши роль", answer)
+
+    assert ctx["consultation_history"][-1]["a"] == answer  # целиком, без маркера
+    messages = state._build_history_messages(ctx, "опиши")
+    assert messages[-2]["content"].endswith(OFFER)
+
+
+def test_previous_pair_is_compacted_when_a_new_one_arrives():
+    state = make_state()
+    first_answer = long_text(800, " " + OFFER)  # заведомо длиннее лимита старой пары
+    first_question = long_text(200)
+
+    ctx = state._append_history({}, first_question, first_answer)
+    state._append_history(ctx, "опиши", "Ответ на второй вопрос")
+    first, second = ctx["consultation_history"]
+
+    assert second == {"q": "опиши", "a": "Ответ на второй вопрос"}
+    assert first["a"].startswith(first_answer[:100]) and first["a"].endswith(OFFER)
+    assert "[…пропущено " in first["a"] and "[…пропущено " in first["q"]
+    assert len(first["a"]) <= 660  # старая пара: голова 300 + хвост 300 + маркер
+    assert len(first["q"]) <= 510  # голова 300 + хвост 150 + маркер
+
+
+def test_history_size_is_bounded_for_huge_dialogs():
+    state = make_state()
+    ctx: dict = {}
+
+    for i in range(MAX_HISTORY_PAIRS + 3):
+        state._append_history(ctx, long_text(3000), long_text(3000, f" конец{i}"))
+    history = ctx["consultation_history"]
+
+    assert len(history) == MAX_HISTORY_PAIRS
+    assert history[-1]["a"].endswith(f"конец{MAX_HISTORY_PAIRS + 2}")
+    total = sum(len(p["q"]) + len(p["a"]) for p in history)
+    assert total <= 15_000  # потолок из ревью: около 14,6 тысячи символов на пять пар
+
+
+@pytest.mark.asyncio
+async def test_history_keeps_answer_without_role_signature_and_model_sees_the_offer():
+    from engines.shared.consultation_tools import get_role_footer
+
+    state = make_state()
+    db = FakeContextDb(2008, {})
+    answer = long_text(250, " " + OFFER)
+
+    with patch.object(state, "send", new=AsyncMock()) as send, \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         model_call_patched(state, answer) as model:
+        await state.enter(db.user(), context={"question": "с чего начать?"})  # вопрос Навигатору: к ответу добавится подпись роли
+        await state.enter(db.user(), context={"question": "опиши"})
+
+    footer = get_role_footer("navigator", "ru")
+    shown = " ".join(call.args[1] for call in send.await_args_list)
+    assert footer.splitlines()[0] in shown             # читатель подпись видит
+    stored = db.ctx["consultation_history"][0]["a"]
+    assert footer.splitlines()[0] not in stored         # в истории её нет
+    assert stored.endswith(OFFER)
+    messages = model.await_args.kwargs["conversation_messages"]
+    assert messages[-2]["content"].endswith(OFFER)      # модель видит встречное предложение, а не подпись
+
+
+@pytest.mark.asyncio
+async def test_refine_quotes_long_previous_answer_head_and_tail():
+    state = make_state()
+    db = FakeContextDb(2009, {})  # история пуста: цитата нужна
+    previous = long_text(1500, " " + OFFER)  # около 11 тысяч символов
+    refine = {"question": "q", "refinement": True, "previous_answer": previous, "refinement_round": 2}
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         model_call_patched(state, "Подробный ответ") as model:
+        await state.enter(db.user(), context=refine)
+
+    bot_context = model.await_args.kwargs["bot_context"]
+    assert previous[:200] in bot_context
+    assert OFFER in bot_context          # хвост предыдущего ответа не потерян
+    assert "[…пропущено " in bot_context
