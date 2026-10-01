@@ -5,10 +5,13 @@
 До Ф17 тестов на историю консультации в боте не было вообще.
 """
 
+import asyncio
+import copy
 import logging
 import os
 import sys
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,9 +25,13 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-fake-test-key")
 os.environ.setdefault("DATABASE_URL", "[REDACTED-DATABASE-URL]localhost:5432/fake")
 os.environ.setdefault("DEVELOPER_CHAT_ID", "123456")
 
+from core.machine import StateMachine  # noqa: E402
 from states.common.consultation import SESSION_TIMEOUT_SEC, ConsultationState  # noqa: E402
 
 LOGGER_NAME = "states.common.consultation"
+CONSULTATION = "common.consultation"
+LONG_ANSWER = "Роль отвечает за приём заявок и их распределение между исполнителями. " * 12  # > 400 символов
+PAIR = {"q": "опиши роль", "a": LONG_ANSWER}
 
 
 def make_state() -> ConsultationState:
@@ -165,3 +172,173 @@ async def test_enter_log_line_reports_history_size(caplog):
 
     assert "history_pairs=1" in caplog.text
     assert "history_chars=8" in caplog.text
+
+
+# =============================================================================
+# Кнопки «Подробнее» / «Обратная связь»: память диалога через go_to() в то же состояние
+# =============================================================================
+
+class FakeContextDb:
+    """Эмулирует хранение current_context: запись копирует, перечитывание отдаёт копию (как Postgres)."""
+
+    def __init__(self, chat_id: int, ctx: dict):
+        self.chat_id = chat_id
+        self.ctx = copy.deepcopy(ctx)
+
+    async def save(self, chat_id: int, ctx: dict) -> None:
+        assert chat_id == self.chat_id
+        self.ctx = copy.deepcopy(ctx)
+
+    def user(self) -> dict:
+        return {
+            "chat_id": self.chat_id,
+            "current_state": CONSULTATION,
+            "current_context": copy.deepcopy(self.ctx),
+            "language": "ru",
+        }
+
+
+def live_session(**extra) -> dict:
+    return {"consultation_history": [dict(PAIR)], "consultation_last_activity": time.time(), **extra}
+
+
+@contextmanager
+def machine_over(state: ConsultationState, db: FakeContextDb):
+    """Настоящие StateMachine + ConsultationState; подменено только хранилище и отправка сообщений."""
+    sm = StateMachine()
+    sm.register(state)
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         patch("db.queries.update_user_state", new=AsyncMock()), \
+         patch("db.queries.get_intern", new=AsyncMock(side_effect=lambda chat_id: db.user())):
+        yield sm
+
+
+@contextmanager
+def model_call_patched(state: ConsultationState, answer: str):
+    """Подмена всего, что enter() зовёт вне состояния на пути к модели; отдаёт мок вызова модели."""
+    model = AsyncMock(return_value=(answer, []))
+    with patch.object(state, "_detect_tier", new=AsyncMock(return_value=(1, False, False))), \
+         patch("states.common.consultation.get_self_knowledge", return_value="SELF"), \
+         patch("states.common.consultation.match_faq", return_value=None), \
+         patch("states.common.consultation.structured_lookup", return_value=None), \
+         patch("states.common.consultation.get_latest_qa_id", new=AsyncMock(return_value=11)), \
+         patch("core.access.access_layer.has_access", new=AsyncMock(return_value=True)), \
+         patch("core.tier_detector.detect_ui_tier", new=AsyncMock(return_value=1)), \
+         patch("engines.shared.handle_question_with_tools", new=model), \
+         patch("db.queries.activity.record_active_day", new=AsyncMock()):
+        yield model
+
+
+@pytest.mark.asyncio
+async def test_feedback_button_keeps_history_and_free_role_and_skips_paywall():
+    state = make_state()
+    db = FakeContextDb(2001, live_session(active_free_role="mentor"))
+    has_access = AsyncMock(return_value=False)  # платный барьер закрыт: бесплатная роль должна его обойти
+
+    with machine_over(state, db) as sm, patch("core.access.access_layer.has_access", new=has_access):
+        await sm.go_to(db.user(), CONSULTATION, context={"comment_mode": True, "comment_qa_id": 7})
+
+    assert db.ctx["consultation_history"] == [PAIR]
+    assert db.ctx["qa_comment_id"] == 7
+    assert db.ctx["active_free_role"] == "mentor"
+    has_access.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_text_after_feedback_button_is_saved_as_comment_and_history_survives():
+    state = make_state()
+    db = FakeContextDb(2002, live_session(qa_comment_id=7))
+    update_comment = AsyncMock()
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         patch("db.queries.qa.update_qa_comment", new=update_comment), \
+         patch("core.feedback_triage.triage_feedback", new=AsyncMock()):
+        event = await state.handle(db.user(), SimpleNamespace(text="ответ получился слишком общим"))
+        await asyncio.sleep(0)  # дать отработать фоновой задаче разбора замечания
+
+    assert event is None  # остаёмся в сессии
+    update_comment.assert_awaited_once_with(7, "ответ получился слишком общим")
+    assert "qa_comment_id" not in db.ctx
+    assert db.ctx["consultation_history"] == [PAIR]
+
+
+@pytest.mark.asyncio
+async def test_refine_button_cancels_comment_mode_and_extends_dialog():
+    state = make_state()
+    db = FakeContextDb(2003, live_session(qa_comment_id=7))
+    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": LONG_ANSWER, "refinement_round": 2}
+
+    with machine_over(state, db) as sm, model_call_patched(state, "Подробный ответ") as model:
+        await sm.go_to(db.user(), CONSULTATION, context=refine)
+
+    assert "qa_comment_id" not in db.ctx  # следующий текст пойдёт в диалог, а не в замечание
+    assert db.ctx["consultation_history"] == [PAIR, {"q": PAIR["q"], "a": "Подробный ответ"}]
+    messages = model.await_args.kwargs["conversation_messages"]
+    assert messages == [
+        {"role": "user", "content": PAIR["q"]},
+        {"role": "assistant", "content": LONG_ANSWER},
+        {"role": "user", "content": PAIR["q"]},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_refine_does_not_quote_answer_that_is_already_last_in_history():
+    state = make_state()
+    db = FakeContextDb(2004, live_session())
+    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": LONG_ANSWER, "refinement_round": 2}
+
+    with machine_over(state, db) as sm, model_call_patched(state, "Подробный ответ") as model:
+        await sm.go_to(db.user(), CONSULTATION, context=refine)
+
+    bot_context = model.await_args.kwargs["bot_context"]
+    assert LONG_ANSWER[:100] not in bot_context
+    assert "выше в диалоге" in bot_context
+    assert "Раскрой аспекты, которые не были затронуты выше" in bot_context  # указание «подробнее» осталось
+
+
+@pytest.mark.asyncio
+async def test_refine_quotes_answer_when_dialog_does_not_hold_it():
+    state = make_state()
+    db = FakeContextDb(2005, {})  # история пуста: кнопку нажали под ответом, которого в сессии уже нет
+    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": LONG_ANSWER, "refinement_round": 2}
+
+    with machine_over(state, db) as sm, model_call_patched(state, "Подробный ответ") as model:
+        await sm.go_to(db.user(), CONSULTATION, context=refine)
+
+    bot_context = model.await_args.kwargs["bot_context"]
+    assert LONG_ANSWER[:100] in bot_context
+    assert "выше в диалоге" not in bot_context
+
+
+@pytest.mark.asyncio
+async def test_navigator_command_inside_session_still_starts_clean_session():
+    state = make_state()
+    db = FakeContextDb(2006, {**live_session(), "consultation_history": [dict(PAIR), dict(PAIR)]})
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)):
+        await state.enter(db.user(), context={"force_role": "navigator"})
+
+    assert "consultation_history" not in db.ctx
+    assert db.ctx["force_role"] == "navigator"
+    assert db.ctx["active_free_role"] == "navigator"
+
+
+@pytest.mark.parametrize("stored, previous, expected", [
+    ("A" * 500, "A" * 500, True),                       # тот же ответ
+    ("A" * 500 + "\n\n_подпись роли_", "A" * 500, True),  # в истории с подписью роли в хвосте
+    ("A" * 800, "A" * 2000, True),                      # в истории обрезан до 800 символов
+    ("B" * 500, "A" * 500, False),                      # другой ответ
+    ("", "A" * 500, False),                             # в истории пустой ответ
+    ("A" * 500, "", False),                             # нечего сравнивать
+], ids=["same", "role-signature-tail", "history-truncated", "different", "empty-stored", "empty-previous"])
+def test_is_last_answer_in_history(stored, previous, expected):
+    ctx = {"consultation_history": [{"q": "q", "a": stored}]}
+
+    assert ConsultationState._is_last_answer_in_history(ctx, previous) is expected
+
+
+def test_is_last_answer_in_history_false_without_history():
+    assert ConsultationState._is_last_answer_in_history({}, "A" * 500) is False
