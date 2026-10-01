@@ -539,7 +539,23 @@ async def cmd_mentor_note_dm(message: Message, command: CommandObject) -> None:
     )
 
 
-@mentorship_router.message(F.chat.type == "private", F.text, ~F.text.startswith("/"))
+def _has_fresh_active_participant(message: Message) -> bool:
+    """Router filter for on_mentor_dm_free_text: the same cheap in-memory check as inside the handler.
+
+    Without it the handler matches every private text and ends in SkipHandler for everyone who is not a
+    mentor with an active participant. A match that ends in SkipHandler makes aiogram run the inner
+    middleware chain (rate limit, trace, log, archive tap) a second time for the next handler.
+    """
+    user = message.from_user
+    if user is None:
+        return False
+    active = _active_participant.get(user.id)
+    return active is not None and time() - active.set_at <= _ACTIVE_PARTICIPANT_TTL_SECONDS
+
+
+@mentorship_router.message(
+    F.chat.type == "private", F.text, ~F.text.startswith("/"), _has_fresh_active_participant
+)
 async def on_mentor_dm_free_text(message: Message) -> None:
     """Голый текст в личке боту (не команда, не через `/mentor_note`) — если
     у наставника есть свежий «активный участник» (тот же словарь и TTL, что
@@ -559,7 +575,13 @@ async def on_mentor_dm_free_text(message: Message) -> None:
     (handlers/__init__.py), голый `return` остановил бы маршрутизацию и
     молча проглотил бы личное сообщение КАЖДОГО пользователя бота, а не
     только наставника (тот же паттерн уже применяется в handlers/hermes.py
-    для той же причины)."""
+    для той же причины).
+
+    The same check is also a router filter (_has_fresh_active_participant), so
+    this handler does not match ordinary users at all and their text goes
+    through the middleware chain once. The SkipHandler below covers the rare
+    rest: the window expired between the filter and the handler, or the
+    caller has no linked account."""
     active = _active_participant.get(message.from_user.id)
     if active is None or time() - active.set_at > _ACTIVE_PARTICIPANT_TTL_SECONDS:
         raise SkipHandler
