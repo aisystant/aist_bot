@@ -28,6 +28,7 @@ Persistent Session:
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Optional
 
@@ -249,8 +250,16 @@ def _detect_role(question: str) -> Optional[str]:
 
 # Persistent session: максимум пар (user/assistant) в истории
 MAX_HISTORY_PAIRS = 5
-# Максимум символов на одну запись истории (обрезка длинных ответов)
-MAX_HISTORY_ENTRY_CHARS = 800
+# Усечение истории «голова + хвост» (РП-498 Ф17), пары (голова, хвост) в символах.
+# Последняя пара держится почти целиком: в конце ответа бот предлагает продолжение
+# («Хочешь — опишем?»), и реплика «опиши» / «да» относится именно к нему. Предыдущие пары
+# при добавлении новой сжимаются до смысла. Хранится ровно то, что увидит модель.
+LAST_PAIR_Q = (2500, 500)
+LAST_PAIR_A = (3000, 1000)
+OLD_PAIR_Q = (300, 150)
+OLD_PAIR_A = (300, 300)
+# «Подробнее»: цитата предыдущего ответа в запросе (раньше первые 800 символов)
+PREVIOUS_ANSWER_QUOTE = (1200, 600)
 # Таймаут неактивности (секунды) — после него новый вопрос начинает сессию заново.
 # РП-498 Ф17: 5 → 15 минут (по базе пауза 5-20 минут между репликами обычна, а Лента
 # после перевода текста в консультацию приносит такие же паузы). Держать равным
@@ -258,6 +267,22 @@ MAX_HISTORY_ENTRY_CHARS = 800
 SESSION_TIMEOUT_SEC = 900  # 15 минут
 
 
+def _head_tail(text: str, head: int, tail: int) -> str:
+    """Короткий текст целиком; длинный - голова и хвост с маркером пропуска, рез по границе слова.
+
+    Маркер обязателен: без него модель читает склейку головы и хвоста как цельный текст.
+    """
+    if len(text) <= head + tail:
+        return text
+    head_part = text[:head]
+    if not text[head].isspace():  # рез пришёлся на середину слова: недоговорённое слово отбрасываем
+        head_part = re.sub(r'\S+$', '', head_part) or head_part
+    tail_part = text[len(text) - tail:]
+    if not text[len(text) - tail - 1].isspace():
+        tail_part = re.sub(r'^\S+', '', tail_part) or tail_part
+    head_part, tail_part = head_part.rstrip(), tail_part.lstrip()
+    omitted = len(text) - len(head_part) - len(tail_part)
+    return f"{head_part}\n[…пропущено {omitted} символов…]\n{tail_part}"
 
 
 
@@ -546,11 +571,19 @@ class ConsultationState(BaseState):
         await update_intern(chat_id, current_context=ctx)
 
     def _append_history(self, ctx: dict, question: str, answer: str) -> dict:
-        """Добавить пару (вопрос, ответ) в conversation history."""
+        """Добавить пару (вопрос, ответ) в conversation history.
+
+        Новая пара хранится почти целиком, предыдущая последняя сжимается до головы и хвоста.
+        """
         history = ctx.get('consultation_history', [])
+        if history:
+            history[-1] = {
+                'q': _head_tail(history[-1]['q'], *OLD_PAIR_Q),
+                'a': _head_tail(history[-1]['a'], *OLD_PAIR_A),
+            }
         history.append({
-            'q': question[:MAX_HISTORY_ENTRY_CHARS],
-            'a': answer[:MAX_HISTORY_ENTRY_CHARS],
+            'q': _head_tail(question, *LAST_PAIR_Q),
+            'a': _head_tail(answer, *LAST_PAIR_A),
         })
         # Оставляем последние MAX_HISTORY_PAIRS пар
         if len(history) > MAX_HISTORY_PAIRS:
@@ -839,7 +872,7 @@ class ConsultationState(BaseState):
                             'en': "(it is above in the dialog, the last bot message)",
                         }.get(lang, "(see above in the dialog)")
                     else:
-                        quoted_answer = previous_answer[:800]
+                        quoted_answer = _head_tail(previous_answer, *PREVIOUS_ANSWER_QUOTE)
                     # Short previous_answer (< 400 chars) means it was a FAQ hit —
                     # it may not be related to the question. Use direct instruction
                     # instead of "expand aspects" which is meaningless in that case.
@@ -996,6 +1029,10 @@ class ConsultationState(BaseState):
                             resolve_session_type(session_ctx),
                         )
 
+                # В историю - ответ без подписи роли: подпись и «Источники» нужны читателю, а модели
+                # в хвосте ответа нужна последняя фраза (встречное предложение), не подпись.
+                _answer_for_history = answer
+
                 # L1 Role Attribution: footer with role signature
                 if detected_role and role_prompt:
                     footer = get_role_footer(detected_role, lang)
@@ -1007,7 +1044,6 @@ class ConsultationState(BaseState):
                     f"Consultation: T{tier}{' role=' + detected_role if detected_role else ''}"
                     f"{' sticky_role=' + _sticky_role if _sticky_role else ''} for user {user_chat_id}"
                 )
-                _answer_for_history = answer
 
                 response = self._format_response(answer, sources, lang)
 
