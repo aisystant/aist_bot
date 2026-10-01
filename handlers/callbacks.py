@@ -725,6 +725,21 @@ async def cb_assessment_actions(callback: CallbackQuery, state: FSMContext, inte
 
 # === Q&A Feedback: глобальный обработчик (не зависит от стейта) ===
 
+async def _own_qa(qa_id: int, chat_id: int) -> dict | None:
+    """Запись qa_history, если она принадлежит этому чату, иначе None.
+
+    callback_data приходит от клиента и подделывается: без проверки кнопка чужой записи читала бы её
+    вопрос и ответ («Подробнее»), перезаписывала замечание («Обратная связь») или ставила оценку («👍»).
+    """
+    from db.queries.qa import get_qa_by_id
+
+    qa = await get_qa_by_id(qa_id)
+    if not qa or qa.get('chat_id') != chat_id:
+        logger.warning(f"[CB] qa_id={qa_id}: запись не найдена или чужая для chat_id={chat_id}, кнопка проигнорирована")
+        return None
+    return qa
+
+
 @callbacks_router.callback_query(F.data.startswith("qa_"))
 async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
     """Обработка feedback-кнопок консультации.
@@ -735,7 +750,7 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
     """
     from handlers import get_dispatcher
     from db.queries.events import log_event
-    from db.queries.qa import get_qa_by_id, update_qa_helpful
+    from db.queries.qa import update_qa_helpful
 
     data = callback.data
     chat_id = callback.message.chat.id
@@ -751,6 +766,9 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
         if data.startswith("qa_helpful_"):
             # --- 👍 Полезно ---
             qa_id = int(data.split("_")[-1])
+            if await _own_qa(qa_id, chat_id) is None:
+                await callback.answer()
+                return
             await callback.answer("👍")
             await update_qa_helpful(qa_id, True)
             # Убираем кнопки
@@ -779,8 +797,8 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             qa_id = int(data.split("_")[-1])
             await callback.answer()
 
-            # Загружаем оригинальный Q&A
-            qa = await get_qa_by_id(qa_id)
+            # Загружаем оригинальный Q&A (только свой: id приходит от клиента)
+            qa = await _own_qa(qa_id, chat_id)
             if not qa:
                 await callback.message.answer(t('consultation.error', lang))
                 return
@@ -825,6 +843,8 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             # --- ✏️ Замечание ---
             qa_id = int(data.split("_")[-1])
             await callback.answer()
+            if await _own_qa(qa_id, chat_id) is None:
+                return
 
             # Убираем кнопки
             try:
