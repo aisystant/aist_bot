@@ -276,7 +276,9 @@ def _head_tail(text: str, head: int, tail: int) -> str:
         return text
     head_part = text[:head]
     if not text[head].isspace():  # рез пришёлся на середину слова: недоговорённое слово отбрасываем
-        head_part = re.sub(r'\S+$', '', head_part) or head_part
+        # (?<!\S): начало совпадения только у границы слова, иначе на длинном слове без пробелов
+        # регулярка перебирает каждую позицию и блокирует цикл событий (до 0,5 с на 3000 символов)
+        head_part = re.sub(r'(?<!\S)\S+$', '', head_part) or head_part
     tail_part = text[len(text) - tail:]
     if not text[len(text) - tail - 1].isspace():
         tail_part = re.sub(r'^\S+', '', tail_part) or tail_part
@@ -596,11 +598,13 @@ class ConsultationState(BaseState):
     def _is_last_answer_in_history(ctx: dict, answer: str) -> bool:
         """True, если answer уже стоит последним ответом бота в истории диалога.
 
-        Сравнение по началу: в истории ответ может быть обрезан или с подписью роли в хвосте.
+        Сравниваются начало (200 символов) и конец (100): в истории ответ может быть сжат или
+        с подписью роли в хвосте, а два разных ответа редко совпадают и началом, и концом.
         """
         history = ctx.get('consultation_history') or []
-        head = (answer or '').strip()[:200]
-        return bool(history and head and history[-1].get('a', '').strip().startswith(head))
+        text = (answer or '').strip()
+        stored = history[-1].get('a', '') if history else ''
+        return bool(text and stored.strip().startswith(text[:200]) and text[-100:] in stored)
 
     def _build_history_messages(self, ctx: dict, current_question: str) -> list:
         """Собрать messages[] для Claude из conversation history."""
@@ -625,6 +629,7 @@ class ConsultationState(BaseState):
         ctx.pop('consultation_history', None)
         ctx.pop('consultation_last_activity', None)
         ctx.pop('qa_comment_id', None)
+        ctx.pop('consultation_topic', None)  # темы недели Ленты (РП-498 Ф17)
         ctx.pop('active_free_role', None)  # WP-498 Ф13: не переживает новую сессию
         return ctx
 
@@ -692,6 +697,7 @@ class ConsultationState(BaseState):
             if chat_id and qa_id:
                 ctx = await self._load_session_context(user)
                 ctx['qa_comment_id'] = qa_id
+                ctx['consultation_last_activity'] = time.time()  # замечание тоже активность: окно не истекает посреди него
                 await self._save_session_context(chat_id, ctx)
             await self.send(user, t('consultation.comment_prompt', lang))
             return None  # Остаёмся в стейте, ждём текст
@@ -702,9 +708,10 @@ class ConsultationState(BaseState):
         previous_answer = context.get('previous_answer', '')
         refinement_round = context.get('refinement_round', 1)
 
-        # «Подробнее» отменяет ожидание замечания: раньше это делал exit() при самопереходе,
-        # теперь его нет, и без снятия флага следующий текст ушёл бы в замечание, а не в диалог.
-        if is_refinement and session_ctx.pop('qa_comment_id', None) is not None and chat_id:
+        # Любой новый вопрос («Подробнее», вопрос с «?», вопрос из Ленты) отменяет ожидание
+        # замечания: «Подробнее» раньше отменял его через exit() при самопереходе, а без снятия флага
+        # следующий текст ушёл бы в замечание, а не в диалог. Запись явная: ответ может не дойти до конца.
+        if question and session_ctx.pop('qa_comment_id', None) is not None and chat_id:
             await self._save_session_context(chat_id, session_ctx)
 
         # WP-156: Explicit role entry (/navigator) — save in session, show greeting
@@ -853,8 +860,11 @@ class ConsultationState(BaseState):
 
                 # --- L3: единый путь → tool_use для ВСЕХ вопросов (T1-T4) ---
                 # LLM сам решает через tools: искать в knowledge base или в bot_info
-                # Лента передаёт темы недели (РП-498 Ф17); иначе — текущая тема марафона
-                context_topic = context.get('context_topic') or self._get_current_topic(user)
+                # Лента передаёт темы недели (РП-498 Ф17); они живут до конца сессии, чтобы и реплики
+                # после первого ответа знали тему. Иначе — текущая тема марафона.
+                if context.get('context_topic'):
+                    session_ctx['consultation_topic'] = context['context_topic']
+                context_topic = session_ctx.get('consultation_topic') or self._get_current_topic(user)
                 intern_dict = self._user_to_dict(user)
                 bot_context = get_self_knowledge(lang)
 
@@ -1132,6 +1142,7 @@ class ConsultationState(BaseState):
                 asyncio.create_task(triage_feedback(qa_comment_id, "comment"))
                 # Очищаем флаг
                 del ctx['qa_comment_id']
+                ctx['consultation_last_activity'] = time.time()
                 if chat_id:
                     await self._save_session_context(chat_id, ctx)
                 # Подтверждение + подсказка с кнопкой "Завершить"
@@ -1168,9 +1179,9 @@ class ConsultationState(BaseState):
         # --- Текст без "?" → follow-up вопрос ---
         # Пока диалог жив, любая непустая реплика продолжает его: «да», «ок», «опиши» отвечают на
         # предложение в конце прошлого ответа. В пустой сессии порог 3 символа остаётся: короткий
-        # текст там случаен. Одинокий «?» вопросом не считается.
+        # текст там случаен. Реплика без единой буквы или цифры («.», «👍», одинокий «?») вопросом не считается.
         live_dialog = bool(ctx.get('consultation_history')) and not timed_out
-        if len(text) >= 3 or (live_dialog and text not in ('', '?')):
+        if len(text) >= 3 or (live_dialog and any(ch.isalnum() for ch in text)):
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
                 await self._expire_session(ctx, chat_id)

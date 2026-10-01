@@ -37,6 +37,12 @@ LOGGER_NAME = "states.common.consultation"
 CONSULTATION = "common.consultation"
 LONG_ANSWER = "Роль отвечает за приём заявок и их распределение между исполнителями. " * 12  # > 400 символов
 PAIR = {"q": "опиши роль", "a": LONG_ANSWER}
+SHORT_ANSWER = "Роль принимает заявки и распределяет их между исполнителями."  # короче 400 символов: ветка ответа из FAQ
+OFFER = "Хочешь — опишем, что конкретно делает эта роль сейчас?"
+
+
+def long_text(words: int, ending: str = "") -> str:
+    return " ".join(f"слово{i}" for i in range(words)) + ending
 
 
 def make_state() -> ConsultationState:
@@ -291,33 +297,101 @@ async def test_refine_button_cancels_comment_mode_and_extends_dialog():
     ]
 
 
+# Две ветки указания «подробнее»: длинный ответ (раскрыть не затронутое) и короткий, из FAQ (ответить точно)
+REFINE_INSTRUCTIONS = [
+    pytest.param(LONG_ANSWER, "Раскрой аспекты, которые не были затронуты выше", id="long-answer"),
+    pytest.param(SHORT_ANSWER, "Дай конкретный практический ответ на его вопрос", id="short-faq-answer"),
+]
+
+
 @pytest.mark.asyncio
-async def test_refine_does_not_quote_answer_that_is_already_last_in_history():
+@pytest.mark.parametrize("previous, instruction", REFINE_INSTRUCTIONS)
+async def test_refine_does_not_quote_answer_that_is_already_last_in_history(previous, instruction):
     state = make_state()
-    db = FakeContextDb(2004, live_session())
-    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": LONG_ANSWER, "refinement_round": 2}
+    db = FakeContextDb(2004, {"consultation_history": [{"q": PAIR["q"], "a": previous}], "consultation_last_activity": time.time()})
+    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": previous, "refinement_round": 2}
 
     with machine_over(state, db) as sm, model_call_patched(state, "Подробный ответ") as model:
         await sm.go_to(db.user(), CONSULTATION, context=refine)
 
     bot_context = model.await_args.kwargs["bot_context"]
-    assert LONG_ANSWER[:100] not in bot_context
+    assert previous[:40] not in bot_context
     assert "выше в диалоге" in bot_context
-    assert "Раскрой аспекты, которые не были затронуты выше" in bot_context  # указание «подробнее» осталось
+    assert instruction in bot_context  # указание «подробнее» осталось
 
 
 @pytest.mark.asyncio
-async def test_refine_quotes_answer_when_dialog_does_not_hold_it():
+@pytest.mark.parametrize("previous, instruction", REFINE_INSTRUCTIONS)
+async def test_refine_quotes_answer_when_dialog_does_not_hold_it(previous, instruction):
     state = make_state()
     db = FakeContextDb(2005, {})  # история пуста: кнопку нажали под ответом, которого в сессии уже нет
-    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": LONG_ANSWER, "refinement_round": 2}
+    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": previous, "refinement_round": 2}
 
     with machine_over(state, db) as sm, model_call_patched(state, "Подробный ответ") as model:
         await sm.go_to(db.user(), CONSULTATION, context=refine)
 
     bot_context = model.await_args.kwargs["bot_context"]
-    assert LONG_ANSWER[:100] in bot_context
+    assert previous[:40] in bot_context
     assert "выше в диалоге" not in bot_context
+    assert instruction in bot_context
+
+
+@pytest.mark.asyncio
+async def test_refine_drops_pending_comment_even_if_the_model_call_fails():
+    state = make_state()
+    db = FakeContextDb(2014, live_session(qa_comment_id=7))
+    refine = {"question": PAIR["q"], "refinement": True, "previous_answer": LONG_ANSWER, "refinement_round": 2}
+
+    with machine_over(state, db) as sm, model_call_patched(state, "Подробный ответ") as model:
+        model.side_effect = RuntimeError("модель недоступна")
+        await sm.go_to(db.user(), CONSULTATION, context=refine)
+
+    # ответ не получился и история не дописалась, но ожидание замечания уже снято и записано
+    assert "qa_comment_id" not in db.ctx
+    assert db.ctx["consultation_history"] == [PAIR]
+
+
+@pytest.mark.asyncio
+async def test_explicit_question_drops_pending_comment():
+    state = make_state()
+    db = FakeContextDb(2015, live_session(qa_comment_id=7))
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         model_call_patched(state, "Ответ"):
+        await state.enter(db.user(), context={"question": "как тренировать внимание"})
+
+    assert "qa_comment_id" not in db.ctx  # следующий обычный текст пойдёт в диалог, а не в замечание
+    assert len(db.ctx["consultation_history"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_feedback_button_extends_the_window():
+    state = make_state()
+    ten_minutes_ago = time.time() - 10 * 60
+    db = FakeContextDb(2017, live_session(consultation_last_activity=ten_minutes_ago))
+
+    with machine_over(state, db) as sm, \
+         patch("core.access.access_layer.has_access", new=AsyncMock(return_value=True)):
+        await sm.go_to(db.user(), CONSULTATION, context={"comment_mode": True, "comment_qa_id": 7})
+
+    assert time.time() - db.ctx["consultation_last_activity"] < 5  # окно считается от нажатия, а не от ответа
+
+
+@pytest.mark.asyncio
+async def test_saved_comment_extends_the_window():
+    state = make_state()
+    ten_minutes_ago = time.time() - 10 * 60
+    db = FakeContextDb(2018, live_session(qa_comment_id=7, consultation_last_activity=ten_minutes_ago))
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         patch("db.queries.qa.update_qa_comment", new=AsyncMock()), \
+         patch("core.feedback_triage.triage_feedback", new=AsyncMock()):
+        await state.handle(db.user(), SimpleNamespace(text="ответ получился слишком общим"))
+        await asyncio.sleep(0)
+
+    assert time.time() - db.ctx["consultation_last_activity"] < 5
 
 
 @pytest.mark.asyncio
@@ -334,14 +408,18 @@ async def test_navigator_command_inside_session_still_starts_clean_session():
     assert db.ctx["active_free_role"] == "navigator"
 
 
+FULL_ANSWER = long_text(900, " " + OFFER)  # около 7 тысяч символов: в истории хранится как голова + хвост
+
+
 @pytest.mark.parametrize("stored, previous, expected", [
-    ("A" * 500, "A" * 500, True),                       # тот же ответ
-    ("A" * 500 + "\n\n_подпись роли_", "A" * 500, True),  # в истории с подписью роли в хвосте
-    ("A" * 800, "A" * 2000, True),                      # в истории обрезан до 800 символов
-    ("B" * 500, "A" * 500, False),                      # другой ответ
-    ("", "A" * 500, False),                             # в истории пустой ответ
-    ("A" * 500, "", False),                             # нечего сравнивать
-], ids=["same", "role-signature-tail", "history-truncated", "different", "empty-stored", "empty-previous"])
+    (LONG_ANSWER, LONG_ANSWER, True),                                          # тот же ответ
+    (LONG_ANSWER + "\n\n_подпись роли_", LONG_ANSWER, True),                   # в истории с подписью роли в хвосте
+    (_head_tail(FULL_ANSWER, 3000, 1000), FULL_ANSWER, True),                  # в истории сжат до головы и хвоста
+    (long_text(80)[:-30] + " другой конец ответа, вот так", long_text(80), False),  # то же начало, другой конец
+    ("B" * 500, "A" * 500, False),                                             # другой ответ
+    ("", LONG_ANSWER, False),                                                  # в истории пустой ответ
+    (LONG_ANSWER, "", False),                                                  # нечего сравнивать
+], ids=["same", "role-signature-tail", "compacted", "same-start-other-end", "different", "empty-stored", "empty-previous"])
 def test_is_last_answer_in_history(stored, previous, expected):
     ctx = {"consultation_history": [{"q": "q", "a": stored}]}
 
@@ -357,7 +435,7 @@ def test_is_last_answer_in_history_false_without_history():
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_feed_topics_reach_the_model_and_marathon_topic_is_the_fallback():
+async def test_feed_topics_live_until_the_session_ends():
     state = make_state()
     db = FakeContextDb(2007, {})
 
@@ -368,20 +446,33 @@ async def test_feed_topics_reach_the_model_and_marathon_topic_is_the_fallback():
         await state.enter(user, context={"question": "как устроена оперативная память", "context_topic": "Внимание, Собранность"})
         assert model.await_args.kwargs["context_topic"] == "Внимание, Собранность"
 
-        user = {**db.user(), "current_topic": "Тема марафона"}
+        user = {**db.user(), "current_topic": "Тема марафона"}  # реплика без тем: их помнит сессия
         await state.enter(user, context={"question": "а как её тренировать"})
-        assert model.await_args.kwargs["context_topic"] == "Тема марафона"
+        assert model.await_args.kwargs["context_topic"] == "Внимание, Собранность"
+
+    state._clear_session(db.ctx, reason="exit")
+    assert "consultation_topic" not in db.ctx  # с концом сессии темы уходят
+
+
+@pytest.mark.asyncio
+async def test_marathon_topic_is_used_when_the_session_has_no_feed_topics():
+    state = make_state()
+    db = FakeContextDb(2016, {})
+
+    with patch.object(state, "send", new=AsyncMock()), \
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
+         model_call_patched(state, "Ответ") as model:
+        user = {**db.user(), "current_topic": "Тема марафона"}
+        await state.enter(user, context={"question": "как устроена оперативная память"})
+
+    assert model.await_args.kwargs["context_topic"] == "Тема марафона"
+    assert "consultation_topic" not in db.ctx
 
 
 # =============================================================================
 # Усечение истории «голова + хвост»: последняя пара почти целиком, в хвосте ответа - встречный вопрос
 # =============================================================================
 
-OFFER = "Хочешь — опишем, что конкретно делает эта роль сейчас?"
-
-
-def long_text(words: int, ending: str = "") -> str:
-    return " ".join(f"слово{i}" for i in range(words)) + ending
 
 
 def test_head_tail_returns_short_text_unchanged():
@@ -416,6 +507,19 @@ def test_head_tail_cuts_on_word_boundaries(words):
 
     assert head.split()[-1] in text.split()   # последнее слово головы целое
     assert tail.split()[0] in text.split()    # первое слово хвоста целое
+
+
+def test_head_tail_is_fast_when_a_long_word_precedes_the_cut():
+    # Длинное слово без пробелов в начале головы, рез пришёлся на середину другого слова: прежняя регулярка
+    # перебирала каждую позицию внутри длинного слова (около 0,2-0,5 с на 3000 символов, цикл событий стоял)
+    text = "я" * 2400 + " " + "слово " * 300
+
+    started = time.perf_counter()
+    result = _head_tail(text, 2500, 500)
+    elapsed = time.perf_counter() - started
+
+    assert result.startswith("я" * 2400 + " слово")
+    assert elapsed < 0.05
 
 
 def test_head_tail_hard_cut_when_text_has_no_spaces():
@@ -464,7 +568,7 @@ def test_history_size_is_bounded_for_huge_dialogs():
     assert len(history) == MAX_HISTORY_PAIRS
     assert history[-1]["a"].endswith(f"конец{MAX_HISTORY_PAIRS + 2}")
     total = sum(len(p["q"]) + len(p["a"]) for p in history)
-    assert total <= 15_000  # потолок из ревью: около 14,6 тысячи символов на пять пар
+    assert total <= 12_000  # измеренный потолок пяти пар около 11,4 тысячи символов
 
 
 @pytest.mark.asyncio
@@ -514,7 +618,7 @@ async def test_refine_quotes_long_previous_answer_head_and_tail():
 # =============================================================================
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", ["да", "ок", "а?"])
+@pytest.mark.parametrize("text", ["да", "ок", "а?", "2"])
 async def test_short_reply_in_live_dialog_continues_the_dialog(text):
     state = make_state()
     user = FakeContextDb(2010, live_session()).user()
@@ -545,13 +649,14 @@ async def test_short_text_in_empty_session_still_gets_the_hint():
 
 
 @pytest.mark.asyncio
-async def test_bare_question_mark_in_live_dialog_gets_the_hint():
+@pytest.mark.parametrize("text", ["?", ".", "👍", "!!"])
+async def test_reply_without_letters_or_digits_in_live_dialog_gets_the_hint(text):
     state = make_state()
     user = FakeContextDb(2012, live_session()).user()
 
     with patch.object(state, "enter", new=AsyncMock()) as enter, \
          patch.object(state, "send", new=AsyncMock()) as send:
-        event = await state.handle(user, SimpleNamespace(text="?"))
+        event = await state.handle(user, SimpleNamespace(text=text))
 
     assert event is None
     enter.assert_not_awaited()
