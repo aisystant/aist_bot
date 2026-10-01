@@ -120,7 +120,7 @@ pydantic==2.5.3
     #   langfuse
 pydantic-core==2.14.6
     # via pydantic
-pyjwt[crypto]==2.13.0
+pyjwt[crypto]==2.15.1
     # via
     #   -r requirements.in
     #   pyjwt
@@ -149,7 +149,7 @@ typing-extensions==4.15.0
     #   pydantic-core
 tzlocal==5.3.1
     # via apscheduler
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
 wrapt==1.17.3
     # via langfuse
