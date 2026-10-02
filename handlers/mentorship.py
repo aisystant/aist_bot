@@ -25,6 +25,11 @@
     сообщение наставника (кому оно было отправлено, Телеграм не хранит) —
     бот использует участника из последнего однозначно определённого forward
     этой же личной сессии («активный участник», в памяти процесса).
+    A forward written by somebody else starts a new identification: the
+    remembered participant is dropped first and set again only on success. A
+    forward without a user author (hidden by the Telegram privacy settings,
+    channel, chat) is refused with the reason (live check 02.10: three authors,
+    one card).
 /mentor_card — группа, ответом на сообщение участника: показать карточку
     участника (get_participant_card mentorship-service) — переписка, заметки
     наставника, статус внешних источников. Карточка содержит приватные данные
@@ -454,6 +459,29 @@ _ACTIVE_PARTICIPANT_TTL_SECONDS = 2 * 60 * 60
 _active_participant: dict[int, _ActiveParticipant] = {}
 
 
+def _is_forward(message: Message) -> bool:
+    """Same mark of a forward as the GitHub forward handler: `forward_origin`, or the deprecated
+    `forward_date` (Bot API 7.0 replaced the old forward fields with `forward_origin`)."""
+    return getattr(message, "forward_origin", None) is not None or getattr(message, "forward_date", None) is not None
+
+
+def _unknown_forward_author_error(target_message: Message) -> str:
+    """Refusal for a forward without a user author: the author hid the account in the Telegram privacy
+    settings (only a display name is given) or the original was not written by a person (channel, chat)."""
+    origin = getattr(target_message, "forward_origin", None)
+    hidden_name = getattr(origin, "sender_user_name", None) or getattr(target_message, "forward_sender_name", None)
+    if hidden_name:
+        return (
+            f"Автор сообщения «{hidden_name}» скрыл аккаунт в настройках пересылки Телеграма, "
+            "поэтому я не могу определить участника и не подставляю прежнего. "
+            "Ответь этой командой на сообщение участника в группе потока, отправленное от его личного аккаунта."
+        )
+    return (
+        "Это сообщение переслано не от участника (канал или чат), определить участника нельзя. "
+        "Перешли сообщение, которое написал сам участник."
+    )
+
+
 async def _resolve_dm_participant_target(
     message: Message, target_message: Message
 ) -> tuple[str | None, str | None, str | None, str | None]:
@@ -465,8 +493,16 @@ async def _resolve_dm_participant_target(
     текст ошибки пилоту как есть."""
     origin = getattr(target_message, "forward_origin", None)
     origin_user = getattr(origin, "sender_user", None) if origin is not None else None
+    own_forward = origin_user is not None and origin_user.id == message.from_user.id
+    foreign_forward = _is_forward(target_message) and not own_forward
 
-    if origin_user is not None and origin_user.id != message.from_user.id:
+    if foreign_forward:
+        # A forward written by somebody else starts a new identification. Drop the previous participant
+        # first and remember the new one only on success: a failed lookup must never leave the previous
+        # participant active, or the next command or free text would be filed under them.
+        _active_participant.pop(message.from_user.id, None)
+
+    if foreign_forward and origin_user is not None:
         # Переслано сообщение, которое написал сам участник — Телеграм
         # однозначно называет автора, угадывать не нужно.
         participant_account_id = await resolve_ory_id_from_chat(origin_user.id)
@@ -490,14 +526,29 @@ async def _resolve_dm_participant_target(
         )
         return ctx.stream_id, participant_account_id, participant_name, None
 
-    # Переслано собственное сообщение наставника (или автор скрыт настройками
-    # приватности) — используем последнего однозначно определённого участника.
+    if foreign_forward:
+        # The forward has no user author (hidden by the privacy settings, channel, chat, or only the
+        # deprecated fields). The previous participant must NOT stand in for the author: another person's
+        # message would get a stranger's card or note (live check 02.10: three authors, one card). Before
+        # 02.10 a hidden author was treated like the mentor's own message.
+        logger.info(
+            "[Mentorship] dm resolver: forward without a user author refused, origin=%s",
+            type(origin).__name__ if origin is not None else "deprecated-fields-only",
+        )
+        return None, None, None, _unknown_forward_author_error(target_message)
+
+    # The mentor's own forwarded message (Telegram does not store the addressee) or a plain reply without a
+    # forward: the last identified participant is used.
     active = _active_participant.get(message.from_user.id)
     if active is None or time() - active.set_at > _ACTIVE_PARTICIPANT_TTL_SECONDS:
         return None, None, None, (
             "Не могу понять, о ком заметка — сначала перешли сюда сообщение, "
             "которое написал сам участник, чтобы я его запомнил."
         )
+    logger.info(
+        "[Mentorship] dm resolver: active participant used for %s",
+        "own forward" if origin is not None else "plain reply",
+    )
     return active.stream_id, active.participant_account_id, active.participant_name, None
 
 
@@ -554,7 +605,11 @@ def _has_fresh_active_participant(message: Message) -> bool:
 
 
 @mentorship_router.message(
-    F.chat.type == "private", F.text, ~F.text.startswith("/"), _has_fresh_active_participant
+    F.chat.type == "private",
+    F.text,
+    ~F.text.startswith("/"),
+    ~(F.forward_origin | F.forward_date),
+    _has_fresh_active_participant,
 )
 async def on_mentor_dm_free_text(message: Message) -> None:
     """Голый текст в личке боту (не команда, не через `/mentor_note`) — если
@@ -576,6 +631,13 @@ async def on_mentor_dm_free_text(message: Message) -> None:
     молча проглотил бы личное сообщение КАЖДОГО пользователя бота, а не
     только наставника (тот же паттерн уже применяется в handlers/hermes.py
     для той же причины).
+
+    A forward never reaches this handler (same mark as the GitHub forward
+    handler: `forward_origin` or `forward_date`): somebody else's text cannot
+    become a note about the previous "active participant". Until 02.10 only the
+    router order guaranteed it (the GitHub handler is registered earlier and
+    takes every forward); now the filter states the invariant "free text is the
+    mentor's own words".
 
     The same check is also a router filter (_has_fresh_active_participant), so
     this handler does not match ordinary users at all and their text goes

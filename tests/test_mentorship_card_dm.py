@@ -24,6 +24,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 from db.queries.mentorship import StreamChatContext
 from tests.mentorship_helpers import make_dm_message as _make_dm_message
+from tests.mentorship_helpers import (
+    make_forward_from_channel,
+    make_forward_from_chat,
+    make_forward_hidden_author,
+)
 
 MENTOR_ID = "11111111-1111-1111-1111-111111111111"
 PARTICIPANT_ID = "22222222-2222-2222-2222-222222222222"
@@ -210,3 +215,119 @@ async def test_dm_card_plain_reply_without_active_participant_asks_for_participa
 
     reply_text = message.reply.await_args.args[0]
     assert "не могу понять" in reply_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_dm_card_hidden_author_forward_is_refused_not_answered_with_the_previous_participant(monkeypatch):
+    """Live check 02.10: three forwards by different people, two with a hidden author, and the bot showed the
+    card of the first one three times. A hidden author is not the mentor's own message: refuse and drop the remembered participant."""
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    mentorship._active_participant[100] = mentorship._ActiveParticipant(
+        stream_id="S2",
+        participant_account_id=PARTICIPANT_ID,
+        participant_name="Пётр Петров",
+        set_at=4900.0,
+    )
+    get_card_mock = AsyncMock()
+    monkeypatch.setattr(mentorship.mentorship_service, "get_participant_card", get_card_mock)
+    message = _make_dm_message(reply_to_message=make_forward_hidden_author("Анна К."), from_user_id=100)
+
+    await mentorship.cmd_mentor_card_dm(message)
+
+    get_card_mock.assert_not_awaited()
+    reply_text = message.reply.await_args.args[0]
+    assert "«Анна К.»" in reply_text
+    assert "скрыл аккаунт" in reply_text
+    assert "группе потока" in reply_text
+    assert "Петров" not in reply_text
+    assert 100 not in mentorship._active_participant
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("make_target", [make_forward_from_channel, make_forward_from_chat])
+async def test_dm_card_forward_from_a_channel_or_chat_is_not_a_participant(monkeypatch, make_target):
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    mentorship._active_participant[100] = mentorship._ActiveParticipant(
+        stream_id="S2", participant_account_id=PARTICIPANT_ID, participant_name="Пётр Петров", set_at=4900.0
+    )
+    get_card_mock = AsyncMock()
+    monkeypatch.setattr(mentorship.mentorship_service, "get_participant_card", get_card_mock)
+    message = _make_dm_message(reply_to_message=make_target(), from_user_id=100)
+
+    await mentorship.cmd_mentor_card_dm(message)
+
+    get_card_mock.assert_not_awaited()
+    assert "не от участника" in message.reply.await_args.args[0]
+    assert 100 not in mentorship._active_participant
+
+
+@pytest.mark.asyncio
+async def test_dm_card_forward_sequence_visible_hidden_visible_never_mixes_participants(monkeypatch):
+    """Visible author A shows the card of A; a hidden author in between gets a refusal, not the card of A;
+    the next visible author C switches the active participant to C."""
+    import handlers.mentorship as mentorship
+
+    a_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    c_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    # per command: the caller; for a visible author also the participant and the caller again (reader check)
+    monkeypatch.setattr(
+        mentorship,
+        "resolve_ory_id_from_chat",
+        AsyncMock(side_effect=[MENTOR_ID, a_id, MENTOR_ID, MENTOR_ID, MENTOR_ID, c_id, MENTOR_ID]),
+    )
+    monkeypatch.setattr(
+        mentorship,
+        "lookup_participant_stream",
+        AsyncMock(
+            side_effect=[
+                StreamChatContext(stream_id="S1", reader_account_id=MENTOR_ID),
+                StreamChatContext(stream_id="S2", reader_account_id=MENTOR_ID),
+            ]
+        ),
+    )
+    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value="mentor"))
+    card = {"manualMinimum": {}, "correspondenceEmpty": True, "correspondenceNote": CORRESPONDENCE_NOTE, "recentNotes": []}
+    get_card_mock = AsyncMock(return_value=card)
+    monkeypatch.setattr(mentorship.mentorship_service, "get_participant_card", get_card_mock)
+
+    first = _make_dm_message(reply_to_message=_make_forwarded_from_participant(201, full_name="Участник А"), from_user_id=100)
+    await mentorship.cmd_mentor_card_dm(first)
+    hidden = _make_dm_message(reply_to_message=make_forward_hidden_author("Скрытая Б"), from_user_id=100)
+    await mentorship.cmd_mentor_card_dm(hidden)
+    assert 100 not in mentorship._active_participant
+    third = _make_dm_message(reply_to_message=_make_forwarded_from_participant(203, full_name="Участник В"), from_user_id=100)
+    await mentorship.cmd_mentor_card_dm(third)
+
+    assert [c.args for c in get_card_mock.await_args_list] == [(MENTOR_ID, "S1", a_id), (MENTOR_ID, "S2", c_id)]
+    assert "Участник А" in first.reply.await_args.args[0]
+    assert "скрыл аккаунт" in hidden.reply.await_args.args[0]
+    assert "Участник А" not in hidden.reply.await_args.args[0]
+    assert "Участник В" in third.reply.await_args.args[0]
+    assert mentorship._active_participant[100].participant_account_id == c_id
+
+
+@pytest.mark.asyncio
+async def test_dm_card_plain_reply_with_active_participant_still_uses_it(monkeypatch):
+    """Not a forward at all (the mentor replies to his own typed text): no other author is claimed, so the
+    active participant stays the target. Only a forward whose author is hidden or not a user is refused."""
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    mentorship._active_participant[100] = mentorship._ActiveParticipant(
+        stream_id="S1", participant_account_id=PARTICIPANT_ID, participant_name="Иван Иванов", set_at=4900.0
+    )
+    card = {"manualMinimum": {}, "correspondenceEmpty": True, "correspondenceNote": CORRESPONDENCE_NOTE, "recentNotes": []}
+    get_card_mock = AsyncMock(return_value=card)
+    monkeypatch.setattr(mentorship.mentorship_service, "get_participant_card", get_card_mock)
+    message = _make_dm_message(reply_to_message=_make_plain_reply(), from_user_id=100)
+
+    await mentorship.cmd_mentor_card_dm(message)
+
+    get_card_mock.assert_awaited_once_with(MENTOR_ID, "S1", PARTICIPANT_ID)
