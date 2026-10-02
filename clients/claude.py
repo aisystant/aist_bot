@@ -878,7 +878,6 @@ class ClaudeClient:
 
         async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
-            content_blocks: list = []  # init для случая early break до line 770
 
             for round_num in range(max_tool_rounds):
                 async with self._semaphore:
@@ -962,12 +961,22 @@ class ClaudeClient:
                     conversation.pop()  # убрать assistant с не-текстовым content
                     break
 
-            # Дошли сюда: (а) exhausted max_tool_rounds, (б) transient API fail (break line 767),
-            # (в) end_turn без text (break после conversation.pop() line ~795).
-            # Возвращаем последний текстовый ответ если есть (только для (а))
-            for block in content_blocks:
-                if block.get("type") == "text":
-                    return block["text"]
+            # Дошли сюда: (а) exhausted max_tool_rounds — break на строке 896 (not data)
+            # или break на строке 919/962 (конверсация уже откачена). Единственный способ
+            # дойти сюда БЕЗ return/break внутри цикла — если round_num на каждой
+            # итерации имел stop_reason == "tool_use": цикл просто исчерпал
+            # range(max_tool_rounds). Значит content_blocks — это ход, который
+            # модель написала ДО результата только что исполненного инструмента
+            # (tool_results уже добавлены в conversation, но модель их ещё не
+            # видела) — любой text-блок там является недописанной преамбулой,
+            # а не финальным ответом (живой пример: модель начинает текстом
+            # «ищу: search_knowledge("...")», а сам структурированный tool_use
+            # обрывается вместе с циклом; WP-7, пир-сессия 2026-10-02,
+            # Kimi+Codex). Тот же стейл-content_blocks всплывает и при break на
+            # строке 896, если API падает сразу после раунда с tool_use.
+            # Поэтому ничего не возвращаем здесь — идём в force-text fallback,
+            # который использует ту же (уже дополненную tool_result)
+            # conversation и получает настоящий синтез вместо черновика.
 
             # Force-text fallback: conversation НЕ мутируется — заканчивается на валидном
             # user-сообщении (tool_results или начальный user_prompt). Инструкция «не ищи»
