@@ -1,5 +1,6 @@
 """Shared fakes for the WP-578 mentorship command tests (F9 command guard)."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from db.queries.mentorship import StreamChatContext
@@ -51,6 +52,43 @@ def make_dm_message(*, from_user_id=MENTOR_TG_ID, text=None, reply_to_message=No
     msg.reply = AsyncMock()
     msg.bot = AsyncMock()
     return msg
+
+
+def _forwarded_message(origin, *, text):
+    """A forwarded message; the origin is a REAL aiogram model, so the fake cannot drift from what the handler reads."""
+    from aiogram.types import Message
+
+    target = MagicMock(spec=Message)
+    target.text = text
+    target.caption = None
+    target.forward_origin = origin
+    return target
+
+
+_FORWARD_DATE = datetime(2026, 10, 2, tzinfo=timezone.utc)
+
+
+def make_forward_hidden_author(display_name="Анна Скрытая", *, text="сообщение со скрытым автором"):
+    """The original author hides the account: Telegram gives only a display name (no user in the origin)."""
+    from aiogram.types import MessageOriginHiddenUser
+
+    return _forwarded_message(MessageOriginHiddenUser(date=_FORWARD_DATE, sender_user_name=display_name), text=text)
+
+
+def make_forward_from_channel(*, text="пост из канала"):
+    """The original was posted in a channel: the origin has a chat, no user author."""
+    from aiogram.types import Chat, MessageOriginChannel
+
+    channel = Chat(id=-1001234567890, type="channel", title="Канал")
+    return _forwarded_message(MessageOriginChannel(date=_FORWARD_DATE, chat=channel, message_id=7), text=text)
+
+
+def make_forward_from_chat(*, text="сообщение от имени группы"):
+    """The original was sent on behalf of a chat (anonymous admin): the origin has a sender chat, no user author."""
+    from aiogram.types import Chat, MessageOriginChat
+
+    group = Chat(id=-1009876543210, type="supergroup", title="Группа")
+    return _forwarded_message(MessageOriginChat(date=_FORWARD_DATE, sender_chat=group), text=text)
 
 
 def as_stream_reader(monkeypatch, mentorship, *, streams, account_ids=("mentor-account",)):
