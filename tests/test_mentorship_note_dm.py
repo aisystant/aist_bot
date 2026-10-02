@@ -24,6 +24,11 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from db.queries.mentorship import StreamChatContext
+from tests.mentorship_helpers import (
+    make_forward_from_channel,
+    make_forward_from_chat,
+    make_forward_hidden_author,
+)
 
 MENTOR_ID = "11111111-1111-1111-1111-111111111111"
 PARTICIPANT_ID = "22222222-2222-2222-2222-222222222222"
@@ -303,3 +308,50 @@ async def test_dm_note_participant_without_account_rejected(monkeypatch):
     reply_text = message.reply.await_args.args[0]
     assert "нет привязанного аккаунта" in reply_text
     assert (100, 100) not in mentorship._pending_notes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_target, expected_fragment",
+    [
+        (lambda: make_forward_hidden_author("Анна К."), "скрыл аккаунт"),
+        (make_forward_from_channel, "не от участника"),
+        (make_forward_from_chat, "не от участника"),
+    ],
+)
+async def test_dm_note_forward_without_a_user_author_is_refused_and_context_kept(monkeypatch, make_target, expected_fragment):
+    """A hidden or non-user author must not inherit the previous participant: the note would be filed under a
+    stranger without any warning (live check 02.10 on the card command, same resolver)."""
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    mentorship._active_participant[100] = mentorship._ActiveParticipant(
+        stream_id="S1", participant_account_id=PARTICIPANT_ID, participant_name="Иван Иванов", set_at=4900.0
+    )
+    message, command = _make_dm_message(reply_to_message=make_target(), from_user_id=100)
+
+    await mentorship.cmd_mentor_note_dm(message, command)
+
+    assert expected_fragment in message.reply.await_args.args[0]
+    assert (100, 100) not in mentorship._pending_notes
+    assert mentorship._active_participant[100].participant_name == "Иван Иванов"
+
+
+@pytest.mark.asyncio
+async def test_dm_note_plain_reply_with_active_participant_still_uses_it(monkeypatch):
+    """The mentor replies to his own plain text (not a forward) with /mentor_note: no other author is claimed."""
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    mentorship._active_participant[100] = mentorship._ActiveParticipant(
+        stream_id="S1", participant_account_id=PARTICIPANT_ID, participant_name="Иван Иванов", set_at=4900.0
+    )
+    message, command = _make_dm_message(reply_to_message=_make_plain_reply("заметка своими словами"), from_user_id=100)
+
+    await mentorship.cmd_mentor_note_dm(message, command)
+
+    pending = mentorship._pending_notes[(100, 100)]
+    assert pending.participant_account_id == PARTICIPANT_ID
+    assert pending.body == "заметка своими словами"
