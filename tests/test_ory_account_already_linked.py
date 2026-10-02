@@ -5,6 +5,7 @@ one tried to take the same ory_id, link_ory hit users_ory_id_key and the callbac
 raw 500. The user must get a clear message with the support contact instead.
 """
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
@@ -12,6 +13,11 @@ import pytest
 
 import oauth_server
 from db.queries import identity
+
+
+@asynccontextmanager
+async def _locked(_chat_id):
+    yield MagicMock(fetchval=AsyncMock(return_value="433fd7f9-d914-4c47-88b3-a37bbe964040"))
 
 
 def _unique_violation(constraint: str) -> asyncpg.UniqueViolationError:
@@ -76,6 +82,7 @@ async def test_callback_handler_returns_409_instead_of_500_when_ory_id_is_taken(
             patch("db.queries.ory_tokens.save_ory_tokens", save_tokens), \
             patch("clients.gateway_mcp.gateway_mcp", gateway), \
             patch("db.queries.identity.link_ory", link), \
+            patch.object(oauth_server, "_ory_link_write_lock", _locked), \
             patch.object(oauth_server, "_bot_instance", None):
         resp = await oauth_server.ory_callback_handler(request)
     assert resp.status == 409
@@ -97,6 +104,7 @@ async def test_callback_handler_still_succeeds_and_saves_tokens_when_link_works(
             patch("db.queries.ory_tokens.save_ory_tokens", save_tokens), \
             patch("clients.gateway_mcp.gateway_mcp", gateway), \
             patch("db.queries.identity.link_ory", link), \
+            patch.object(oauth_server, "_ory_link_write_lock", _locked), \
             patch("db.connection.get_pool", AsyncMock(side_effect=RuntimeError("no db in test"))), \
             patch.object(oauth_server, "_bot_instance", None):
         resp = await oauth_server.ory_callback_handler(request)
