@@ -220,7 +220,7 @@ async def test_dm_card_plain_reply_without_active_participant_asks_for_participa
 @pytest.mark.asyncio
 async def test_dm_card_hidden_author_forward_is_refused_not_answered_with_the_previous_participant(monkeypatch):
     """Live check 02.10: three forwards by different people, two with a hidden author, and the bot showed the
-    card of the first one three times. A hidden author is not the mentor's own message: refuse, keep the context."""
+    card of the first one three times. A hidden author is not the mentor's own message: refuse and drop the remembered participant."""
     import handlers.mentorship as mentorship
 
     monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
@@ -243,7 +243,7 @@ async def test_dm_card_hidden_author_forward_is_refused_not_answered_with_the_pr
     assert "скрыл аккаунт" in reply_text
     assert "группе потока" in reply_text
     assert "Петров" not in reply_text
-    assert mentorship._active_participant[100].participant_name == "Пётр Петров"
+    assert 100 not in mentorship._active_participant
 
 
 @pytest.mark.asyncio
@@ -264,7 +264,7 @@ async def test_dm_card_forward_from_a_channel_or_chat_is_not_a_participant(monke
 
     get_card_mock.assert_not_awaited()
     assert "не от участника" in message.reply.await_args.args[0]
-    assert mentorship._active_participant[100].participant_name == "Пётр Петров"
+    assert 100 not in mentorship._active_participant
 
 
 @pytest.mark.asyncio
@@ -300,6 +300,7 @@ async def test_dm_card_forward_sequence_visible_hidden_visible_never_mixes_parti
     await mentorship.cmd_mentor_card_dm(first)
     hidden = _make_dm_message(reply_to_message=make_forward_hidden_author("Скрытая Б"), from_user_id=100)
     await mentorship.cmd_mentor_card_dm(hidden)
+    assert 100 not in mentorship._active_participant
     third = _make_dm_message(reply_to_message=_make_forwarded_from_participant(203, full_name="Участник В"), from_user_id=100)
     await mentorship.cmd_mentor_card_dm(third)
 

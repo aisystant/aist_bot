@@ -319,9 +319,10 @@ async def test_dm_note_participant_without_account_rejected(monkeypatch):
         (make_forward_from_chat, "не от участника"),
     ],
 )
-async def test_dm_note_forward_without_a_user_author_is_refused_and_context_kept(monkeypatch, make_target, expected_fragment):
-    """A hidden or non-user author must not inherit the previous participant: the note would be filed under a
-    stranger without any warning (live check 02.10 on the card command, same resolver)."""
+async def test_dm_note_forward_without_a_user_author_is_refused_and_context_dropped(monkeypatch, make_target, expected_fragment):
+    """A hidden or non-user author must not inherit the previous participant: the confirmation would offer to
+    file somebody else's words under a stranger (live check 02.10 on the card command, same resolver). The
+    refusal also drops the remembered participant, so the next free text is not offered for them either."""
     import handlers.mentorship as mentorship
 
     monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value=MENTOR_ID))
@@ -335,7 +336,7 @@ async def test_dm_note_forward_without_a_user_author_is_refused_and_context_kept
 
     assert expected_fragment in message.reply.await_args.args[0]
     assert (100, 100) not in mentorship._pending_notes
-    assert mentorship._active_participant[100].participant_name == "Иван Иванов"
+    assert 100 not in mentorship._active_participant
 
 
 @pytest.mark.asyncio
