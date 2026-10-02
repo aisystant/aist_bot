@@ -187,3 +187,73 @@ async def test_expired_participant_does_not_match(monkeypatch):
     _set_active_participant(mentorship, from_user_id=100, set_at=0.0)
 
     assert await _matches(mentorship, make_dm_message(from_user_id=100, text="заметка")) is False
+
+
+def _real_private_text(**forward_fields):
+    """A real aiogram Message (not a fake), so the router's own F-filters run on the genuine model."""
+    from aiogram.types import Message
+
+    return Message.model_validate(
+        {
+            "message_id": 10,
+            "date": 1759400000,
+            "chat": {"id": 100, "type": "private", "first_name": "Наставник"},
+            "from": {"id": 100, "is_bot": False, "first_name": "Наставник"},
+            "text": "текст, который написал не наставник",
+            **forward_fields,
+        }
+    )
+
+
+_FORWARD_FIELDS = {
+    "hidden author": {"forward_origin": {"type": "hidden_user", "date": 1759390000, "sender_user_name": "Анна К."}},
+    "other visible user": {
+        "forward_origin": {
+            "type": "user",
+            "date": 1759390000,
+            "sender_user": {"id": 201, "is_bot": False, "first_name": "Анна"},
+        }
+    },
+    "channel": {
+        "forward_origin": {
+            "type": "channel",
+            "date": 1759390000,
+            "chat": {"id": -1001234567890, "type": "channel", "title": "Канал"},
+            "message_id": 1,
+        }
+    },
+    "chat": {
+        "forward_origin": {
+            "type": "chat",
+            "date": 1759390000,
+            "sender_chat": {"id": -1009876543210, "type": "supergroup", "title": "Группа"},
+        }
+    },
+    "legacy forward_date only": {"forward_date": 1759390000},
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forward_fields", list(_FORWARD_FIELDS.values()), ids=list(_FORWARD_FIELDS))
+async def test_forwarded_text_never_matches_even_with_a_fresh_active_participant(monkeypatch, forward_fields):
+    """Someone else's text forwarded without a command must not become a note about the previous participant
+    (same class of defect as the hidden-author card, 02.10). Until now only the router order protected it: the
+    GitHub forward handler, registered earlier, takes every forward."""
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    _set_active_participant(mentorship, from_user_id=100)
+
+    assert await _matches(mentorship, _real_private_text(**forward_fields)) is False
+
+
+@pytest.mark.asyncio
+async def test_own_typed_text_on_a_real_message_still_matches_with_a_fresh_active_participant(monkeypatch):
+    """Control for the test above: the same real message without forward fields does match, so the filter is
+    not simply refusing everything."""
+    import handlers.mentorship as mentorship
+
+    monkeypatch.setattr(mentorship, "time", lambda: 5000.0)
+    _set_active_participant(mentorship, from_user_id=100)
+
+    assert await _matches(mentorship, _real_private_text()) is True

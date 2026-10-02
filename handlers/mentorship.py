@@ -581,7 +581,11 @@ def _has_fresh_active_participant(message: Message) -> bool:
 
 
 @mentorship_router.message(
-    F.chat.type == "private", F.text, ~F.text.startswith("/"), _has_fresh_active_participant
+    F.chat.type == "private",
+    F.text,
+    ~F.text.startswith("/"),
+    ~(F.forward_origin | F.forward_date),
+    _has_fresh_active_participant,
 )
 async def on_mentor_dm_free_text(message: Message) -> None:
     """Голый текст в личке боту (не команда, не через `/mentor_note`) — если
@@ -603,6 +607,12 @@ async def on_mentor_dm_free_text(message: Message) -> None:
     молча проглотил бы личное сообщение КАЖДОГО пользователя бота, а не
     только наставника (тот же паттерн уже применяется в handlers/hermes.py
     для той же причины).
+
+    Пересылка сюда не попадает (признак тот же, что у обработчика пересылок
+    GitHub: `forward_origin` или `forward_date`): чужой текст не может стать
+    заметкой о прежнем «активном участнике». Раньше это держал только порядок
+    роутеров (обработчик GitHub стоит раньше и забирает любую пересылку); теперь
+    инвариант «свободный текст это слова самого наставника» задан фильтром.
 
     The same check is also a router filter (_has_fresh_active_participant), so
     this handler does not match ordinary users at all and their text goes
