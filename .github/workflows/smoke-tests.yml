@@ -64,6 +64,44 @@ jobs:
             echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
           fi
 
+  dt-writer-safety:
+    name: DT writer safety (PostgreSQL 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies and PostgreSQL 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-16
+          test "$(id -u)" -ne 0
+          /usr/lib/postgresql/16/bin/postgres --version
+          test -x /usr/lib/postgresql/16/bin/initdb
+          test -x /usr/lib/postgresql/16/bin/pg_ctl
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-mock
+      - name: Test disposable database concurrency and rollback
+        run: |
+          python -m pytest tests/test_dt_writer_safety.py -v --tb=short \
+            --junitxml=dt-writer-results.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('dt-writer-results.xml').findall('.//testcase')
+          if not cases or any(case.find('skipped') is not None for case in cases):
+              raise SystemExit('DT PostgreSQL tests must run without skips')
+          print(f'{len(cases)} PostgreSQL tests executed without skips')
+          PY
+      - name: Upload DT writer results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dt-writer-results
+          path: dt-writer-results.xml
+          retention-days: 30
+
   post-deploy-healthcheck:
     name: Post-Deploy Health Check
     runs-on: ubuntu-latest
