@@ -96,10 +96,12 @@ def test_stuck_intent_stays_plain(q):
 
 
 def test_other_roles_unaffected():
+    # WP-498 Ф14 (05.09): явный префикс — по-прежнему свои роли.
     assert _detect_role("Навигатор, с чего начать?") == "navigator"
-    assert _detect_role("какую программу выбрать") == "navigator"
-    assert _detect_role("Диагност, определи мою ступень") == "diagnostician"
-    assert _detect_role("какая у меня ступень") == "diagnostician"
+    assert _detect_role("Diagnostician, определи мою ступень") == "diagnostician"
+    # Без явного имени — контентный автодетект теперь ведёт к mentor.
+    assert _detect_role("какую программу выбрать") == "mentor"
+    assert _detect_role("какая у меня ступень") == "mentor"
     assert _detect_role("Как оформить отпуск?") is None
 
 

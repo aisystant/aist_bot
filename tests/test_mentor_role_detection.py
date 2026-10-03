@@ -58,12 +58,15 @@ def test_diagnostician_prefix_still_works():
     assert _detect_role("Диагност, определи мою ступень") == "diagnostician"
 
 
-def test_navigator_pattern_still_works():
-    assert _detect_role("с чего мне начать учиться?") == "navigator"
+def test_navigator_pattern_routes_to_mentor_without_explicit_name():
+    # WP-498 Ф14 (05.09): без явного имени вся лексика ведёт к Наставнику —
+    # он сам решает внутри диспетчер-промпта, нужен ли компонент Навигатора.
+    assert _detect_role("с чего мне начать учиться?") == "mentor"
 
 
-def test_diagnostician_pattern_still_works():
-    assert _detect_role("протестируй меня") == "diagnostician"
+def test_diagnostician_pattern_routes_to_mentor_without_explicit_name():
+    # WP-498 Ф14 (05.09): аналогично для лексики Диагноста без явного имени.
+    assert _detect_role("протестируй меня") == "mentor"
 
 
 # --- Приоритет: явный префикс > автодетект (для Наставника тоже) ---
@@ -73,13 +76,11 @@ def test_mentor_prefix_wins_over_navigator_pattern_in_same_message():
     assert _detect_role("наставник, с чего мне начать?") == "mentor"
 
 
-# --- Приоритет узких паттернов над широкими паттернами Наставника ---
-def test_navigator_narrow_pattern_wins_over_mentor_broad_pattern():
-    # "не получается учиться" (Навигатор, SS.3) — более специфичная фраза,
-    # содержит более широкий mentor-паттерн "не получается" как подстроку.
-    # DP.D.044 порядок проверки (diagnostician → navigator → mentor)
-    # обязан отдать приоритет уже существующей узкой роли.
-    assert _detect_role("у меня не получается учиться совсем") == "navigator"
+# --- Порядок проверки списков (diagnostician → navigator → mentor) больше не
+# влияет на итоговую роль (Ф14: все content-пути ведут к mentor) — тест
+# сохранён, чтобы подтвердить отсутствие ошибки при пересечении списков.
+def test_navigator_narrow_pattern_still_resolves_to_mentor():
+    assert _detect_role("у меня не получается учиться совсем") == "mentor"
 
 
 # --- Отсутствие ложных срабатываний на нейтральных вопросах ---

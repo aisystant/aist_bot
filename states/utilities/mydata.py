@@ -835,14 +835,14 @@ class MyDataState(BaseState):
 
         tiers_info = {
             'ru': {
-                0: ('Новый пользователь. Марафон, тест, прогресс. Trial 30 дней.', 'Привязать аккаунт Aisystant (/link)'),
+                0: ('Новый пользователь. Марафон, тест, прогресс.', 'Привязать аккаунт Aisystant (/link)'),
                 1: ('Привязан к Aisystant. Марафон, базовый профиль.', 'Оформить подписку «Инженерия интеллекта»'),
                 2: ('Подписка. Лента, консультации, заметки, планы.', 'Подключить Цифровой Двойник (/twin)'),
                 3: ('ЦД подключён. Персонализация, полный профиль.', 'Подключить GitHub (/github)'),
                 4: ('Локальный экзокортекс. Claude Code, агенты, личная база знаний.', 'Установить Claude Code + fork шаблона'),
             },
             'en': {
-                0: ('New user. Marathon, test, progress. 30-day trial.', 'Link Aisystant account (/link)'),
+                0: ('New user. Marathon, test, progress.', 'Link Aisystant account (/link)'),
                 1: ('Linked to Aisystant. Marathon, basic profile.', 'Subscribe to "Infinite Development" on Aisystant'),
                 2: ('Subscription. Feed, consultations, notes, plans.', 'Connect Digital Twin (/twin)'),
                 3: ('DT connected. Personalization, full profile.', 'Connect GitHub (/github)'),

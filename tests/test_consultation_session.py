@@ -618,7 +618,7 @@ async def test_history_keeps_answer_without_role_signature_and_model_sees_the_of
     with patch.object(state, "send", new=AsyncMock()) as send, \
          patch.object(state, "_save_session_context", new=AsyncMock(side_effect=db.save)), \
          model_call_patched(state, answer) as model:
-        await state.enter(db.user(), context={"question": "с чего начать?"})  # вопрос Навигатору: к ответу добавится подпись роли
+        await state.enter(db.user(), context={"question": "Навигатор, с чего начать?"})  # явное имя роли (Ф14: без имени вопрос идёт к Наставнику): к ответу добавится подпись роли
         await state.enter(db.user(), context={"question": "опиши"})
 
     footer = get_role_footer("navigator", "ru")
