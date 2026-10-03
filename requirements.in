@@ -1,9 +1,10 @@
 aiogram>=3.29.0
 apscheduler==3.10.4
-aiohttp==3.14.1
+aiohttp==3.14.3
 pydantic==2.5.3
 asyncpg==0.29.0
 pyyaml==6.0.1
 langfuse>=4.0.0
 PyJWT[crypto]>=2.10.0
 anthropic==0.117.0  # transitive dep of wheels/activity_hub (Requires-Dist: anthropic>=0.30.0, no upper bound) — pin explicitly so pip-compile locks it and its own deps (docstring-parser) instead of leaving them to float on rebuild
+anyio>=4.14.2,<5  # security floor for PYSEC-2026-4024 and PYSEC-2026-4025
