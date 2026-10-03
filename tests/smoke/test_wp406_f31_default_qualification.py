@@ -29,10 +29,13 @@ _DT = datetime(2026, 8, 8, 12, 0, 0)
 class FakeConn:
     """Подменяет asyncpg connection: возвращает подготовленные ответы, копит execute."""
 
-    def __init__(self, user_row=None, existing_qual=None, engagement_uuid=None):
+    def __init__(
+        self, user_row=None, existing_qual=None, engagement_uuid=None, write_result=True
+    ):
         self._user_row = user_row
         self._existing_qual = existing_qual
         self._engagement_uuid = engagement_uuid
+        self._write_result = write_result
         self.executed = []  # [(sql, args)]
 
     async def fetchrow(self, sql, *args):
@@ -41,6 +44,9 @@ class FakeConn:
         raise AssertionError(f"unexpected fetchrow: {sql}")
 
     async def fetchval(self, sql, *args):
+        if sql.lstrip().startswith("INSERT INTO public.digital_twins"):
+            self.executed.append((sql, args))
+            return self._write_result
         if "qualification_level" in sql:
             return self._existing_qual
         if "development.engagement" in sql:
@@ -120,6 +126,29 @@ async def test_existing_qualification_untouched(monkeypatch):
     result = await dt_sync.ensure_default_qualification(222)
 
     assert result is False
+    assert conn.executed == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_qualification_returns_false(monkeypatch):
+    """The final SQL guard, not the preliminary read, decides whether we wrote."""
+    conn = FakeConn(
+        user_row={"ory_id": "ory-race", "aisystant_id": None}, write_result=None
+    )
+    _patch_pools(monkeypatch, conn)
+    assert await dt_sync.ensure_default_qualification(111) is False
+    assert len(conn.executed) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [False, 0, "", []])
+async def test_unexpected_falsey_qualification_is_not_replaced(monkeypatch, value):
+    conn = FakeConn(
+        user_row={"ory_id": "ory-falsey", "aisystant_id": None},
+        existing_qual=json.dumps(value),
+    )
+    _patch_pools(monkeypatch, conn)
+    assert await dt_sync.ensure_default_qualification(111) is False
     assert conn.executed == []
 
 

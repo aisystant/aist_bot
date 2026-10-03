@@ -793,17 +793,8 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     'day_opens_30d': iwe_stats['day_opens_30d'],
                 })
 
-            # Fallback: dt-collect snapshot (переходный период)
-            if '2_6_coding' not in collected_data or '2_7_iwe' not in collected_data:
-                existing = await conn.fetchval(
-                    "SELECT data->'2_collected' FROM public.digital_twins WHERE user_id = $1",
-                    effective_user_id,
-                )
-                if existing:
-                    existing_collected = json.loads(existing) if isinstance(existing, str) else existing
-                    for key in ('2_6_coding', '2_7_iwe'):
-                        if key in existing_collected and key not in collected_data:
-                            collected_data[key] = existing_collected[key]
+            # Absent groups stay in the current row through the SQL merge below.
+            # Copying them from an earlier SELECT would overwrite another collector.
 
             # WP-218 Ф2: бот — только collector. Расчёт 3_derived — в R28 Profiler
             # (DS-ai-systems/profiler/scripts/recalculate_derived.py).
@@ -942,7 +933,7 @@ async def ensure_default_qualification(chat_id: int) -> bool:
             )
             if existing is not None:
                 existing_val = json.loads(existing) if isinstance(existing, str) else existing
-                if existing_val:
+                if existing_val is not None and existing_val != {}:
                     logger.info(
                         f"[DT Qual] chat_id={chat_id} already has qualification — untouched"
                     )
@@ -978,7 +969,8 @@ async def ensure_default_qualification(chat_id: int) -> bool:
             merge_payload = {"2_collected": {"2_2_courses": {"qualification_level": qual}}}
             # Deep merge down to 2_2_courses — соседние ключи (marathon_steps_total
             # и др.) и остальные секции 2_collected не затираются.
-            await conn.execute('''
+            written = await conn.fetchval(
+                """
                 INSERT INTO public.digital_twins (user_id, data, created_at, updated_at)
                 VALUES ($1, $2::jsonb, NOW(), NOW())
                 ON CONFLICT (user_id) DO UPDATE SET
@@ -991,7 +983,25 @@ async def ensure_default_qualification(chat_id: int) -> bool:
                             )
                         ),
                     updated_at = NOW()
-            ''', effective_user_id, json.dumps(merge_payload))
+                WHERE jsonb_typeof(digital_twins.data) = 'object'
+                AND (digital_twins.data->'2_collected' IS NULL
+                     OR jsonb_typeof(digital_twins.data->'2_collected') = 'object')
+                AND (digital_twins.data #> '{2_collected,2_2_courses}' IS NULL
+                     OR jsonb_typeof(digital_twins.data #> '{2_collected,2_2_courses}') = 'object')
+                AND COALESCE(
+                    digital_twins.data #> '{2_collected,2_2_courses,qualification_level}',
+                    'null'::jsonb
+                ) IN ('null'::jsonb, '{}'::jsonb)
+                RETURNING true
+            """,
+                effective_user_id,
+                json.dumps(merge_payload),
+            )
+            if not written:
+                logger.info(
+                    "[DT Qual] existing qualification or malformed document preserved; default skipped"
+                )
+                return False
             logger.info(
                 f"[DT Qual] default qualification "
                 f"{_DEFAULT_ONBOARDING_QUALIFICATION!r} (live level {live_level}) "
@@ -1000,7 +1010,9 @@ async def ensure_default_qualification(chat_id: int) -> bool:
             return True
 
     except Exception as e:
-        logger.error(f"[DT Qual] ensure_default_qualification failed for chat_id={chat_id}: {e}")
+        logger.error(
+            f"[DT Qual] ensure_default_qualification failed for chat_id={chat_id}: {e}"
+        )
         return False
 
 
