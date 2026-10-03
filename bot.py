@@ -79,7 +79,7 @@ from core.topics import (
 
 # ============= ИНФРАСТРУКТУРА (из core/) =============
 from core.storage import PostgresStorage
-from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware, UpdateDedupMiddleware
+from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware, install_update_dedup
 
 # ============= СОСТОЯНИЯ FSM (re-exports для обратной совместимости) =============
 from handlers.onboarding import OnboardingStates
@@ -113,9 +113,25 @@ async def _validate_middleware():
         TracingMiddleware,
         ConsultationPassthroughMiddleware,
         UpdateDedupMiddleware,
+        install_update_dedup,
     )
     from config.settings import DEVELOPER_CHAT_ID, MAINTENANCE_MODE, ALLOWED_TESTERS, MAINTENANCE_REDIRECT_BOT
     logger.info("✅ Middleware validation passed")
+
+
+def _log_migration_skipped(label: str, exc: Exception) -> None:
+    """A startup migration did not apply. Permission errors are not transient:
+    prod runs with SKIP_DB_MIGRATIONS=true and the bot role cannot CREATE in the
+    schema, so the table stays missing until the DB owner applies the DDL by hand
+    (РП-246 Ф2, 2026-09-07: 043/044 were "skipped" this way and nobody noticed)."""
+    import asyncpg
+    if isinstance(exc, asyncpg.InsufficientPrivilegeError):
+        logger.error(
+            f"❌ Migration {label} NOT applied: {exc}. The bot role cannot create tables — "
+            "apply the migration DDL as the database owner (see db/migrations/README or РП-246).",
+        )
+        return
+    logger.warning(f"⚠️ Migration {label} skipped: {exc}", exc_info=True)
 
 
 async def _bootstrap_learning_schema() -> None:
@@ -234,7 +250,28 @@ async def main():
         else:
             logger.info("✅ Migration 043: nudge_receipt уже существует")
     except Exception as _e:
-        logger.warning(f"⚠️ Migration 043 (nudge_receipt) skipped: {_e}", exc_info=True)
+        _log_migration_skipped("043 (nudge_receipt)", _e)
+
+    # Миграция 044: internship_payment_checks — доставка приглашения в чат
+    # потока после оплаты программы/резидентуры/семинара (WP-5).
+    # NB: 009 (workshop_payments, community_members) и 011 (seminars,
+    # seminar_payments) — ручные скрипты, при старте НЕ вызываются. 009-таблицы
+    # создаёт владелец базы (РП-246 Ф2, 2026-09-07); 011-таблицы код не читает
+    # (showcase пишет в finance_payments) — скрипт оставлен как история WP-5.
+    try:
+        _m044 = _il.import_module("db.migrations.044_internship_payment_checks")
+        if await _m044.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 044: internship_payment_checks создана")
+        else:
+            logger.info("✅ Migration 044: internship_payment_checks уже существует")
+    except Exception as _e:
+        _log_migration_skipped("044 (internship_payment_checks)", _e)
+
+    # Fail-fast для денежных таблиц — ПОСЛЕ стартовых миграций выше, чтобы среда,
+    # где роль умеет CREATE (пилот, dev), сначала вылечила себя сама. Падение здесь
+    # = /health не поднимется = Railway не переключит трафик на эту ревизию.
+    from db.connection import verify_money_tables
+    await verify_money_tables()
 
     # Миграция 037: scheduled_post — дедупликация + atomic publish lock (WP-167).
     # Индекс + статус 'publishing' защищают от дублей при публикации в клуб.
@@ -259,6 +296,20 @@ async def main():
             logger.info("✅ Migration 039: daily_activity_marker уже существует")
     except Exception as _e:
         logger.warning(f"⚠️ Migration 039 (daily_activity_marker) skipped: {_e}", exc_info=True)
+
+    # GitHub App identity verification (WP-406, best-effort — не блокирует старт).
+    # Сверяет настроенный GITHUB_APP_ID/SLUG с реальным GitHub API при старте;
+    # результат читают гейты входных точек (_app_identity_verified) как вторая
+    # линия защиты поверх GITHUB_APP_ENABLED.
+    try:
+        from clients.github_app import is_app_enabled, verify_app_identity
+        if is_app_enabled():
+            if await verify_app_identity():
+                logger.info("✅ GitHub App identity verified (WP-406)")
+            else:
+                logger.warning("⚠️ GitHub App identity verification failed (WP-406) — см. gate=identity_* логи выше")
+    except Exception as _e:
+        logger.warning(f"⚠️ GitHub App identity verification skipped: {_e}", exc_info=True)
 
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
@@ -469,12 +520,29 @@ async def main():
             return True  # handled
         return False  # propagate
 
-    # Регистрируем middleware (порядок важен: Dedup → Maintenance → RateLimit → Logging → Passthrough → Tracing)
-    # Dedup ПЕРВЫМ: webhook-retry (WP-7 incident 2026-07-10) должен отсекаться
-    # до любой другой логики, иначе повторный update всё равно тратит DB round-trip.
-    update_dedup = UpdateDedupMiddleware()
-    dp.message.middleware(update_dedup)
-    dp.callback_query.middleware(update_dedup)
+    # Middleware order matters: Dedup (outer, once per update), then the inner chain
+    # ArchiveTap -> Maintenance -> RateLimit -> Logging -> Passthrough -> Tracing.
+    # The inner chain runs for every MATCHED handler, so after a SkipHandler it runs again for the
+    # next one: keep SkipHandler off hot paths (use a router filter instead).
+    # Dedup goes first among the bot's layers: a webhook retry (WP-7 incident 2026-07-10) is dropped
+    # before any other bot logic. It is OUTER (install_update_dedup): as an inner layer it ran again
+    # after every SkipHandler and dropped the update for the next handler as a "retry".
+    install_update_dedup(dp)
+    # WP-578 Ф2: наблюдатель архива переписки наставника — enqueue-only, сразу
+    # после Dedup, ДО RateLimit (Р1: дроп по частоте сообщений не должен
+    # терять переписку, которую наставник обязан видеть). DRR-f2 §1.
+    from engines.mentorship.archive_tap import ArchiveTapMiddleware, ArchiveTapEditMiddleware, mentorship_archive_worker
+
+    dp.message.middleware(ArchiveTapMiddleware())
+    # outer, не inner: dp.edited_message не имеет ни одного зарегистрированного
+    # handler'а нигде в проекте — TelegramEventObserver.trigger() (aiogram)
+    # оборачивает inner middleware только вокруг СОВПАВШЕГО handler'а (цикл
+    # `for handler in self.handlers`), для пустого списка handlers он не
+    # выполняется вовсе. outer_middleware оборачивает весь trigger() и
+    # выполняется безусловно (найдено пир-сессией 24.09, живым чтением
+    # aiogram/dispatcher/event/telegram.py).
+    dp.edited_message.outer_middleware(ArchiveTapEditMiddleware())
+    asyncio.create_task(mentorship_archive_worker())
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
     rate_limiter = RateLimitMiddleware(max_messages=20, window_seconds=60)

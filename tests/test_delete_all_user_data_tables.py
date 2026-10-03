@@ -9,6 +9,7 @@ Run: python3 -m pytest tests/test_delete_all_user_data_tables.py -v
 
 import asyncio
 import inspect
+import logging
 import os
 import sys
 
@@ -84,25 +85,6 @@ def test_channel_monitors_is_in_optional_block_not_core_transaction():
     source = inspect.getsource(delete_all_user_data)
     core_transaction_source = source.split("async with conn.transaction():")[1]
     assert "'channel_monitors'" not in core_transaction_source
-
-
-def test_request_traces_legacy_is_outside_core_transaction():
-    """Same bug class and same fix as channel_monitors above, found in the
-    same 2026-08-07 review pass: DELETE FROM request_traces (main pool,
-    "will be DROPPED after soak") lived inside the core transaction with its
-    own try/except — same non-fix, since prod runs with SKIP_DB_MIGRATIONS=true
-    (bot.py) so db/models.py's CREATE TABLE is not a reliable signal the table
-    still exists. Moved next to channel_monitors, outside the transaction, kept
-    under its own result key ('request_traces_legacy') because the health-pool
-    copy of this table (migrated destination, WP-253 G4) writes
-    result['request_traces'] further down in the same function — colliding
-    keys would silently drop one of the two counts."""
-    source = inspect.getsource(delete_all_user_data)
-    pre_transaction_source, core_transaction_source = source.split("async with conn.transaction():", 1)
-    assert "request_traces_legacy" in pre_transaction_source
-    assert "request_traces_legacy" not in core_transaction_source
-    # The health-pool copy still exists further down, keyed without '_legacy'.
-    assert "result['request_traces']" in core_transaction_source
 
 
 class _FakeTransaction:
@@ -367,6 +349,8 @@ def _patch_deletion_pools(
     main_pool=None,
     persona_pool=None,
     privacy_pool=None,
+    learning_pool=None,
+    secrets_pool=None,
 ):
     """Route every pool used by delete_all_user_data() to deterministic doubles."""
     success_pool = _DeletePool()
@@ -374,6 +358,8 @@ def _patch_deletion_pools(
     community_pool = community_pool or success_pool
     persona_pool = persona_pool or success_pool
     privacy_pool = privacy_pool or success_pool
+    learning_pool = learning_pool or success_pool
+    secrets_pool = secrets_pool or success_pool
 
     async def main_getter():
         return main_pool
@@ -390,13 +376,19 @@ def _patch_deletion_pools(
     async def privacy_getter():
         return privacy_pool
 
+    async def learning_getter():
+        return learning_pool
+
+    async def secrets_getter():
+        return secrets_pool
+
     monkeypatch.setattr(profile_queries, "get_pool", main_getter)
-    monkeypatch.setattr(profile_queries, "get_learning_pool", success_getter)
+    monkeypatch.setattr(profile_queries, "get_learning_pool", learning_getter)
     monkeypatch.setattr(profile_queries, "get_health_pool", success_getter)
     monkeypatch.setattr(profile_queries, "get_privacy_deletion_pool", privacy_getter)
+    monkeypatch.setattr(db_connection, "get_secrets_pool", secrets_getter)
 
     for getter_name in (
-        "get_secrets_pool",
         "get_subscription_pool",
         "get_indicators_pool",
         "get_rewards_pool",
@@ -515,3 +507,501 @@ def test_optional_table_permission_error_blocks_success(monkeypatch):
         asyncio.run(delete_all_user_data(123456))
 
     assert "main.assessments" in error.value.failed_components
+
+
+# WP-554 Ф11 (пир-сессия с Codex, 09.09): persona-финализатор — bot_profile/
+# consent_grants/ory_identity, гейт `not failures`, счётчики публикуются только
+# после commit.
+
+
+def test_identity_finalizer_runs_after_all_other_legs():
+    """Gate must sit after every other required leg, not interleaved — a leg
+    added later in the function must still be able to block the finalizer."""
+    source = inspect.getsource(delete_all_user_data)
+    finalizer_idx = source.index("persona.identity_finalizer")
+    total_idx = source.index("total = sum(result.values())")
+    assert finalizer_idx < total_idx
+
+
+def test_identity_finalizer_consent_and_ory_identity_gated_by_account_id():
+    """bot_profile is deleted unconditionally (nullable account_id case);
+    consent_grants/ory_identity only when account_id is known — same failure
+    shape as every other account-id-keyed leg in this file."""
+    source = inspect.getsource(delete_all_user_data)
+    finalizer_idx = source.index("persona.identity_finalizer")
+    block_start = source.rindex("if not failures:", 0, finalizer_idx)
+    block = source[block_start:finalizer_idx]
+    bot_profile_idx = block.index("DELETE FROM public.bot_profile")
+    guard_idx = block.rindex("if account_id:", 0, block.index("DELETE FROM public.consent_grants"))
+    assert guard_idx > bot_profile_idx, "bot_profile delete must not sit inside the account_id guard"
+    assert "DELETE FROM public.ory_identity WHERE account_id = $1" in block[guard_idx:]
+
+
+def test_identity_finalizer_deletes_bot_profile_without_account_id(monkeypatch):
+    """No ory_identity row (account_id falsy) must still clean up a
+    bot_profile row matched by chat_id — the nullable-FK case Codex found."""
+    persona_conn = _DeleteConn(fetchval_result=0)
+    _patch_deletion_pools(monkeypatch, persona_pool=_DeletePool(conn=persona_conn))
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    assert "persona_bot_profile" in result
+    assert "persona_consent_grants" not in result
+    assert "persona_ory_identity" not in result
+
+
+def _privacy_pool_with_valid_erasure():
+    """account_id-gated legs (journal.domain_event included) require a
+    non-None fetchrow result from the privacy pool — same fixture shape as
+    test_journal_erasure_uses_verified_account_and_narrow_pool above."""
+    return _DeletePool(conn=_DeleteConn(fetchrow_result={
+        "rows_unlinked": 0,
+        "rows_payload_scrubbed": 0,
+        "tombstone_external_id": "forget-test",
+    }))
+
+
+def test_identity_finalizer_deletes_all_three_with_known_account_id(monkeypatch):
+    account_id = "00000000-0000-0000-0000-000000000002"
+    persona_conn = _DeleteConn(fetchval_result=account_id)
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    assert "persona_bot_profile" in result
+    assert "persona_consent_grants" in result
+    assert "persona_ory_identity" in result
+
+
+def test_identity_finalizer_skipped_when_earlier_leg_failed(monkeypatch):
+    """A failure anywhere earlier must leave ory_identity resolvable for the
+    next retry attempt — the finalizer must not even try."""
+    account_id = "00000000-0000-0000-0000-000000000003"
+    persona_conn = _DeleteConn(fetchval_result=account_id)
+    community_pool = _DeletePool(acquire_error=RuntimeError("community unavailable"))
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        community_pool=community_pool,
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "persona.identity_finalizer" not in error.value.failed_components
+    assert "persona_bot_profile" not in error.value.partial_result
+    assert "persona_ory_identity" not in error.value.partial_result
+
+
+def test_identity_finalizer_rollback_does_not_leak_partial_counts(monkeypatch):
+    """A failure on the second DELETE (consent_grants) must not leave the
+    first DELETE's (bot_profile) count in the reported result — the whole
+    persona transaction rolled back, so ory_identity is still there too."""
+    account_id = "00000000-0000-0000-0000-000000000004"
+    persona_conn = _DeleteConn(
+        fetchval_result=account_id,
+        execute_error_for="public.consent_grants",
+        error=RuntimeError("injected consent_grants failure"),
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "persona.identity_finalizer" in error.value.failed_components
+    assert "persona_bot_profile" not in error.value.partial_result
+    assert "persona_consent_grants" not in error.value.partial_result
+    assert "persona_ory_identity" not in error.value.partial_result
+
+
+def test_identity_finalizer_third_delete_failure_does_not_leak_earlier_counts(monkeypatch):
+    """Same rollback guarantee, symmetric case: failure on the THIRD DELETE
+    (ory_identity) must not leak the first two (bot_profile, consent_grants),
+    which by themselves executed without error inside the same transaction."""
+    account_id = "00000000-0000-0000-0000-000000000005"
+    persona_conn = _DeleteConn(
+        fetchval_result=account_id,
+        execute_error_for="public.ory_identity",
+        error=RuntimeError("injected ory_identity failure"),
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "persona.identity_finalizer" in error.value.failed_components
+    assert "persona_bot_profile" not in error.value.partial_result
+    assert "persona_consent_grants" not in error.value.partial_result
+    assert "persona_ory_identity" not in error.value.partial_result
+
+
+def test_identity_finalizer_deletes_consent_grants_before_ory_identity():
+    """consent_grants.account_id has no ON DELETE CASCADE from ory_identity
+    (mvp/006-persona-schema.sql) — deleting ory_identity first would raise a
+    live FK violation. Position check, not just "both under the same guard"."""
+    source = inspect.getsource(delete_all_user_data)
+    finalizer_idx = source.index("persona.identity_finalizer")
+    block = source[source.rindex("if not failures:", 0, finalizer_idx):finalizer_idx]
+    assert block.index("DELETE FROM public.consent_grants") < block.index(
+        "DELETE FROM public.ory_identity"
+    )
+
+
+# WP-554 Ф12: eleven bot-written tables the account deletion used to skip
+# (found in the 29.09 actualisation, static scan of origin/new-architecture).
+
+_F12_CHAT_ID = 123456
+_F12_ACCOUNT_ID = "00000000-0000-0000-0000-0000000000f1"
+
+# (pool, unique SQL fragment, required-leg component, result key)
+_F12_LEGS = [
+    ("main", "DELETE FROM public.helpdesk_tickets", "main.helpdesk_tickets", "helpdesk_tickets"),
+    ("main", "DELETE FROM development.learning_history", "main.learning_history", "learning_history"),
+    ("main", "DELETE FROM development.notification_queue", "main.notification_queue", "notification_queue"),
+    ("main", "DELETE FROM development.nudge_receipt", "main.nudge_receipt", "nudge_receipt"),
+    ("learning", "DELETE FROM public.reminder WHERE", "learning.reminder", "learning_reminder"),
+    ("learning", "DELETE FROM learning.marathon_activity", "learning.marathon_activity", "learning_marathon_activity"),
+    ("learning", "DELETE FROM learning.marathon_progress", "learning.marathon_progress", "learning_marathon_progress"),
+    ("learning", "DELETE FROM learning.marathon_queue", "learning.marathon_queue", "learning_marathon_queue"),
+    ("learning", "DELETE FROM learning.marathon_state", "learning.marathon_state", "learning_marathon_state"),
+    ("learning", "DELETE FROM learning.onboarding_state", "learning.onboarding_state", "learning_onboarding_state"),
+    ("secrets", "DELETE FROM public.ory_client_tokens", "secrets.ory_client_tokens", "secrets_ory_client_tokens"),
+    # added after the cold review: tables that block or resurrect the deletion
+    ("main", "DELETE FROM public.user_milestone_offers", "main.user_milestone_offers", "user_milestone_offers"),
+    ("main", "DELETE FROM public.user_milestones", "main.user_milestones", "user_milestones"),
+    ("secrets", "DELETE FROM public.external_auth_codes", "secrets.external_auth_codes", "secrets_external_auth_codes"),
+]
+_F12_MAIN_LEGS = [leg for leg in _F12_LEGS if leg[0] == "main"]
+_F12_STRICT_LEGS = [leg for leg in _F12_LEGS if leg[0] != "main"]
+_F12_IDS = [leg[3] for leg in _F12_LEGS]
+
+
+class _RecordingConn(_DeleteConn):
+    """_DeleteConn that keeps every executed (sql, args) and reports a fixed row count."""
+
+    def __init__(self, delete_count: int = 0, **kwargs):
+        super().__init__(**kwargs)
+        self.delete_count = delete_count
+        self.executed: list[tuple[str, tuple]] = []
+
+    async def execute(self, sql, *args):
+        self.executed.append((sql, args))
+        await super().execute(sql, *args)  # raises the injected error, if it matches
+        return f"DELETE {self.delete_count}"
+
+
+def _f12_setup(monkeypatch, injected=None, delete_count=0, account_id=_F12_ACCOUNT_ID):
+    """Recording doubles for the main, learning and secrets pools; persona knows account_id.
+
+    injected = (pool, sql fragment, error): the statement containing the fragment raises.
+    """
+    conns = {kind: _RecordingConn(delete_count=delete_count) for kind in ("main", "learning", "secrets")}
+    if injected:
+        kind, fragment, error = injected
+        conns[kind].execute_error_for = fragment
+        conns[kind].error = error
+    _patch_deletion_pools(
+        monkeypatch,
+        main_pool=_DeletePool(conn=conns["main"]),
+        learning_pool=_DeletePool(conn=conns["learning"]),
+        secrets_pool=_DeletePool(conn=conns["secrets"]),
+        persona_pool=_DeletePool(conn=_DeleteConn(fetchval_result=account_id)),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+    return conns
+
+
+def test_main_pool_optional_tables_have_unique_result_keys():
+    """result[table] is keyed by the bare table name for both main-pool lists."""
+    tables = [table for _schema, table, _column in profile_queries._main_optional_tables()]
+    assert len(tables) == len(set(tables))
+
+
+def test_f12_each_bot_table_is_deleted_by_its_own_subject_key(monkeypatch):
+    """Key semantics per table, taken from the DDL and the writers: BIGINT Telegram id
+    everywhere except onboarding_state (account_id) and ory_client_tokens (account_id,
+    plus the chat_id column that migration 030 added)."""
+    conns = _f12_setup(monkeypatch, delete_count=2)
+
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    chat = (_F12_CHAT_ID,)
+    expected = {
+        "main": [
+            ("DELETE FROM public.helpdesk_tickets WHERE chat_id = $1", chat),
+            ("DELETE FROM development.learning_history WHERE user_id = $1", chat),
+            ("DELETE FROM development.notification_queue WHERE chat_id = $1", chat),
+            ("DELETE FROM development.nudge_receipt WHERE recipient_chat_id = $1", chat),
+            ("DELETE FROM public.user_milestone_offers WHERE user_id = $1", chat),
+            ("DELETE FROM public.user_milestones WHERE user_id = $1", chat),
+        ],
+        "learning": [
+            ("DELETE FROM public.reminder WHERE chat_id = $1", chat),
+            ("DELETE FROM learning.marathon_activity WHERE user_id = $1", chat),
+            ("DELETE FROM learning.marathon_progress WHERE user_id = $1", chat),
+            ("DELETE FROM learning.marathon_queue WHERE user_id = $1", chat),
+            ("DELETE FROM learning.marathon_state WHERE user_id = $1", chat),
+            ("DELETE FROM learning.onboarding_state WHERE account_id = $1::uuid", (_F12_ACCOUNT_ID,)),
+        ],
+        "secrets": [
+            (
+                "DELETE FROM public.ory_client_tokens WHERE chat_id = $1 OR account_id = $2::uuid",
+                (_F12_CHAT_ID, _F12_ACCOUNT_ID),
+            ),
+            (
+                "DELETE FROM public.external_auth_codes WHERE chat_id = $1 OR account_id = $2::uuid",
+                (_F12_CHAT_ID, _F12_ACCOUNT_ID),
+            ),
+        ],
+    }
+    for kind, statements in expected.items():
+        for statement in statements:
+            assert conns[kind].executed.count(statement) == 1, statement
+    for _kind, _fragment, _component, key in _F12_LEGS:
+        assert result[key] == 2, key
+
+
+def test_f12_without_account_id_tokens_still_go_by_chat_id_and_onboarding_is_skipped(monkeypatch):
+    """No ory_identity row: the account-keyed onboarding row cannot be addressed, but the
+    token pairs must still be found through the chat_id column."""
+    conns = _f12_setup(monkeypatch, account_id=None)
+
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    token_delete = (
+        "DELETE FROM public.ory_client_tokens WHERE chat_id = $1 OR account_id = $2::uuid",
+        (_F12_CHAT_ID, None),
+    )
+    assert token_delete in conns["secrets"].executed
+    assert not any("onboarding_state" in sql for sql, _args in conns["learning"].executed)
+    assert result["learning_onboarding_state"] == 0
+
+
+def _f12_failures():
+    """Two error classes: a database refusal and a timeout that is not a PostgresError."""
+    leaked = f"key ({_F12_CHAT_ID}) {_F12_ACCOUNT_ID}"
+    return [
+        pytest.param(lambda: asyncpg.exceptions.InsufficientPrivilegeError(f"permission denied for {leaked}"), id="privilege"),
+        pytest.param(lambda: TimeoutError(f"timed out for {leaked}"), id="timeout"),
+    ]
+
+
+@pytest.mark.parametrize("make_error", _f12_failures())
+@pytest.mark.parametrize("pool, fragment, component, key", _F12_LEGS, ids=_F12_IDS)
+def test_f12_failing_leg_is_named_and_blocks_the_identity_finalizer(
+    monkeypatch, pool, fragment, component, key, make_error
+):
+    """A real failure (not an absent table) must not read as success, must name exactly its
+    own leg, must not stop the other legs, and must leave ory_identity in place so the
+    retry can resolve the account."""
+    conns = _f12_setup(monkeypatch, injected=(pool, fragment, make_error()))
+
+    with pytest.raises(IncompleteUserDataDeletion) as raised:
+        asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    failure = raised.value
+    assert failure.failed_components == (component,)
+    assert failure.partial_result[key] == 0
+    assert "persona_ory_identity" not in failure.partial_result
+    assert str(_F12_CHAT_ID) not in str(failure)
+    assert _F12_ACCOUNT_ID not in str(failure)
+    for _pool, other_fragment, other_component, _key in _F12_LEGS:
+        attempted = [sql for sql, _args in conns[_pool].executed]
+        assert any(other_fragment in sql for sql in attempted), f"{other_component} was never attempted"
+
+
+@pytest.mark.parametrize("pool, fragment, component, key", _F12_MAIN_LEGS, ids=[leg[3] for leg in _F12_MAIN_LEGS])
+def test_f12_main_pool_table_that_does_not_exist_is_skipped(monkeypatch, pool, fragment, component, key):
+    """The main database has no live catalogue check: an absent table holds no data."""
+    error = asyncpg.exceptions.UndefinedTableError("relation does not exist")
+    _f12_setup(monkeypatch, injected=(pool, fragment, error))
+
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert result[key] == 0
+
+
+@pytest.mark.parametrize("pool, fragment, component, key", _F12_STRICT_LEGS, ids=[leg[3] for leg in _F12_STRICT_LEGS])
+def test_f12_learning_and_secrets_tables_must_exist(monkeypatch, pool, fragment, component, key):
+    """These tables are created by migrations 025/029 and exist in the live catalogue, so a
+    missing one means the deletion is looking in the wrong place: fail, do not skip."""
+    error = asyncpg.exceptions.UndefinedTableError("relation does not exist")
+    _f12_setup(monkeypatch, injected=(pool, fragment, error))
+
+    with pytest.raises(IncompleteUserDataDeletion) as raised:
+        asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert raised.value.failed_components == (component,)
+
+
+def _rendered_log(caplog) -> str:
+    """Every record as the formatter prints it, traceback included (exc_info is rendered)."""
+    formatter = logging.Formatter("%(message)s")
+    return "\n".join(formatter.format(record) for record in caplog.records)
+
+
+def test_f12_failure_logs_carry_no_subject_identifiers(monkeypatch, caplog):
+    """The database error text carries the key value (asyncpg DETAIL); the leg log must
+    name the component and the exception class only, with no traceback attached."""
+    error = asyncpg.exceptions.InsufficientPrivilegeError(
+        f"permission denied for key ({_F12_CHAT_ID}) {_F12_ACCOUNT_ID}"
+    )
+    _f12_setup(monkeypatch, injected=("learning", "DELETE FROM learning.marathon_state", error))
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(IncompleteUserDataDeletion):
+            asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    logged = _rendered_log(caplog)
+    assert "learning.marathon_state (InsufficientPrivilegeError)" in logged
+    assert str(_F12_CHAT_ID) not in logged
+    assert _F12_ACCOUNT_ID not in logged
+
+
+def test_f12_skip_log_names_the_table_but_not_the_subject(monkeypatch, caplog):
+    error = asyncpg.exceptions.UndefinedTableError("relation does not exist")
+    _f12_setup(monkeypatch, injected=("main", "DELETE FROM development.nudge_receipt", error))
+
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    logged = _rendered_log(caplog)
+    assert "development.nudge_receipt" in logged
+    assert str(_F12_CHAT_ID) not in logged
+
+
+@pytest.mark.parametrize("pool, fragment, component, key", _F12_MAIN_LEGS, ids=[leg[3] for leg in _F12_MAIN_LEGS])
+def test_f12_undefined_column_in_a_main_leg_is_a_failure_not_a_skip(monkeypatch, pool, fragment, component, key):
+    """Only a missing table is skippable; a wrong column name means the key is wrong."""
+    error = asyncpg.exceptions.UndefinedColumnError('column "x" does not exist')
+    _f12_setup(monkeypatch, injected=(pool, fragment, error))
+
+    with pytest.raises(IncompleteUserDataDeletion) as raised:
+        asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert raised.value.failed_components == (component,)
+
+
+def test_f12_onboarding_is_keyed_by_the_persona_account_not_by_the_dt_token_id(monkeypatch):
+    """The Digital Twin id from secrets.dt_tokens is a different identifier."""
+    conns = _f12_setup(monkeypatch)
+    conns["secrets"].fetchrow_result = {"dt_user_id": "00000000-0000-0000-0000-00000000dead"}
+
+    asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    onboarding = [args for sql, args in conns["learning"].executed if "learning.onboarding_state" in sql]
+    assert onboarding == [(_F12_ACCOUNT_ID,)]
+
+
+class _AbortAwareConn:
+    """PostgreSQL-like double: an error inside a plain transaction aborts it until it ends."""
+
+    def __init__(self, inner, error_fragment, error):
+        self.inner = inner
+        self.error_fragment = error_fragment
+        self.error = error
+        self.depth = 0
+        self.aborted = False
+
+    def transaction(self):
+        conn = self
+
+        class _Transaction:
+            async def __aenter__(self):
+                conn.depth += 1
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                conn.depth -= 1
+                if exc_type is not None or conn.depth == 0:
+                    conn.aborted = False
+                return False
+
+        return _Transaction()
+
+    async def execute(self, sql, *args):
+        if self.aborted:
+            raise asyncpg.exceptions.InFailedSQLTransactionError("current transaction is aborted")
+        if self.error_fragment in sql:
+            if self.depth == 1:
+                self.aborted = True
+            raise self.error
+        return await self.inner.execute(sql, *args)
+
+    async def fetchval(self, sql, *args):
+        return await self.inner.fetchval(sql, *args)
+
+    async def fetchrow(self, sql, *args):
+        return await self.inner.fetchrow(sql, *args)
+
+
+def test_f12_skipped_missing_table_does_not_poison_the_later_main_legs(monkeypatch):
+    """The 2026-08-07 incident class: one absent table inside a shared transaction aborts
+    every statement after it. The optional legs must stay outside any transaction."""
+    conns = _f12_setup(monkeypatch)
+    conn = _AbortAwareConn(
+        conns["main"],
+        "DELETE FROM development.notification_queue",
+        asyncpg.exceptions.UndefinedTableError("relation does not exist"),
+    )
+    monkeypatch.setattr(profile_queries, "get_pool", _async_value(_DeletePool(conn=conn)))
+
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert result["notification_queue"] == 0
+    assert result["nudge_receipt"] == 0
+    assert result["user_milestones"] == 0
+
+
+def _async_value(value):
+    async def getter():
+        return value
+
+    return getter
+
+
+def _executed_order(conns, pool):
+    return [sql for sql, _args in conns[pool].executed]
+
+
+def test_f12_source_tables_are_deleted_before_their_derived_tables(monkeypatch):
+    """marathon_activity is upserted nightly from marathon_state; auth codes must go before
+    the token pairs an exchange would create from them."""
+    conns = _f12_setup(monkeypatch)
+
+    asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    learning = _executed_order(conns, "learning")
+    state_at = next(i for i, sql in enumerate(learning) if "learning.marathon_state" in sql)
+    activity_at = next(i for i, sql in enumerate(learning) if "learning.marathon_activity" in sql)
+    assert state_at < activity_at
+    secrets = _executed_order(conns, "secrets")
+    codes_at = next(i for i, sql in enumerate(secrets) if "public.external_auth_codes" in sql)
+    tokens_at = next(i for i, sql in enumerate(secrets) if "public.ory_client_tokens" in sql)
+    assert codes_at < tokens_at
+
+
+def test_f12_tables_with_a_foreign_key_to_users_are_deleted_before_the_users_row(monkeypatch):
+    """user_milestones and user_milestone_offers reference users(telegram_id) without a
+    cascade (migrations 027, 028): the users delete fails while one of their rows exists."""
+    conns = _f12_setup(monkeypatch)
+
+    asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    main = _executed_order(conns, "main")
+    users_at = next(i for i, sql in enumerate(main) if sql.startswith("DELETE FROM public.users "))
+    for table in ("user_milestone_offers", "user_milestones"):
+        table_at = next(i for i, sql in enumerate(main) if f"DELETE FROM public.{table} " in sql)
+        assert table_at < users_at, table

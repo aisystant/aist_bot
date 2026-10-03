@@ -792,32 +792,6 @@ async def create_tables(pool: asyncpg.Pool):
         await conn.execute('DROP VIEW IF EXISTS user_knowledge_profile')
 
         # ═══════════════════════════════════════════════════════════
-        # ТРЕЙСИНГ ЗАПРОСОВ (для Grafana)
-        # ═══════════════════════════════════════════════════════════
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS public.request_traces (
-                id SERIAL PRIMARY KEY,
-                trace_id TEXT NOT NULL,
-                user_id BIGINT NOT NULL,
-                command TEXT,
-                state TEXT,
-                total_ms REAL NOT NULL,
-                spans JSONB DEFAULT '[]',
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        ''')
-
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_traces_created
-            ON public.request_traces (created_at DESC)
-        ''')
-
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_traces_user
-            ON public.request_traces (user_id, created_at DESC)
-        ''')
-
-        # ═══════════════════════════════════════════════════════════
         # МОНИТОРИНГ ОШИБОК
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
@@ -1460,6 +1434,7 @@ async def create_tables(pool: asyncpg.Pool):
                 status TEXT NOT NULL DEFAULT 'pending',
                 source TEXT NOT NULL DEFAULT 'bot',
                 payment_id TEXT,
+                product TEXT,
                 paid_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT NOW()
             )

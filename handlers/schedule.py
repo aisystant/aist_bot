@@ -39,7 +39,8 @@ from aiogram.filters import Command
 from db.queries import get_intern
 from db.queries.aisystant import get_aisystant_id
 from db.queries.redeem import cancel_pending_reserve, confirm_course_reserves, update_reserve_payment_id
-from clients.aisystant import aisystant
+from db.queries.internship_payments import create_internship_payment_tracked
+from clients.aisystant import aisystant, parse_amount
 from helpers.redeem_helpers import build_burn_offer_keyboard, prepare_burn_offer, reserve_for_yookassa_provisional
 from i18n import t
 
@@ -99,6 +100,7 @@ async def _create_course_buttons(
     aisystant_id: str,
     paid_courses: list[tuple[str, str, int]],
     lang: str,
+    chat_id: int,
     emoji: str = "💳",
 ) -> list[list[InlineKeyboardButton]]:
     """Pre-create internship payments → URL buttons (no extra click).
@@ -115,8 +117,9 @@ async def _create_course_buttons(
                 callback_data=f"sched_pay_choice:{code}:{amount}",
             )]
         try:
-            result = await aisystant.create_internship_payment(
-                aisystant_id, code, amount,
+            result = await create_internship_payment_tracked(
+                chat_id=chat_id, aisystant_id=aisystant_id, code=code,
+                amount=amount, lang=lang, course_name=short_name,
             )
             if result and result.get("confirmationUrl"):
                 return [InlineKeyboardButton(
@@ -254,7 +257,7 @@ async def callback_category(callback: CallbackQuery):
 
     # Сразу создаём платежи → URL-кнопки без лишнего шага
     if paid_courses:
-        buttons.extend(await _create_course_buttons(aisystant_id, paid_courses, lang))
+        buttons.extend(await _create_course_buttons(aisystant_id, paid_courses, lang, chat_id))
 
     # Кнопка «Витрина семинаров» — для категории seminars
     if category == 'seminars':
@@ -320,7 +323,12 @@ async def callback_my_courses(callback: CallbackQuery):
         potok = passing.get("potok", {})
         name = potok.get("courseName", potok.get("code", "—"))
         status = potok.get("status", "—")
-        lines.append(t('schedule.my_course_item', lang, name=name, status=status))
+        chat_link = potok.get("chatLink")
+        if chat_link:
+            # Markdown v1: непарный `_` в токене ссылки ломает парсинг остатка сообщения (§10.1 CLAUDE.md)
+            lines.append(t('schedule.my_course_item_with_chat', lang, name=name, status=status, link=chat_link.replace("_", "\\_")))
+        else:
+            lines.append(t('schedule.my_course_item', lang, name=name, status=status))
 
     buttons = [
         [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
@@ -366,10 +374,7 @@ async def callback_course_detail(callback: CallbackQuery):
 
         name = course.get("courseName", course.get("name", code))
         raw_amount = course.get("amount") or course.get("price") or 0
-        try:
-            amount = float(raw_amount)
-        except (TypeError, ValueError):
-            amount = 0
+        amount = parse_amount(raw_amount)
 
         if amount > 0:
             text = t('schedule.payment_confirm', lang, course=name, amount=int(amount))
@@ -445,8 +450,9 @@ async def callback_pay_choice(callback: CallbackQuery):
     # 1. Полная оплата — URL-кнопка (pre-create)
     if aisystant_id:
         try:
-            full_result = await aisystant.create_internship_payment(
-                aisystant_id, code, amount,
+            full_result = await create_internship_payment_tracked(
+                chat_id=chat_id, aisystant_id=aisystant_id, code=code,
+                amount=amount, lang=lang, course_name=course_name,
             )
             if full_result and full_result.get("confirmationUrl"):
                 buttons.append([InlineKeyboardButton(
@@ -503,8 +509,9 @@ async def callback_pay_installment(callback: CallbackQuery):
         return
 
     try:
-        result = await aisystant.create_internship_payment(
-            aisystant_id, code, installment_amount, payment_index=0,
+        result = await create_internship_payment_tracked(
+            chat_id=chat_id, aisystant_id=aisystant_id, code=code,
+            amount=installment_amount, lang=lang, payment_index=0,
         )
     except Exception as e:
         logger.error(f"[Schedule] create_internship_payment (installment) error for {code}: {e}")
@@ -550,7 +557,10 @@ async def callback_pay(callback: CallbackQuery):
         return
 
     try:
-        result = await aisystant.create_internship_payment(aisystant_id, code, amount)
+        result = await create_internship_payment_tracked(
+            chat_id=chat_id, aisystant_id=aisystant_id, code=code,
+            amount=amount, lang=lang,
+        )
     except Exception as e:
         logger.error(f"[Schedule] create_internship_payment error for {code}: {e}")
         await callback.message.answer(t('schedule.payment_error', lang))
@@ -650,7 +660,10 @@ async def callback_sched_pay_burn(callback: CallbackQuery):
     if burn_info is None:
         # Not eligible for bonus — create direct payment (same as callback_pay)
         try:
-            result = await aisystant.create_internship_payment(aisystant_id, code, float(amount))
+            result = await create_internship_payment_tracked(
+                chat_id=chat_id, aisystant_id=aisystant_id, code=code,
+                amount=float(amount), lang=lang,
+            )
         except Exception as e:
             logger.error(f"[Schedule] sched_pay_burn direct fallback error: code={code} {e}")
             await callback.message.answer(t('schedule.payment_error', lang))
@@ -727,7 +740,10 @@ async def callback_sched_burn_apply(callback: CallbackQuery):
         return
 
     try:
-        result = await aisystant.create_internship_payment(aisystant_id, code, float(amount))
+        result = await create_internship_payment_tracked(
+            chat_id=chat_id, aisystant_id=aisystant_id, code=code,
+            amount=float(amount), lang=lang,
+        )
     except Exception as e:
         logger.error(f"[Schedule] sched_burn_apply: create_payment failed, cancelling reserve: {e}")
         await cancel_pending_reserve(provisional_id)

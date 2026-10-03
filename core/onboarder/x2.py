@@ -229,12 +229,10 @@ async def _finish_x2(bot, chat_id: int) -> None:
     # WP-406 Ф18: Первокурсник достигнут = Х2 и Х3 оба закрыты. Симметричный лог
     # для обратного порядка — handlers/onboarding.py:on_x3_confirm.
     if _x3_done_before:
-        await log_event(chat_id, "onboarding_completed", {
-            "entry_type": _entry_type,
-            "source": _entry_source,
-            "lang": _lang,
-            "closed_by": "x2",
-        })
+        from core.onboarder.events import emit_onboarding_completed
+        await emit_onboarding_completed(
+            chat_id, _entry_type, _entry_source, _lang, closed_by="x2",
+        )
         # WP-406 Ф31: дефолтная квалификация «Ученик», если своей ещё нет.
         # Fail-open: ошибка записи не ломает онбординг.
         try:

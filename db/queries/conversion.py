@@ -131,7 +131,10 @@ async def get_milestone_eligible_users(milestone_day: int) -> list[dict]:
             '''SELECT s.chat_id, u.language, s.mode,
                       s.completed_topics, s.marathon_status,
                       s.active_days_total, s.longest_streak,
-                      s.complexity_level, s.feed_status
+                      s.complexity_level, s.feed_status,
+                      (SELECT COUNT(*) FROM development.user_events e
+                       WHERE e.user_id = s.chat_id
+                         AND e.created_at > NOW() - INTERVAL '7 days') AS events_last_7d
                FROM development.user_state s
                JOIN public.users u ON u.telegram_id = s.chat_id
                WHERE s.onboarding_completed = TRUE

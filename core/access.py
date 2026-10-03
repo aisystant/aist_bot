@@ -49,14 +49,14 @@ class AccessLayer:
         return await self._has_aisystant_subscription(user_id)
 
     async def _has_aisystant_subscription(self, user_id: int) -> bool:
-        """Проверить подписку БР через Aisystant API."""
+        """Проверить подписку БР через Aisystant API (с запасным путём по contract, WP-7 Ф128)."""
         try:
             from db.queries.aisystant import get_aisystant_id
             aisystant_id = await get_aisystant_id(user_id)
             if not aisystant_id:
                 return False
-            from clients.aisystant import aisystant
-            return await aisystant.has_active_subscription(aisystant_id)
+            from core.tier_detector import has_active_subscription
+            return await has_active_subscription(user_id, aisystant_id)
         except Exception as e:
             logger.warning(f"[Access] Aisystant subscription check failed: {e}")
             return False

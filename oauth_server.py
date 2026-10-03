@@ -375,17 +375,45 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     try:
         from db.queries.dt_tokens import get_dt_user_id
         from db.connection import get_pool
+        from db.queries import bot_profile
         dt_uid = await get_dt_user_id(telegram_user_id)
         if dt_uid:
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                res = await conn.execute(
-                    '''UPDATE public.users SET ory_id = $2, updated_at = NOW()
-                       WHERE telegram_id = $1 AND ory_id IS NULL
-                         AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2)''',
-                    telegram_user_id, dt_uid,
-                )
-            if res != 'UPDATE 0':
+            # WP-253 Ф12.6 фаза A: второй, более редкий T0→T1 discovery-канал
+            # (первый — identity.link_ory). RETURNING даёт зеркалу закоммиченную
+            # строку в тот же момент, когда у пользователя впервые появляется
+            # ory_id (peer-session 2026-09-17-07). Тот же per-chat_id лок и
+            # серверный updated_at, что identity.link_ory — иначе конкурирует
+            # с ним и с update_intern за порядок записи в persona.bot_profile
+            # без сериализации (cold-review этой сессии).
+            # nosec B608 — колонки из хардкодного whitelist (bot_profile.PROFILE_MIRROR_FIELDS,
+            # провалидирован regex), значения параметризованы ($1, $2), тот же паттерн, что
+            # db/sql_helpers.py.
+            dt_link_returning = (
+                "UPDATE public.users SET ory_id = $2, updated_at = (NOW() AT TIME ZONE 'utc') "  # nosec B608
+                "WHERE telegram_id = $1 AND ory_id IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2) "
+                "RETURNING telegram_id AS chat_id, ory_id, updated_at, " +
+                ', '.join(bot_profile.PROFILE_MIRROR_FIELDS)
+            )
+
+            async def _dt_link_write():
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    return await conn.fetchrow(dt_link_returning, telegram_user_id, dt_uid)
+
+            dt_mirror_lock = await bot_profile.chat_lock(telegram_user_id) \
+                if bot_profile.mirror_enabled_for(telegram_user_id) else None
+            if dt_mirror_lock is not None:
+                async with dt_mirror_lock:
+                    returning_row = await _dt_link_write()
+                    if returning_row is not None:
+                        await bot_profile.mirror_profile_row(dict(returning_row))
+            else:
+                returning_row = await _dt_link_write()
+                if returning_row is not None:
+                    await bot_profile.mirror_profile_row(dict(returning_row))
+
+            if returning_row is not None:
                 logger.info(f"DT: synced ory_id={dt_uid} to users for {telegram_user_id}")
                 # WP-268 Phase 2 dual-write: dt_linked (сохранён после IDCOL1 Ф2 —
                 # downstream-дашборды могут опираться на этот event_type; account_id
@@ -1241,16 +1269,35 @@ async def template_update_handler(request: web.Request) -> web.Response:
         return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
 
     # Рассылка с батчингом (30 msg/sec TG limit)
+    # Idempotency (§10.10): notify-update.yml пересылает один и тот же релиз
+    # повторно, если в окне "сегодня/вчера" ещё нет нового тега (issue: 0.40.1
+    # ушла 17.09 и 18.09). Дедуп по (chat_id, version) через общий
+    # log-before-send механизм (WP-152/WP-268) переживает и повторные ранны
+    # экшена, и ручной workflow_dispatch.
+    from db.queries.notifications import send_idempotent
+
     sent = 0
+    skipped = 0
     failed = 0
     for i, chat_id in enumerate(subscribers):
-        try:
+        idempotency_key = f"template_update:{chat_id}:{version}"
+
+        async def _send(cid=chat_id):
             await _bot_instance.send_message(
-                chat_id=chat_id,
+                chat_id=cid,
                 text=message_text,
                 parse_mode="HTML",
             )
-            sent += 1
+
+        try:
+            delivered = await send_idempotent(
+                chat_id, "template_update", idempotency_key, _send,
+                payload={"version": version},
+            )
+            if delivered:
+                sent += 1
+            else:
+                skipped += 1
         except Exception as e:
             logger.warning(f"[TemplateUpdate] Failed to send to {chat_id}: {e}")
             failed += 1
@@ -1259,9 +1306,9 @@ async def template_update_handler(request: web.Request) -> web.Response:
         if (i + 1) % 25 == 0:
             await asyncio.sleep(1)
 
-    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, failed={failed}")
+    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, skipped={skipped}, failed={failed}")
 
-    result = {"ok": True, "sent": sent, "failed": failed}
+    result = {"ok": True, "sent": sent, "skipped": skipped, "failed": failed}
     return web.Response(text=json.dumps(result), content_type="application/json")
 
 
@@ -1508,6 +1555,18 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     except Exception as e:
         logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
 
+    # ── WP-522 Ф18: писатель факта С3 чек-листа (event-gateway, не user_events) ──
+    if lesson_files and sender_type != "Bot":
+        lesson_dates = [
+            m.group(1) for f in lesson_files
+            if (m := re.match(r'^lesson/(\d{4}-\d{2}-\d{2})\.md$', f))
+        ]
+        try:
+            from core.lesson.events import emit_lesson_closed_batch
+            await emit_lesson_closed_batch(dt_user_id, lesson_dates)
+        except Exception as e:
+            logger.warning("[WorkbookWebhook] lesson_closed emit failed: %s", e)
+
     # ── On-demand пересчёт ЦД ────────────────────────────────────────────────
     asyncio.create_task(sync_one_user_to_dt(dt_user_id))
 
@@ -1518,6 +1577,39 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     return web.Response(
         text='{"ok":true}',
         content_type="application/json",
+    )
+
+
+_SUPPORT_TELEGRAM = "@ssm_tg"
+
+_ORY_ALREADY_LINKED_TEXT = (
+    "Этот аккаунт уже привязан к другому вашему Telegram-аккаунту в боте, поэтому "
+    "подключить его здесь не получилось.\n\n"
+    "Войдите с того Telegram, где вы подключали аккаунт раньше, или напишите в "
+    f"поддержку: {_SUPPORT_TELEGRAM}."
+)
+
+
+async def _ory_already_linked_response(telegram_user_id: int) -> web.Response:
+    """Friendly answer when the Ory account belongs to another Telegram row (was a 500)."""
+    if _bot_instance:
+        try:
+            await _bot_instance.send_message(chat_id=telegram_user_id, text=_ORY_ALREADY_LINKED_TEXT)
+        except Exception as e:
+            logger.error(f"[OryOAuth] Failed to notify user {telegram_user_id}: {e}")
+    return web.Response(
+        text=f"""
+        <html>
+        <head><title>Аккаунт уже привязан</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h1>Аккаунт уже привязан</h1>
+            <p>Этот аккаунт уже привязан к другому вашему Telegram-аккаунту в боте.</p>
+            <p>Войдите с того Telegram, где вы подключали аккаунт раньше, или напишите в поддержку: {_SUPPORT_TELEGRAM}.</p>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=409,
     )
 
 
@@ -1621,6 +1713,19 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
     ory_id = userinfo["sub"]
     email = userinfo.get("email")
 
+    # Привязываем ory_id к telegram_id (T0→T1) ДО сохранения токенов: при конфликте
+    # (аккаунт Ory уже у другой строки) у проигравшей строки не остаётся чужих токенов.
+    from db.queries.identity import OryAccountAlreadyLinked, link_ory
+    try:
+        linked = await link_ory(telegram_user_id, ory_id, email)
+    except OryAccountAlreadyLinked:
+        return await _ory_already_linked_response(telegram_user_id)
+
+    if linked:
+        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
+    else:
+        logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
+
     # Сохраняем Ory tokens для Gateway MCP (WP-209 Ф0)
     refresh_token = tokens.get("refresh_token")
     expires_in = tokens.get("expires_in", 3600)
@@ -1644,15 +1749,6 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
         # Обновляем in-memory tokens для Gateway MCP
         from clients.gateway_mcp import gateway_mcp
         gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token or "", expires_at, ory_id)
-
-    # Привязываем ory_id к telegram_id (T0→T1)
-    from db.queries.identity import link_ory
-    linked = await link_ory(telegram_user_id, ory_id, email)
-
-    if linked:
-        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
-    else:
-        logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
 
     # WP-227 Ф6: backfill ЦД при T0→T1 OAuth (вариант B).
     # T0 пользователь впервые получает ory_id — создаём запись в digital_twins.
@@ -2005,6 +2101,38 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
             logger.exception("[InternalNotify] Error sending ops_alert: %s", e)
             return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
 
+    if notify_type == 'installation_orphaned':
+        # WP-559 (live case 13.09, Ivan K.): github-integration-service could not match a
+        # GitHub installation webhook to any user (no state-bearing install on file, no
+        # matching github_user_id) — the event sits in knowledge.orphaned_installation_events
+        # forever, nothing re-reads that table. Surface it the moment it happens instead of
+        # waiting for the user to complain.
+        import html as _html
+        ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
+        if not ops_chat_id:
+            logger.warning("[InternalNotify] installation_orphaned получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
+            return web.Response(text=json.dumps({"ok": False, "reason": "ops_chat_not_configured"}), content_type="application/json", status=503)
+        if not _bot_instance:
+            logger.warning("[InternalNotify] Bot instance not ready")
+            return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
+        installation_id = _html.escape(str(body.get('installation_id', '?')))
+        github_user_id = _html.escape(str(body.get('github_user_id', '?')))
+        try:
+            await _bot_instance.send_message(
+                chat_id=int(ops_chat_id),
+                text=(
+                    f"⚠️ <b>GitHub-подключение потерялось</b>: установка <code>{installation_id}</code> "
+                    f"не сопоставилась ни с одним пользователем (github_user_id=<code>{github_user_id}</code>).\n"
+                    f"Смотри knowledge.orphaned_installation_events, сопоставляй вручную."
+                ),
+                parse_mode="HTML",
+            )
+            logger.info("[InternalNotify] installation_orphaned installation_id=%s sent", installation_id)
+            return web.Response(text=json.dumps({"ok": True}), content_type="application/json")
+        except Exception as e:
+            logger.exception("[InternalNotify] Error sending installation_orphaned: %s", e)
+            return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
+
     if notify_type != 'repo_indexing_started' or not telegram_id:
         logger.warning("[InternalNotify] Unknown type or missing telegram_id: %s", body)
         return web.Response(text=json.dumps({"ok": False, "reason": "unknown_type"}), content_type="application/json")
@@ -2099,6 +2227,22 @@ async def github_app_setup_handler(request: web.Request) -> web.Response:
             text="Missing or invalid telegram_user_id", status=400,
         )
     chat_id = int(chat_id_param)
+
+    from clients.github_app import is_app_enabled, app_identity_status
+    if not is_app_enabled():
+        return web.Response(
+            text="GitHub App ещё не включён платформой (GITHUB_APP_ENABLED)",
+            status=503,
+        )
+    if app_identity_status() is False:
+        logger.warning(
+            "[GitHubApp] gate=entry_point_blocked point=github_app_setup_handler reason=identity_check_failed"
+        )
+        return web.Response(
+            text="GitHub App настроен неверно — обратитесь к администратору",
+            status=503,
+        )
+
     app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
     if not app_slug:
         return web.Response(
@@ -2164,11 +2308,49 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
             content_type="text/html", status=400,
         )
 
+    # WP-406: проверить, что installation_id принадлежит настроенному в env App,
+    # ДО любого обращения к нему через GitHub API. Только для fresh-install пути —
+    # graceful fallback выше (stale state, уже сохранённая установка) не зависит
+    # от сети и не проходит через эту проверку.
+    from clients.github_app import verify_installation_belongs_to_app
+    if not await verify_installation_belongs_to_app(installation_id):
+        logger.warning(
+            "[GitHubApp] gate=callback_blocked installation_id=%d chat_id=%d reason=ownership_check_failed",
+            installation_id, chat_id,
+        )
+        return web.Response(
+            text="""<!DOCTYPE html>
+<html><head><title>Установка отклонена</title><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+<h1>⚠️ Установка не подтверждена</h1>
+<p>Не удалось подтвердить, что это приложение принадлежит платформе. Попробуй ещё раз через
+пару минут — если проблема повторится, напиши администратору.</p>
+</body></html>""",
+            content_type="text/html", status=503,
+        )
+
     # Получить репо через App API (нужны installation_token + list repos)
     from clients import github_app as gha
     repos = await gha.get_installation_repos(installation_id)
-    selected_repo = repos[0] if repos else None
+
+    # WP-406 Ф22 (peer-сессия 2026-09-10-08, раунд 3): не перезаписывать
+    # безусловно repos[0] — если этот callback сработал повторно для УЖЕ
+    # привязанной установки (например, GitHub Configure добавил репозиторий
+    # для заметок к installation, обслуживающей ещё и Персональное
+    # руководство, WP-301), нельзя молча сменить guide-репо на первый
+    # попавшийся из selection. repos[0] используется только при первой
+    # привязке или если прежний репозиторий выпал из selection.
+    from db.queries.github_app import find_user_by_installation_id
+    existing_for_installation = await find_user_by_installation_id(installation_id)
+    current_repo = (existing_for_installation or {}).get("app_repo_full_name")
+    repo_by_name = {r.get("full_name", ""): r for r in repos}
+
+    if current_repo and current_repo in repo_by_name:
+        selected_repo = repo_by_name[current_repo]
+    else:
+        selected_repo = repos[0] if repos else None
     repo_full_name = selected_repo.get("full_name", "") if selected_repo else ""
+
     if not repo_full_name:
         logger.warning(
             "[GitHubApp] callback: no repos for installation_id=%d (chat_id=%d)",

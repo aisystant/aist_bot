@@ -83,6 +83,110 @@ def _to_iso_utc(dt: datetime) -> str:
     return dt.isoformat()
 
 
+def _build_envelope(
+    source: str,
+    external_id: str,
+    event_type: str,
+    schema_version: str,
+    occurred_at: datetime,
+    account_id: Optional[str],
+    payload: dict,
+) -> dict:
+    envelope = {
+        "source": source,
+        "external_id": external_id,
+        "event_type": event_type,
+        "schema_version": schema_version,
+        "occurred_at": _to_iso_utc(occurred_at),
+        "payload": payload,
+    }
+    if account_id:
+        envelope["account_id"] = account_id
+    return envelope
+
+
+def _build_gateway_request(source: str, envelope: dict) -> tuple[bytes, dict[str, str]]:
+    """Serialize and sign the exact body shared by both delivery policies."""
+    body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
+    headers = {"Content-Type": "application/json"}
+    if EVENT_GATEWAY_HMAC_KEY:
+        timestamp = str(int(time.time()))
+        canonical = (
+            f"v1\n{source}\n{EVENT_GATEWAY_HMAC_KEY_ID}\n{timestamp}\n".encode()
+            + body
+        )
+        signature = hmac.new(
+            EVENT_GATEWAY_HMAC_KEY.encode(),
+            canonical,
+            hashlib.sha256,
+        ).hexdigest()
+        headers.update({
+            "X-IWE-Signature-Version": "v1",
+            "X-IWE-Key-Id": EVENT_GATEWAY_HMAC_KEY_ID,
+            "X-IWE-Timestamp": timestamp,
+            "X-IWE-Signature": f"sha256={signature}",
+        })
+    return body, headers
+
+
+async def _send_envelope(source: str, event_type: str, envelope: dict) -> None:
+    """Legacy best-effort transport; HTTP 4xx/5xx and transport failures raise."""
+    session = _get_session()
+    body, headers = _build_gateway_request(source, envelope)
+
+    async with session.post(
+        f"{EVENT_GATEWAY_URL}/events",
+        data=body,
+        headers=headers,
+    ) as resp:
+        if resp.status >= 400:
+            body_text = await resp.text()
+            raise RuntimeError(f"{event_type} POST failed: {resp.status} {body_text[:200]}")
+
+
+def _delivery_acknowledged(status: int, payload: object) -> bool:
+    """Match POST /events acknowledgements: inserted 201 or idempotent 200."""
+    if not isinstance(payload, dict):
+        return False
+    if status == 201:
+        return (
+            set(payload) == {"inserted", "id"}
+            and payload["inserted"] is True
+            and isinstance(payload["id"], str)
+            and bool(payload["id"].strip())
+        )
+    return (
+        status == 200
+        and set(payload) == {"inserted", "idempotent"}
+        and payload["inserted"] is False
+        and payload["idempotent"] is True
+    )
+
+
+async def _send_envelope_strict(source: str, event_type: str, envelope: dict) -> None:
+    """Require a direct inserted/idempotent acknowledgement from POST /events."""
+    session = _get_session()
+    body, headers = _build_gateway_request(source, envelope)
+    async with session.post(
+        f"{EVENT_GATEWAY_URL}/events",
+        data=body,
+        headers=headers,
+        allow_redirects=False,
+    ) as resp:
+        if resp.status not in (200, 201):
+            raise RuntimeError(f"{event_type} POST failed: HTTP {resp.status}")
+        try:
+            acknowledgement = await resp.json()
+        except (aiohttp.ClientError, ValueError):
+            raise RuntimeError(
+                f"{event_type} POST returned invalid acknowledgement: HTTP {resp.status}"
+            ) from None
+        if not _delivery_acknowledged(resp.status, acknowledgement):
+            raise RuntimeError(
+                f"{event_type} POST returned invalid acknowledgement: HTTP {resp.status}"
+            )
+
+
 async def post_event(
     source: str,
     external_id: str,
@@ -108,52 +212,37 @@ async def post_event(
     if not EVENT_GATEWAY_ENABLED:
         return
 
-    envelope = {
-        "source": source,
-        "external_id": external_id,
-        "event_type": event_type,
-        "schema_version": schema_version,
-        "occurred_at": _to_iso_utc(occurred_at),
-        "payload": payload,
-    }
-    if account_id:
-        envelope["account_id"] = account_id
-
+    envelope = _build_envelope(source, external_id, event_type, schema_version, occurred_at, account_id, payload)
     try:
-        session = _get_session()
-        body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
-        headers = {"Content-Type": "application/json"}
-        if EVENT_GATEWAY_HMAC_KEY:
-            timestamp = str(int(time.time()))
-            canonical = (
-                f"v1\n{source}\n{EVENT_GATEWAY_HMAC_KEY_ID}\n{timestamp}\n".encode()
-                + body
-            )
-            signature = hmac.new(
-                EVENT_GATEWAY_HMAC_KEY.encode(),
-                canonical,
-                hashlib.sha256,
-            ).hexdigest()
-            headers.update({
-                "X-IWE-Signature-Version": "v1",
-                "X-IWE-Key-Id": EVENT_GATEWAY_HMAC_KEY_ID,
-                "X-IWE-Timestamp": timestamp,
-                "X-IWE-Signature": f"sha256={signature}",
-            })
-
-        async with session.post(
-            f"{EVENT_GATEWAY_URL}/events",
-            data=body,
-            headers=headers,
-        ) as resp:
-            if resp.status >= 400:
-                body = await resp.text()
-                logger.warning(
-                    f"[dual-write] {event_type} POST failed: "
-                    f"{resp.status} {body[:200]}"
-                )
+        await _send_envelope(source, event_type, envelope)
     except Exception as exc:
         logger.warning(f"[dual-write] {event_type} POST exception: {exc}")
+
+
+async def post_event_or_raise(
+    source: str,
+    external_id: str,
+    event_type: str,
+    schema_version: str,
+    occurred_at: datetime,
+    account_id: Optional[str],
+    payload: dict,
+) -> None:
+    """Same POST as `post_event`, but propagates failure instead of swallowing it.
+
+    For callers that persist their own durable record of the attempt (WP-567
+    Ф3(в) outbox dispatcher, core/scheduler.py) and need to know whether
+    delivery actually happened to decide retry/backoff -- `post_event`'s
+    silent swallow is correct for its fire-and-forget callers, but would
+    hide failure from a dispatcher whose whole job is reacting to it.
+    A disabled gateway is an explicit delivery failure, so the durable row
+    remains pending. A direct inserted/idempotent gateway acknowledgement
+    is required; HTTP status alone does not prove delivery.
+    """
+    if not EVENT_GATEWAY_ENABLED:
+        raise RuntimeError("event gateway is disabled; event was not delivered")
+    envelope = _build_envelope(source, external_id, event_type, schema_version, occurred_at, account_id, payload)
+    await _send_envelope_strict(source, event_type, envelope)
 
 
 async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
@@ -196,6 +285,31 @@ async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
         _ory_cache.clear()
     _ory_cache[chat_id] = ory
     return ory
+
+
+async def get_email_from_ory_id(account_id: str) -> Optional[str]:
+    """Email аккаунта Aisystant по account_id (persona.ory_identity.email — колонка,
+    не поле в traits: traits хранит бизнес-профиль из отдельного ETL, не логин).
+
+    Для отображения пользователю, какой именно email привязан к его подписке
+    (WP-7 Ф133 follow-up — путаница из-за нескольких telegram-аккаунтов на
+    одного человека, разные подписки на разных email). Fire-and-forget: любая
+    ошибка возвращает None, не должна ломать вызывающий код.
+    """
+    try:
+        from db.connection import get_persona_pool
+        pool = await get_persona_pool()
+        async with traced_acquire(pool, "db.get_email_from_ory_id") as conn:
+            return await conn.fetchval(
+                "SELECT email FROM public.ory_identity WHERE account_id = $1::uuid",
+                account_id,
+            )
+    except Exception as exc:
+        logger.warning(
+            "[dual-write] get_email_from_ory_id failed: %s",
+            type(exc).__name__,
+        )
+        return None
 
 
 async def emit_payment_received(

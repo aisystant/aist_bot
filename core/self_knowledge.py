@@ -44,7 +44,7 @@ _PACK_PATH = Path(__file__).parent.parent.parent / "PACK-digital-platform" / \
 
 # Fallback: Prod (Railway/Neon): загрузить с GitHub (репо публичный)
 _GITHUB_RAW_URL = (
-    "https://raw.githubusercontent.com/TserenTserenov/PACK-digital-platform"
+    "https://raw.githubusercontent.com/MimEcoSys/PACK-digital-platform"
     "/main/pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
 )
 

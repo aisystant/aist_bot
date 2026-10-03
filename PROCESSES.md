@@ -167,7 +167,7 @@ updated: 2026-02-10
 
 | Уровень | Кто | Grade | Когда | Что делает |
 |---------|-----|-------|-------|-----------|
-| **Auto-triage** | Bot process (`core/feedback_triage.py`) | 1 | При каждом helpful=false / ✏️ comment | LLM classify (Haiku) → `feedback_unified` DB + TG alert |
+| **Auto-triage** | Bot process (`core/feedback_triage.py`) | 1 | При каждом ✏️ comment (и при helpful=false, если появится явная оценка; кнопка 🔍 «Подробнее» с РП-498 Ф17 его не ставит и разбор не запускает) | LLM classify (Haiku) → `feedback_unified` DB + TG alert |
 | **Наблюдатель** | Cron (`feedback-watchdog.sh`) | 2 | Ежедневно | Мониторинг кластеров, трендов, SLA → TG alert при затыке |
 | **Review** | Claude Code (сессия WP-7) | 3 | При открытии сессии техдолга | Читает предклассифицированный backlog → решения |
 | **FAQ-автор** | Cron (Ф1+) | 2 | Ежедневно (ночной) | Генерирует дополнения FAQ из кластеров → PR |
@@ -177,7 +177,7 @@ updated: 2026-02-10
 
 | Роль | Кто | Что делает |
 |------|-----|-----------|
-| **R7 Триажёр (Grade 1)** | Bot process (Haiku) | helpful=false → classify (K/C/U/L/P/F) + severity + cluster + confidence + suggested_action → `feedback_unified` DB → TG alert if high/critical |
+| **R7 Триажёр (Grade 1)** | Bot process (Haiku) | ✏️ comment / helpful=false → classify (K/C/U/L/P/F) + severity + cluster + confidence + suggested_action → `feedback_unified` DB → TG alert if high/critical |
 | **R30 Наблюдатель** | Cron (bash) | Ежедневно: кластеры >7 дней без уменьшения → TG alert тех. оператору. SLA compliance. Тренды |
 | **R31 Эскалатор** | Event (Наблюдатель) | При затыке/зацикливании/SLA-нарушении → TG alert с контекстом |
 | **R28 FAQ-автор** (Ф1+) | Cron (Sonnet) | Кластер category=K, ≥3 тикетов → генерирует FAQ дополнение → PR |

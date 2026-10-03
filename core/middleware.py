@@ -12,7 +12,7 @@ import collections
 import logging
 import time
 
-from aiogram import BaseMiddleware
+from aiogram import BaseMiddleware, Dispatcher
 from aiogram.enums import ChatAction
 from aiogram.types import Message, CallbackQuery, TelegramObject
 
@@ -42,6 +42,8 @@ class UpdateDedupMiddleware(BaseMiddleware):
     In-memory TTL-set: bot — единственный процесс на update_id (single
     Railway instance), Redis не нужен. TTL 120с покрывает Telegram's
     retry window с запасом.
+
+    Register it with install_update_dedup(): it has to be an OUTER middleware.
     """
 
     def __init__(self, ttl_seconds: int = 120, max_size: int = 2000):
@@ -70,6 +72,19 @@ class UpdateDedupMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+def install_update_dedup(dp: Dispatcher) -> None:
+    """Register the dedup as an OUTER middleware of the message and callback_query observers.
+
+    Outer, not inner: an inner middleware runs once per matched handler. When a handler raises
+    SkipHandler to pass the update on, the next handler's pass would see the same update_id and be
+    dropped as a "webhook retry" (private free text was swallowed this way on the pilot bot,
+    2026-10-01). An outer middleware runs once per update, so only a real second delivery is dropped.
+    """
+    update_dedup = UpdateDedupMiddleware()
+    dp.message.outer_middleware(update_dedup)
+    dp.callback_query.outer_middleware(update_dedup)
+
+
 class RateLimitMiddleware(BaseMiddleware):
     """Per-user rate limiting — sliding window, in-memory.
 
@@ -96,6 +111,10 @@ class RateLimitMiddleware(BaseMiddleware):
         return True
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
+        # Деньги уже списаны: платёж нельзя терять из-за лимита сообщений.
+        if isinstance(event, Message) and event.successful_payment is not None:
+            return await handler(event, data)
+
         user_id = None
         if isinstance(event, Message) and event.from_user:
             user_id = event.from_user.id
@@ -117,6 +136,10 @@ class MaintenanceMiddleware(BaseMiddleware):
     """
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
+        # Обрабатываем завершённую оплату, даже если включён режим обслуживания.
+        if isinstance(event, Message) and event.successful_payment is not None:
+            return await handler(event, data)
+
         if not MAINTENANCE_MODE:
             return await handler(event, data)
 

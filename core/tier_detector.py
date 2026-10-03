@@ -88,7 +88,7 @@ async def detect_ui_tier(chat_id: int) -> int:
         # Parallel: subscription check (Aisystant HTTP) + github (secrets pool) + dt (in-memory).
         # Все три нужны только для T1+; запускаем параллельно после подтверждения aisystant_id.
         has_sub, is_github, is_dt = await asyncio.gather(
-            _has_active_subscription(chat_id, aisystant_id),
+            has_active_subscription(chat_id, aisystant_id),
             _is_github_connected(chat_id),
             _is_dt_connected(chat_id),
         )
@@ -190,7 +190,7 @@ async def _check_contract_subscription(chat_id: int) -> bool:
         return False
 
 
-async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
+async def has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     """Check if user has active Aisystant БР subscription.
 
     WP-85, WP-210 Ф2a: только оплаченная «Инженерия интеллекта».
@@ -201,6 +201,12 @@ async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     in subscription.contract (legacy LMS migration) and Aisystant's API does not know
     about them. So when Aisystant returns False — not only on exception — fall through
     to the contract table. This is why T3/T4 users were seeing T1.
+
+    Public on purpose (WP-7 Ф128): every paywall/purchase check in the bot must go
+    through this same fallback, not call `clients.aisystant.has_active_subscription`
+    directly — a direct call has no contract-table fallback and can show an active
+    subscriber the purchase menu instead of "already active" when Aisystant's own API
+    call fails or is stale.
     """
     aisystant_says_active = False
     try:

@@ -19,11 +19,12 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 
+from core.tier_detector import has_active_subscription
 from db.queries import get_intern
 from db.queries.aisystant import get_aisystant_id
 from db.queries.redeem import cancel_pending_reserve, confirm_subscription_reserves, update_reserve_payment_id
 from clients.aisystant import aisystant
-from helpers.dual_write import resolve_ory_id_from_chat
+from helpers.dual_write import get_email_from_ory_id, resolve_ory_id_from_chat
 from helpers.redeem_helpers import (
     build_burn_offer_keyboard,
     prepare_burn_offer,
@@ -120,21 +121,26 @@ async def cmd_subscription(message: Message):
         await message.answer(t('aisystant_sub.no_account', lang))
         return
 
-    # Проверяем, активна ли уже
+    # Проверяем, активна ли уже (с запасным путём по contract, WP-7 Ф128)
     try:
-        is_active = await aisystant.has_active_subscription(aisystant_id)
+        is_active = await has_active_subscription(chat_id, aisystant_id)
         if is_active:
+            account_id = await resolve_ory_id_from_chat(chat_id)
             # Lazy-confirm: subscription webhook never reaches the bot (payment goes via
             # Aisystant), so pending SUBSCRIPTION reserves must be confirmed here.
             try:
-                account_id = await resolve_ory_id_from_chat(chat_id)
                 if account_id:
                     confirmed = await confirm_subscription_reserves(account_id)
                     if confirmed:
                         logger.info(f"[Subscription] lazy-confirmed {confirmed} reserve(s) for chat={chat_id}")
             except Exception as confirm_err:
                 logger.warning(f"[Subscription] lazy-confirm failed, ignoring: {confirm_err}")
-            await message.answer(t('aisystant_sub.already_active', lang))
+
+            email = await get_email_from_ory_id(account_id) if account_id else None
+            if email:
+                await message.answer(t('aisystant_sub.already_active_with_email', lang, email=email))
+            else:
+                await message.answer(t('aisystant_sub.already_active', lang))
             return
     except Exception as e:
         logger.error(f"[Subscription] check error: {e}")

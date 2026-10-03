@@ -38,7 +38,10 @@ async def get_github_connection(chat_id: int) -> Optional[Dict[str, Any]]:
         row = await conn.fetchrow('''
             SELECT
                 user_uuid, chat_id,
-                public.pgp_sym_decrypt(access_token_encrypted, $2::text)::text AS access_token,
+                CASE WHEN access_token_encrypted IS NULL OR access_token_encrypted = ''::BYTEA
+                     THEN NULL
+                     ELSE public.pgp_sym_decrypt(access_token_encrypted, $2::text)::text
+                END AS access_token,
                 token_type, scope, github_username,
                 target_repo, notes_path, strategy_repo, knowledge_repo,
                 default_branch, strategy_default_branch,
@@ -218,6 +221,54 @@ async def delete_github_connection(chat_id: int) -> None:
             'DELETE FROM public.github_connections WHERE chat_id = $1', chat_id
         )
     logger.info(f"Deleted GitHub connection for user {chat_id}")
+
+
+async def disconnect_github_notes(chat_id: int) -> None:
+    """Отключить OAuth/заметки, не трогая GitHub App-установку (WP-406 Ф22).
+
+    Одна и та же App-установка обслуживает и заметки, и «Персональное
+    руководство» (WP-301) — обе используют один `app_installation_id` на
+    пользователя. Полное удаление строки на disconnect заметок разорвало бы
+    привязку Персонального руководства для пользователей, у которых
+    подключены обе функции.
+
+    Нет App-установки → эквивалентно прежнему полному удалению строки
+    (поведение до Ф22 не меняется для пользователей без App).
+    """
+    pool = await get_secrets_pool()
+    async with pool.acquire() as conn:
+        # Транзакция + FOR UPDATE: без неё проверка has_app и последующий
+        # DELETE — два раздельных round-trip; конкурентный save_app_installation
+        # (например, параллельный /connect_guide) мог бы добавить установку
+        # МЕЖДУ проверкой и DELETE, и мы стёрли бы её же строку (код-ревью
+        # peer-сессии 2026-09-10-08, Medium).
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                'SELECT app_installation_id FROM public.github_connections WHERE chat_id = $1 FOR UPDATE',
+                chat_id,
+            )
+            has_app = bool(row and row["app_installation_id"] is not None)
+            if not has_app:
+                await conn.execute(
+                    'DELETE FROM public.github_connections WHERE chat_id = $1', chat_id
+                )
+                logger.info(f"Deleted GitHub connection for user {chat_id} (no App installation)")
+                return
+
+            await conn.execute(
+                '''
+                UPDATE public.github_connections
+                SET access_token_encrypted = ''::BYTEA,
+                    token_type = NULL, scope = NULL,
+                    target_repo = NULL, notes_path = NULL,
+                    knowledge_repo = NULL, strategy_repo = NULL,
+                    default_branch = NULL, strategy_default_branch = NULL,
+                    updated_at = NOW()
+                WHERE chat_id = $1
+                ''',
+                chat_id,
+            )
+            logger.info(f"Cleared OAuth/notes fields for user {chat_id}, preserved App installation")
 
 
 async def sync_github_to_user_integrations(

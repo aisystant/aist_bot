@@ -20,6 +20,7 @@ from config import (
     INDICATORS_URL,
     LEARNING_URL,
     PRIVACY_DELETION_URL,
+    MENTORSHIP_URL,
     REWARDS_URL,
     CONSENT_URL,
     FSM_URL,
@@ -49,6 +50,12 @@ _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, 
 # WP-554 Ф7: отдельная узкая роль без прав на таблицы journal.
 _privacy_deletion_pool: Optional[asyncpg.Pool] = None
 _rewards_pool: Optional[asyncpg.Pool] = None       # rewards.point_balances (WP-253 Ф9.3 проекция)
+# WP-578 Ф2: отдельный Neon-проект, роль mentorship_app. В отличие от
+# _privacy_deletion_pool отсутствие URL не поднимает исключение — модуль
+# наставника молча выключается (get_mentorship_pool возвращает None), пока
+# переменная не появится после промоции из neon-migrations/sandbox/.
+_mentorship_pool: Optional[asyncpg.Pool] = None
+_mentorship_url_warned = False
 
 # WP-188 Ф17: writer-pool для learning.tracking_consent через роль consent_writer (миграция 113).
 # Отдельный pool — write-граница для GDPR. Размер маленький — операция редкая (онбординг + ручной /consent).
@@ -205,6 +212,29 @@ async def get_privacy_deletion_pool() -> asyncpg.Pool:
         )
         logger.info("Privacy deletion pool created")
     return _privacy_deletion_pool
+
+
+async def get_mentorship_pool() -> Optional[asyncpg.Pool]:
+    """Пул для рабочего места наставника (WP-578 Ф2). Возвращает None, если
+    MENTORSHIP_URL не задан — вызывающий код (engines/mentorship) обязан
+    трактовать None как "модуль выключен", не как ошибку конфигурации."""
+    global _mentorship_pool, _mentorship_url_warned
+    if not MENTORSHIP_URL:
+        if not _mentorship_url_warned:
+            logger.warning("MENTORSHIP_URL не задан — рабочее место наставника (WP-578) отключено")
+            _mentorship_url_warned = True
+        return None
+    if _mentorship_pool is None:
+        _mentorship_pool = await asyncpg.create_pool(
+            MENTORSHIP_URL,
+            statement_cache_size=0,  # Neon pooled endpoint: см. комментарий у _learning_pool
+            min_size=1,
+            max_size=5,
+            command_timeout=30,
+            max_inactive_connection_lifetime=300,
+        )
+        logger.info("✅ Mentorship пул соединений создан")
+    return _mentorship_pool
 
 
 async def _init_rewards_connection(conn: asyncpg.Connection) -> None:
@@ -601,35 +631,107 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
     if missing:
         msg = f"Schema drift detected: {', '.join(missing)} missing. Run migrations."
         logger.error(f"❌ {msg} (non-fatal — bot continues, see WP-330 A-zero)")
-        # Fire-and-forget TG alert (best effort — bot not fully started yet)
-        async def _alert():
-            try:
-                import os
-                token = os.getenv("TELEGRAM_BOT_TOKEN")
-                dev_chat = os.getenv("DEVELOPER_CHAT_ID")
-                if token and dev_chat:
-                    from aiogram import Bot
-                    bot = Bot(token=token)
-                    try:
-                        await bot.send_message(
-                            int(dev_chat),
-                            f"🚨 <b>Schema drift</b> (non-fatal)\n<code>{msg}</code>",
-                            parse_mode="HTML",
-                        )
-                    finally:
-                        await bot.session.close()
-            except Exception:
-                pass
         # Await напрямую (а не detached task): init_db выполняется до start_polling,
         # detached task мог не успеть выполниться до рестарта → алерт терялся.
-        # _alert полностью обёрнут в try/except → не может пробросить исключение.
-        await _alert()
+        await _send_schema_alert(f"🚨 <b>Schema drift</b> (non-fatal)\n<code>{msg}</code>")
         # NON-FATAL: НЕ raise — страж не должен крэшить прод.
         return
 
     logger.info(
         "✅ Schema verify passed (learning.feed_sessions, journal.feedback_triage, "
         "learning.consent_grant, public.training_setting)"
+    )
+
+
+async def _send_schema_alert(text: str) -> None:
+    """Best-effort Telegram alert to the developer chat. Never raises: the bot
+    is not fully started yet and the caller decides what to do next."""
+    try:
+        import os
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        dev_chat = os.getenv("DEVELOPER_CHAT_ID")
+        if not (token and dev_chat):
+            return
+        from aiogram import Bot
+        bot = Bot(token=token)
+        try:
+            await bot.send_message(int(dev_chat), text, parse_mode="HTML")
+        finally:
+            await bot.session.close()
+    except Exception as exc:
+        logger.warning(f"[schema-verify] alert not sent: {exc}")
+
+
+# REQUIRED_FOR_MONEY — tables the payment paths write to, each paired with the
+# pool that path actually uses (verify-pool == write-pool, see _verify_schema
+# docstring). Membership rule: "without it a payment is lost or cannot be
+# processed" — nothing else belongs here.
+def _required_for_money_tables():
+    """(table, pool getter) pairs; built at call time so the getters below in
+    this module are already defined whatever the declaration order."""
+    return (
+        ("public.finance_payments", get_bot_data_pool),      # seminar path (handlers/showcase.py)
+        ("public.workshop_payments", get_pool),              # workshop path (handlers/workshop.py)
+        ("public.internship_payment_checks", get_pool),      # internship polling (044, core/scheduler.py)
+    )
+
+
+async def _missing_money_schema() -> list[str]:
+    """Return payment tables and required columns absent from their own pools."""
+    missing: list[str] = []
+    for table, get_table_pool in _required_for_money_tables():
+        pool = await get_table_pool()
+        async with pool.acquire() as conn:
+            if not await conn.fetchval("SELECT to_regclass($1)", table):
+                missing.append(f"{table}@{get_table_pool.__name__}")
+                continue
+            if table == "public.workshop_payments":
+                has_product = await conn.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_attribute
+                        WHERE attrelid = to_regclass($1)
+                          AND attname = $2
+                          AND attnum > 0
+                          AND NOT attisdropped
+                    )
+                    """,
+                    table,
+                    "product",
+                )
+                if not has_product:
+                    missing.append(f"{table}.product@{get_table_pool.__name__}")
+    return missing
+
+
+async def verify_money_tables() -> None:
+    """Fail-fast guard for REQUIRED_FOR_MONEY schema. Call it AFTER the startup
+    migrations in bot.main(): an environment whose role can CREATE (pilot, dev)
+    must get the chance to heal itself first. In prod the role cannot create
+    tables (SKIP_DB_MIGRATIONS=true + "permission denied for schema public",
+    startup log 2026-09-07), so a missing table is never self-healing there —
+    the DB owner applies the DDL, and until then this revision must not serve
+    traffic. РП-246 Ф2: workshop_payments was missing for four months and every
+    workshop webhook answered 500. РП-572: an existing workshop_payments table
+    without product is also unusable; migration 046 must be applied by owner."""
+    try:
+        missing = await _missing_money_schema()
+    except Exception as exc:
+        logger.critical(f"❌ REQUIRED_FOR_MONEY check failed (could not query, not 'missing'): {exc}")
+        raise
+    if missing:
+        msg = (
+            f"REQUIRED_FOR_MONEY schema missing: {', '.join(missing)}. "
+            "Apply the owner DDL (including migration 046 for workshop_payments.product) "
+            "before deploying this revision."
+        )
+        logger.critical(f"❌ {msg}")
+        await _send_schema_alert(f"🚨 <b>REQUIRED_FOR_MONEY</b> (fatal, deploy stopped)\n<code>{msg}</code>")
+        raise RuntimeError(msg)
+    logger.info(
+        "✅ REQUIRED_FOR_MONEY schema present: "
+        + ", ".join(t for t, _ in _required_for_money_tables())
+        + "; public.workshop_payments.product"
     )
 
 

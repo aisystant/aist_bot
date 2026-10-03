@@ -14,6 +14,7 @@ from typing import Optional
 
 from config import get_logger
 from db.connection import get_pool
+from db.queries.event_outbox import insert_outbox_row
 from helpers.dual_write import post_event
 
 logger = get_logger(__name__)
@@ -59,23 +60,89 @@ async def save_subscription(
 ) -> int:
     """Сохранить новую подписку (или продление).
 
+    Идемпотентно по `charge_id` (migration 049 WP-567 добавила UNIQUE на
+    telegram_payment_charge_id) — повторный вызов с тем же charge_id (Telegram
+    redelivery после non-2xx) возвращает id уже существующей строки, не падает
+    UniqueViolation и не создаёт дубль.
+
     Returns:
-        ID записи.
+        ID записи (новой или уже существующей).
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
+        return await _save_subscription_row(conn, chat_id, charge_id, stars_amount, expires_at)
+
+
+async def _save_subscription_row(
+    conn,
+    chat_id: int,
+    charge_id: str,
+    stars_amount: int,
+    expires_at: datetime,
+) -> int:
+    row_id = await conn.fetchval(
+        '''INSERT INTO public.subscriptions
+           (chat_id, telegram_payment_charge_id, status,
+            stars_amount, expires_at)
+           VALUES ($1, $2, 'active', $3, $4)
+           ON CONFLICT (telegram_payment_charge_id) DO NOTHING
+           RETURNING id''',
+        chat_id, charge_id, stars_amount, expires_at,
+    )
+    if row_id is None:
         row_id = await conn.fetchval(
-            '''INSERT INTO public.subscriptions
-               (chat_id, telegram_payment_charge_id, status,
-                stars_amount, expires_at)
-               VALUES ($1, $2, 'active', $3, $4)
-               RETURNING id''',
-            chat_id, charge_id, stars_amount, expires_at,
+            'SELECT id FROM public.subscriptions WHERE telegram_payment_charge_id = $1',
+            charge_id,
         )
+        logger.info(f"[Subscription] Already saved (idempotent replay): chat_id={chat_id}, charge_id={charge_id}")
+    else:
         logger.info(
             f"[Subscription] Saved: chat_id={chat_id}, "
             f"amount={stars_amount} Stars, expires={expires_at}"
         )
+    return row_id
+
+
+async def save_subscription_with_outbox(
+    chat_id: int,
+    charge_id: str,
+    stars_amount: int,
+    expires_at: datetime,
+    account_id: Optional[str],
+    payment_external_id: str,
+    payment_payload: dict,
+    granted_external_id: str,
+    granted_payload: dict,
+    occurred_at: datetime,
+) -> int:
+    """WP-567 Ф3(в): подписка + оба outbox-события в одной транзакции.
+
+    Заменяет паттерн «INSERT подписки в try/except, затем
+    asyncio.create_task(post_event(...)) без ожидания» — тот терял событие
+    безвозвратно при убитом между этими двумя шагами процессе, а проглоченная
+    ошибка INSERT подписки теряла саму подписку (не FSM-маркер, как называли
+    комментарии в коде до этой правки, а реальная запись, по которой
+    пользователь видит/отменяет подписку). Здесь либо всё три INSERT
+    коммитятся вместе, либо ничего — вызывающий хендлер не отвечает
+    пользователю до успешного commit.
+
+    Returns:
+        ID записи подписки.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row_id = await _save_subscription_row(conn, chat_id, charge_id, stars_amount, expires_at)
+            # external_id — то же значение, что уходит в envelope event-gateway
+            # (payment_external_id/granted_external_id, вычисленные вызывающим
+            # хендлером по уже существующим форматам "stars-sub-pay-{charge_id}"/
+            # "sub-granted-{chat_id}-tg_stars-{valid_until_iso}"), не изобретаем
+            # новый композитный ключ — оба формата и так не пересекаются между
+            # собой (разные фиксированные префиксы), а projection-worker парсит
+            # subscription_granted через regex на этот конкретный формат (rule 103) —
+            # менять его здесь означало бы сломать существующий парсинг.
+            await insert_outbox_row(conn, payment_external_id, "payment_received", account_id, payment_payload, occurred_at)
+            await insert_outbox_row(conn, granted_external_id, "subscription_granted", account_id, granted_payload, occurred_at)
         return row_id
 
 

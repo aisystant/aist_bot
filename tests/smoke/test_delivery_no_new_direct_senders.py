@@ -130,6 +130,10 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/onboarder/x2.py", "_show_topic"),
 ("core/onboarder/x2.py", "run_step"),
 ("core/onboarder/x3.py", "_show_x3_offer"),
+    # WP-562/WP-567: a fixed-recipient operator transport for database/outbox
+    # failures cannot depend on that same database-backed delivery queue.
+    # Only this function is exempt; payment handlers remain under the guard.
+("core/operator_alerts.py", "_send_operator_alert"),
 ("core/scheduler.py", "_check_marathon_missed_checkins"),
 ("core/scheduler.py", "_check_marathon_split_delivery"),
 ("core/scheduler.py", "_check_retry_storm"),
@@ -142,6 +146,11 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/scheduler.py", "_process_marathon_queue"),
 ("core/scheduler.py", "_refresh_subscribers_snapshot"),
 ("core/scheduler.py", "_send_marathon_weekly_digest"),
+    # WP-578: та же схема, что _send_marathon_weekly_digest выше — cron-задача
+    # с собственным дедупом через notification_log (свой idempotency_key,
+    # не батч из одной email-подобной очереди); мигрировать вместе с
+    # соседним digest-джобом, не по отдельности.
+("core/scheduler.py", "_send_mentorship_disclaimer"),
 ("core/scheduler.py", "_send_slot_daily_prompt"),
     # WP-502: direct send moved under _publisher_scan_lock wrapper (same
     # pattern as _discourse_check_comments_unlocked above); _smart_publisher_scan
@@ -159,7 +168,7 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/tier_detector.py", "_notify_downgrade"),
 ("core/tier_detector.py", "_notify_external_client_available"),
 ("core/unstick.py", "recover_user"),
-("db/connection.py", "_verify_schema._alert"),
+("db/connection.py", "_send_schema_alert"),  # renamed 2026-09-07 (РП-246 Ф2): shared by schema-drift and REQUIRED_FOR_MONEY alerts
 ("engines/feed/handlers.py", "show_topic_selection_direct"),
 ("engines/tailor/bot_adapter.py", "BotTailorAdapter.deliver"),
 ("engines/tailor/delivery.py", "notify_tailor_lesson"),
@@ -172,12 +181,28 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("handlers/legacy/learning.py", "send_practice_topic"),
 ("handlers/legacy/learning.py", "send_theory_topic"),
 ("handlers/legacy/learning.py", "send_topic"),
+    # WP-578: реактивная отправка сразу по команде наставника (тот же класс,
+    # что handlers/workshop.py: _send_direct_masterskaya_invite ниже) —
+    # адресат неизвестен заранее (берётся из reply в момент вызова), не
+    # батч/расписание, повод переносить на Доставщик отдельно от общей
+    # миграции реактивных инвайтов не сильнее, чем у соседа по паттерну.
+("handlers/mentorship.py", "cmd_mentor_invite"),
+    # WP-578 Ф9: реактивный ответ наставнику в личку на его же команду
+    # (ошибка использования вместо публичного reply в группу): адресат — сам
+    # вызвавший, не батч и не расписание; та же причина, что у
+    # cmd_mentor_invite выше.
+("handlers/mentorship.py", "_tell_mentor"),
 ("handlers/showcase.py", "_send_seminar_access"),
 ("handlers/tier_upgrade.py", "nudge_post_diagnosis_s0"),
 ("handlers/tier_upgrade.py", "nudge_post_diagnosis_sN"),
 ("handlers/tier_upgrade.py", "nudge_subscription_cta"),
 ("handlers/tier_upgrade.py", "nudge_tier_suggest_t2"),
 ("handlers/workshop.py", "_send_invite_by_count"),
+    # WP-181 Ф-direct (2026-09-10): та же схема message/bot fallback, что и
+    # _send_invite_by_count выше — реактивное уведомление сразу после
+    # оплаты, не batch/scheduled push. Отдельного повода мигрировать на
+    # Доставщик раньше сиблинга нет.
+("handlers/workshop.py", "_send_direct_masterskaya_invite"),
 ("states/base.py", "BaseState.send"),
 ("states/feed/topics.py", "FeedTopicsState._accept_topics"),
 ("states/utilities/feedback.py", "FeedbackState._notify_developer_red"),

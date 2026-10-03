@@ -1,0 +1,6 @@
+# .agentigore — файлы, которые peer-adapter-filter.py не копирует в проекцию
+# для агентов-напарников (peer-сессии DP.SC.154). fnmatch-паттерны, по одному в строке.
+.venv/*
+.git/*
+__pycache__/*
+.pytest_cache/*

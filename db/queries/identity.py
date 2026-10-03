@@ -13,10 +13,23 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+import asyncpg
+
 from db.connection import get_pool
+from db.queries import bot_profile
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
+
+_ORY_ID_UNIQUE_CONSTRAINT = "users_ory_id_key"
+
+
+class OryAccountAlreadyLinked(Exception):
+    """The Ory account is already attached to another Telegram row in public.users.
+
+    One person with two Telegram accounts in the bot: the second one cannot take the
+    same ory_id (unique constraint). Callers show a clear message instead of a 500.
+    """
 
 
 
@@ -88,6 +101,17 @@ async def get_user_uuid(telegram_id: int) -> Optional[UUID]:
         return row['id'] if row else None
 
 
+# nosec B608 — колонки из хардкодного whitelist (bot_profile.PROFILE_MIRROR_FIELDS,
+# провалидирован regex), значения параметризованы ($1..$3), тот же паттерн, что
+# db/sql_helpers.py.
+_LINK_ORY_RETURNING = (
+    "UPDATE public.users SET ory_id = $2, email = COALESCE($3, email), "  # nosec B608
+    "tier = CASE WHEN tier = 'T0' THEN 'T1' ELSE tier END, updated_at = (NOW() AT TIME ZONE 'utc') "
+    "WHERE telegram_id = $1 "
+    "RETURNING telegram_id AS chat_id, ory_id, updated_at, " + ", ".join(bot_profile.PROFILE_MIRROR_FIELDS)
+)
+
+
 async def link_ory(telegram_id: int, ory_id: str, email: Optional[str] = None) -> bool:
     """Привязать Ory UUID при переходе T0→T1.
 
@@ -95,36 +119,64 @@ async def link_ory(telegram_id: int, ory_id: str, email: Optional[str] = None) -
         telegram_id: Telegram chat_id
         ory_id: UUID из Ory Network
         email: email из Ory (опционально)
+
+    WP-253 Ф12.6 фаза A: это единственная штатная точка T0→T1 для зеркала —
+    persona.bot_profile зеркалит только T1+ (нет владельца для RLS self_only
+    у T0, peer-session 2026-09-17-07). Ровно в момент, когда ory_id впервые
+    появляется, строка становится зеркалируемой. `updated_at` вычисляется
+    СЕРВЕРНОЙ стороной ((NOW() AT TIME ZONE 'utc'), как и в update_intern) —
+    не клиентским `datetime.utcnow()` — иначе таймстемп фиксируется ДО
+    реального коммита и монотонный guard в bot_profile может молча отклонить
+    более позднюю по факту запись как «устаревшую» (cold-review этой сессии).
+    По той же причине — под тем же per-chat_id локом, что update_intern/
+    update_tg_username: без него зеркало отсюда конкурирует с ними за
+    порядок записи в persona.bot_profile без всякой сериализации.
     """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        result = await conn.execute('''
-            UPDATE public.users
-            SET ory_id = $2, email = COALESCE($3, email),
-                tier = CASE WHEN tier = 'T0' THEN 'T1' ELSE tier END,
-                updated_at = $4
-            WHERE telegram_id = $1
-        ''', telegram_id, ory_id, email, datetime.utcnow())
-        if result != 'UPDATE 0':
-            logger.info(f"[Identity] Linked ory_id={ory_id} for telegram_id={telegram_id}")
+    mirror_lock = await bot_profile.chat_lock(telegram_id) if bot_profile.mirror_enabled_for(telegram_id) else None
 
-            # WP-268 Phase 2 dual-write: Ory привязан, T0→T1
-            # external_id = ory_id (стабильный, идемпотентный)
-            asyncio.create_task(post_event(
-                source="aist-bot",
-                external_id=f"ory-linked-{ory_id}",
-                event_type="ory_linked",
-                schema_version="v1",
-                occurred_at=datetime.utcnow(),
-                account_id=ory_id,
-                payload={
-                    "tier_to": "T1",
-                    "email_present": bool(email),
-                },
-            ))
+    async def _write():
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            try:
+                return await conn.fetchrow(_LINK_ORY_RETURNING, telegram_id, ory_id, email)
+            except asyncpg.UniqueViolationError as exc:
+                if exc.constraint_name != _ORY_ID_UNIQUE_CONSTRAINT:
+                    raise
+                logger.warning(
+                    f"[Identity] ory_id {ory_id[:8]}... is already linked to another "
+                    f"telegram row; telegram_id={telegram_id} not linked"
+                )
+                raise OryAccountAlreadyLinked(telegram_id) from exc
 
-            return True
-        return False
+    if mirror_lock is not None:
+        async with mirror_lock:
+            row = await _write()
+            if row is not None:
+                await bot_profile.mirror_profile_row(dict(row))
+    else:
+        row = await _write()
+        if row is not None:
+            await bot_profile.mirror_profile_row(dict(row))
+
+    if row is not None:
+        logger.info(f"[Identity] Linked ory_id={ory_id} for telegram_id={telegram_id}")
+        # WP-268 Phase 2 dual-write: Ory привязан, T0→T1
+        # external_id = ory_id (стабильный, идемпотентный)
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"ory-linked-{ory_id}",
+            event_type="ory_linked",
+            schema_version="v1",
+            occurred_at=datetime.utcnow(),
+            account_id=ory_id,
+            payload={
+                "tier_to": "T1",
+                "email_present": bool(email),
+            },
+        ))
+
+        return True
+    return False
 
 
 async def update_user_tier(telegram_id: int, tier: str) -> bool:

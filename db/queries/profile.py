@@ -41,6 +41,9 @@ OPTIONAL_CHAT_TABLES = [
     ('dt_tokens', 'chat_id'),
     ('github_connections', 'chat_id'),
     ('google_calendar_connections', 'chat_id'),
+    # WP-554 Ф12: chat_id BIGINT, topic + Chatwoot ids (migration 015, db/queries/helpdesk.py)
+    ('helpdesk_tickets', 'chat_id'),
+    ('internship_payment_checks', 'telegram_id'),
     ('oauth_pending_states', 'telegram_user_id'),
     ('ory_tokens', 'chat_id'),
     ('published_posts', 'chat_id'),
@@ -50,8 +53,46 @@ OPTIONAL_CHAT_TABLES = [
     ('training_children', 'chat_id'),
     ('training_progress', 'chat_id'),
     ('training_settings', 'chat_id'),
+    # WP-554 Ф12 (review): foreign key to users(telegram_id) without ON DELETE CASCADE
+    # (migrations 027, 028): a leftover row would make the users delete below fail.
+    ('user_milestone_offers', 'user_id'),
+    ('user_milestones', 'user_id'),
     ('workshop_payments', 'telegram_id'),
 ]
+
+# WP-554 Ф12: same contract as OPTIONAL_CHAT_TABLES for bot-owned tables of the
+# `development` schema (none has a foreign key to public.users, so they stay outside
+# the core transaction). learning_history has no writer in the bot: the migration-007
+# trigger materialises it from development.user_events, hence the same user_id key.
+OPTIONAL_DEVELOPMENT_TABLES = [
+    ('learning_history', 'user_id'),
+    ('notification_queue', 'chat_id'),
+    ('nudge_receipt', 'recipient_chat_id'),
+]
+
+# WP-554 Ф12: (schema, table, column) of bot-written learning-pool tables keyed by the
+# Telegram id (the marathon tables call it user_id). Unlike the main-pool lists a
+# missing table here is a failed required leg: migration 025 creates all five.
+# marathon_state goes before marathon_activity: the nightly batch derives the latter from it.
+LEARNING_CHAT_TABLES = [
+    ('public', 'reminder', 'chat_id'),
+    ('learning', 'marathon_state', 'user_id'),
+    ('learning', 'marathon_activity', 'user_id'),
+    ('learning', 'marathon_queue', 'user_id'),
+    ('learning', 'marathon_progress', 'user_id'),
+]
+
+# WP-554 Ф12 (review): auth codes go before token pairs, so an exchange in flight cannot
+# re-create the pair after its rows are gone. Both tables have chat_id and account_id.
+SECRETS_CLIENT_TABLES = ['external_auth_codes', 'ory_client_tokens']
+
+
+def _main_optional_tables():
+    """(schema, table, column) for every schema-optional table of the main pool."""
+    for table, column in OPTIONAL_CHAT_TABLES:
+        yield 'public', table, column
+    for table, column in OPTIONAL_DEVELOPMENT_TABLES:
+        yield 'development', table, column
 
 
 class IncompleteUserDataDeletion(RuntimeError):
@@ -201,34 +242,20 @@ async def delete_all_user_data(chat_id: int) -> dict:
     failures: list[str] = []
 
     async with pool.acquire() as conn:
-        for table, column in OPTIONAL_CHAT_TABLES:
+        for schema, table, column in _main_optional_tables():
             try:
                 deleted = await conn.execute(
-                    _delete_from_sql(f'public.{table}', f'{column} = $1'), chat_id
+                    _delete_from_sql(f'{schema}.{table}', f'{column} = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
             except asyncpg.exceptions.UndefinedTableError:
-                logger.warning("[DELETE] optional table %s does not exist, skipping", table)
+                logger.warning(
+                    "[DELETE] optional table %s.%s does not exist, skipping", schema, table
+                )
                 result[table] = 0
             except Exception as e:
                 _record_required_cleanup_failure(failures, f"main.{table}", e)
                 result[table] = 0
-
-        # Legacy bot_data.request_traces (main pool) — same treatment as
-        # channel_monitors above and for the same reason (moved out of the core
-        # transaction below). Distinct result key: the health-pool copy further
-        # down writes result['request_traces']. See test_delete_all_user_data_tables.py.
-        try:
-            deleted = await conn.execute(
-                'DELETE FROM public.request_traces WHERE user_id = $1', chat_id
-            )
-            result['request_traces_legacy'] = _parse_delete_count(deleted)
-        except asyncpg.exceptions.UndefinedTableError:
-            logger.warning("[DELETE] legacy request_traces does not exist, skipping")
-            result['request_traces_legacy'] = 0
-        except Exception as e:
-            _record_required_cleanup_failure(failures, "main.request_traces_legacy", e)
-            result['request_traces_legacy'] = 0
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -241,8 +268,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                     conn, _delete_from_sql(f'public.{table}', 'chat_id = $1'), chat_id, table
                 )
 
-            # Таблицы с user_id вместо chat_id (request_traces legacy — см. выше,
-            # уже удалена вне транзакции, не дублируем здесь)
+            # service_usage — таблица с user_id вместо chat_id.
             result['service_usage'] = await _delete_tolerant(
                 conn, _delete_from_sql('public.service_usage', 'user_id = $1'), chat_id,
                 'service_usage',
@@ -368,6 +394,23 @@ async def delete_all_user_data(chat_id: int) -> dict:
     else:
         result['secrets_github_connections'] = 0
 
+    # WP-554 Ф12: external-client (MCP) auth codes and token pairs. account_id is NOT NULL,
+    # chat_id came to the token table later (migration 030) and is NULL on older rows, so
+    # match on either.
+    for table in SECRETS_CLIENT_TABLES:
+        try:
+            from db.connection import get_secrets_pool
+            secrets_pool = await get_secrets_pool()
+            async with secrets_pool.acquire() as sconn:
+                deleted = await sconn.execute(
+                    _delete_from_sql(f'public.{table}', 'chat_id = $1 OR account_id = $2::uuid'),
+                    chat_id, account_id,
+                )
+            result[f'secrets_{table}'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, f"secrets.{table}", e)
+            result[f'secrets_{table}'] = 0
+
     # WP-253 lift-and-shift: subscription.contract (core/access.py) — ключ account_id.
     if account_id:
         try:
@@ -447,6 +490,23 @@ async def delete_all_user_data(chat_id: int) -> dict:
             result['learning_cp_assessments'] = 0
     else:
         result['learning_cp_assessments'] = 0
+
+    # WP-554 Ф12: learning.onboarding_state (referral source, upgrade markers) —
+    # account_id key and gate like cp_assessments above, own required-leg component.
+    if account_id:
+        try:
+            learning_onboarding_pool = await get_learning_pool()
+            async with learning_onboarding_pool.acquire() as loconn:
+                deleted = await loconn.execute(
+                    'DELETE FROM learning.onboarding_state WHERE account_id = $1::uuid',
+                    account_id
+                )
+                result['learning_onboarding_state'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "learning.onboarding_state", e)
+            result['learning_onboarding_state'] = 0
+    else:
+        result['learning_onboarding_state'] = 0
 
     # WP-253 lift-and-shift: discourse_accounts (основной пул, выше) → club_account
     # (community пул) — ключ chat_id напрямую, без account_id (db/queries/discourse.py).
@@ -590,6 +650,20 @@ async def delete_all_user_data(chat_id: int) -> dict:
     except Exception as e:
         _record_required_cleanup_failure(failures, "learning", e)
 
+    # WP-554 Ф12: bot-written learning tables the block above does not cover. One
+    # acquire and one required-leg component per table: a failure names its table.
+    for schema, table, column in LEARNING_CHAT_TABLES:
+        try:
+            learning_chat_pool = await get_learning_pool()
+            async with learning_chat_pool.acquire() as lcconn:
+                deleted = await lcconn.execute(
+                    _delete_from_sql(f'{schema}.{table}', f'{column} = $1'), chat_id
+                )
+            result[f'learning_{table}'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, f"learning.{table}", e)
+            result[f'learning_{table}'] = 0
+
     # WP-268 Phase 5 G5 Tier2: user_sessions вынесены в health BD
     # WP-253 G4 (8 мая): + request_traces переехал в health (writer core/tracing.py)
     try:
@@ -607,6 +681,37 @@ async def delete_all_user_data(chat_id: int) -> dict:
         _record_required_cleanup_failure(failures, "health", e)
         result['user_sessions'] = 0
         result['request_traces'] = 0
+
+    # WP-554 Ф11: identity-финализатор. `not failures` gate — ory_identity
+    # остаётся резолвируемым (см. account_id lookup выше) для повторной
+    # попытки, если любая предыдущая нога упала. result.update() только
+    # после commit — rollback не должен оставлять в result чужие счётчики.
+    # Известное ограничение: "нет ory_identity" неотличимо от "уже удалено
+    # ранее" — полное H-306 требует durable job/tombstone, не строится тут.
+    if not failures:
+        try:
+            from db.connection import get_persona_pool
+            persona_result: dict[str, int] = {}
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as pconn:
+                async with pconn.transaction():
+                    deleted = await pconn.execute(
+                        'DELETE FROM public.bot_profile WHERE chat_id = $1 OR account_id = $2',
+                        chat_id, account_id,
+                    )
+                    persona_result['persona_bot_profile'] = _parse_delete_count(deleted)
+                    if account_id:
+                        deleted = await pconn.execute(
+                            'DELETE FROM public.consent_grants WHERE account_id = $1', account_id
+                        )
+                        persona_result['persona_consent_grants'] = _parse_delete_count(deleted)
+                        deleted = await pconn.execute(
+                            'DELETE FROM public.ory_identity WHERE account_id = $1', account_id
+                        )
+                        persona_result['persona_ory_identity'] = _parse_delete_count(deleted)
+            result.update(persona_result)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "persona.identity_finalizer", e)
 
     total = sum(result.values())
     logger.info(

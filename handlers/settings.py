@@ -116,6 +116,19 @@ async def cmd_connect_guide(message: Message):
     base_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
     app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
 
+    from clients.github_app import is_app_enabled, app_identity_status
+    if not is_app_enabled():
+        await message.answer(
+            "⚠️ GitHub App ещё не зарегистрирован платформой.\n"
+            "Эта функция станет доступна после регистрации (WP-301 Ф7).",
+        )
+        return
+    if app_identity_status() is False:
+        logger.warning(
+            "[GitHubApp] gate=entry_point_blocked point=cmd_connect_guide reason=identity_check_failed"
+        )
+        await message.answer("⚠️ GitHub App настроен неверно. Напиши администратору.")
+        return
     if not app_slug:
         await message.answer(
             "⚠️ GitHub App ещё не зарегистрирован платформой.\n"

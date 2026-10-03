@@ -61,6 +61,14 @@ async def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | N
         pass  # fallback to T3b below
 
     # T3b: sovereign — предложить подключить GitHub App
+    from clients.github_app import is_app_enabled, app_identity_status
+    if not is_app_enabled():
+        return None
+    if app_identity_status() is False:
+        logger.warning(
+            "[GitHubApp] gate=entry_point_blocked point=_personal_guide_button reason=identity_check_failed"
+        )
+        return None
     app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
     webhook_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
     if not app_slug or not webhook_url:
@@ -128,21 +136,33 @@ def _has_learning_data(intern: dict) -> bool:
 async def _save_entry_source_from_deeplink(chat_id: int, raw_source: str, intern: dict) -> None:
     """Сохранить источник входа из deep-link `/start src_<value>` (WP-406 Ф16-B3).
 
-    Нормализованное значение (site|stand|bot|guide-kit) кладётся в
+    Нормализованное значение из фиксированного списка кладётся в
     current_context['onboarding']['entry_source'] через канонический writer
     Онбордера; локальная копия intern обновляется, чтобы последующие ветки
     cmd_start (update_intern по stale current_context) не затёрли отметку.
+    Уже сохранённый валидный источник не перезаписывается: атрибуция first-touch.
     Fail-open: ошибка сохранения не ломает /start.
     """
     try:
-        from core.onboarder import normalize_entry_source
+        from core.onboarder import ENTRY_SOURCES, normalize_entry_source
         from core.onboarder import storage as onboarder_storage
+
+        ctx = (intern or {}).get("current_context") or {}
+        existing_onboarding_ctx = ctx.get("onboarding") or {}
+        existing_raw = existing_onboarding_ctx.get("entry_source")
+        existing_source = (
+            existing_raw.strip().lower().replace("_", "-")
+            if isinstance(existing_raw, str)
+            else None
+        )
+        if existing_source in ENTRY_SOURCES:
+            return
+
         entry_source = normalize_entry_source(raw_source)
         onboarding_ctx = await onboarder_storage.save_onboarding_context(
             chat_id, {"entry_source": entry_source}
         )
         if intern is not None:
-            ctx = intern.get("current_context") or {}
             ctx["onboarding"] = onboarding_ctx
             intern["current_context"] = ctx
     except Exception as e:
@@ -165,6 +185,13 @@ async def cmd_start(message: Message, state: FSMContext):
                 return
         except (ValueError, IndexError):
             pass
+
+    # Deep link: /start masterskaya_direct → прямая оплата Мастерской IWE,
+    # минуя Семинар (WP-181 Ф-direct).
+    if len(args) > 1 and args[1] == "masterskaya_direct":
+        from handlers.workshop import show_direct_masterskaya_card
+        await show_direct_masterskaya_card(message)
+        return
 
     # Single DB load — reused across all deep-link branches (latency fix, WP- peer-session)
     _uid = message.from_user.id if message.from_user else message.chat.id
@@ -448,6 +475,7 @@ async def cmd_start(message: Message, state: FSMContext):
     # moment both Х2 and Х3 close (see core/onboarder/x2.py, on_x3_confirm below).
     from db.queries.events import log_event
     from db.queries.onboarding_journey import get_cohort_id_for_chat
+    from core.onboarder import entry_source_from_intern
     cohort_id = 'R1'
     async with span("start.registration_event"):
         if aisystant_id:
@@ -457,6 +485,7 @@ async def cmd_start(message: Message, state: FSMContext):
             'path': 'fast',
             'linked_aisystant': linked,
             'cohort_id': cohort_id,
+            'source': entry_source_from_intern(intern),
         })
 
     if linked:
@@ -773,6 +802,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         from db.queries.events import log_event
         from db.queries.aisystant import get_aisystant_id
         from db.queries.onboarding_journey import get_cohort_id_for_chat
+        from core.onboarder import entry_source_from_intern
         _fsm_aisystant_id = await get_aisystant_id(chat_id)
         _fsm_cohort_id = 'R1'
         if _fsm_aisystant_id:
@@ -786,6 +816,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             'start_date': str(intern.get('marathon_start_date')),
             'linked_aisystant': _fsm_aisystant_id is not None,
             'cohort_id': _fsm_cohort_id,
+            'source': entry_source_from_intern(intern),
         })
 
         await state.clear()
@@ -942,12 +973,10 @@ async def on_x3_confirm(callback: CallbackQuery):
         # если Х2 был закрыт раньше — это последний из двух разрывов, событие логируется тут.
         # Симметричный лог для обратного порядка — core/onboarder/x2.py:_finish_x2.
         if _x2_done_before:
-            await log_event(chat_id, "onboarding_completed", {
-                "entry_type": _entry_type,
-                "source": _entry_source,
-                "lang": _lang,
-                "closed_by": "x3",
-            })
+            from core.onboarder.events import emit_onboarding_completed
+            await emit_onboarding_completed(
+                chat_id, _entry_type, _entry_source, _lang, closed_by="x3",
+            )
             # WP-406 Ф31: дефолтная квалификация «Ученик», если своей ещё нет.
             # Fail-open: ошибка записи не ломает онбординг.
             try:

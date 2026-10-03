@@ -1,8 +1,9 @@
 """
 WP-406 Ф16-B3 (MVP): метка источника входа в событиях онбординга.
 
-События onboarding_started / x2_completed / x3_completed / onboarding_completed
-несут поле source со значениями site | stand | bot | guide-kit (дефолт bot).
+События registration_completed / onboarding_started / x2_completed /
+x3_completed / onboarding_completed несут поле source из фиксированного списка
+(дефолт bot).
 Источник — deep-link `/start src_<value>`, хранение — current_context['onboarding']
 ['entry_source'] (по аналогии с entry_type, не заменяя его). В payload — только
 значения полей, никакого PII (FORBIDDEN_FIELDS).
@@ -13,7 +14,12 @@ from datetime import datetime
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from core.onboarder import DEFAULT_ENTRY_SOURCE, ENTRY_SOURCES, normalize_entry_source
+from core.onboarder import (
+    DEFAULT_ENTRY_SOURCE,
+    ENTRY_SOURCES,
+    entry_source_from_intern,
+    normalize_entry_source,
+)
 
 _DT = datetime(2026, 8, 8, 12, 0, 0)
 
@@ -55,6 +61,26 @@ async def test_deeplink_saves_normalized_entry_source():
     # Локальная копия intern обновлена — последующие update_intern по stale
     # current_context в cmd_start не затирают отметку.
     assert intern["current_context"]["onboarding"] == {"entry_source": "site"}
+
+
+@pytest.mark.asyncio
+async def test_deeplink_keeps_first_valid_entry_source_after_registration():
+    """Повторный deep-link зарегистрированного участника не меняет first-touch."""
+    from handlers.onboarding import _save_entry_source_from_deeplink
+
+    intern = {
+        "onboarding_completed": True,
+        "current_context": {
+            "onboarding": {"entry_source": "mcp-claude", "started_fired": True}
+        }
+    }
+    with patch(
+        "core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock
+    ) as mock_save:
+        await _save_entry_source_from_deeplink(111, "web", intern)
+
+    mock_save.assert_not_awaited()
+    assert intern["current_context"]["onboarding"]["entry_source"] == "mcp-claude"
 
 
 @pytest.mark.asyncio
@@ -207,7 +233,144 @@ async def test_x3_events_default_source_bot():
 
 def test_event_payload_source_values_are_enum_only():
     """PII-guard: source в payload — только фиксированные значения, не свободный текст."""
-    assert set(ENTRY_SOURCES) == {"site", "stand", "bot", "guide-kit"}
+    assert set(ENTRY_SOURCES) == {
+        "site",
+        "stand",
+        "bot",
+        "guide-kit",
+        "mcp-claude",
+        "mcp-chatgpt",
+        "mcp-other",
+        "web",
+    }
     # Любой произвольный ввод нормализуется в допустимое значение
     for raw in ("tg://user?id=1", "user@example.com", "8-900-000-00-00", "src_x"):
         assert normalize_entry_source(raw) in ENTRY_SOURCES
+
+
+def test_registration_source_reads_persisted_first_touch():
+    intern = {
+        "current_context": {"onboarding": {"entry_source": "mcp-chatgpt"}}
+    }
+
+    assert entry_source_from_intern(intern) == "mcp-chatgpt"
+    assert entry_source_from_intern({"current_context": {}}) == "bot"
+
+
+@pytest.mark.asyncio
+async def test_fast_registration_event_carries_deeplink_source():
+    """Новая регистрация пишет source из того же /start в registration_completed."""
+    from handlers.onboarding import cmd_start
+
+    intern = {"onboarding_completed": False, "current_context": {}}
+    message = AsyncMock()
+    message.text = "/start src_mcp-claude"
+    message.chat.id = 317106357
+    message.from_user = MagicMock(
+        id=317106357,
+        language_code="ru",
+        first_name="Test",
+        username=None,
+    )
+    state = AsyncMock()
+
+    with patch("handlers.onboarding.get_intern", new_callable=AsyncMock,
+               return_value=intern), \
+         patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock,
+               return_value={"entry_source": "mcp-claude"}), \
+         patch("handlers.onboarding.update_intern", new_callable=AsyncMock), \
+         patch("handlers.onboarding._try_auto_link", new_callable=AsyncMock,
+               return_value=None), \
+         patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock,
+               return_value=0), \
+         patch("core.tier_ui.build_reply_keyboard", return_value=MagicMock()), \
+         patch("core.tier_ui.sync_menu_commands", new_callable=AsyncMock), \
+         patch("db.queries.events.log_event", new_callable=AsyncMock) as mock_log:
+        await cmd_start(message, state)
+
+    registration_call = next(
+        call for call in mock_log.await_args_list
+        if call.args[1] == "registration_completed"
+    )
+    assert registration_call.args[2]["source"] == "mcp-claude"
+
+
+@pytest.mark.asyncio
+async def test_fsm_registration_event_carries_persisted_source():
+    """Старый FSM-путь пишет тот же first-touch source в registration_completed."""
+    from handlers.onboarding import on_confirm
+
+    intern = {
+        "language": "ru",
+        "name": "Test",
+        "study_duration": 15,
+        "schedule_time": "09:00",
+        "marathon_start_date": None,
+        "current_context": {"onboarding": {"entry_source": "web"}},
+    }
+    callback = AsyncMock()
+    callback.message.chat.id = 317106357
+    state = AsyncMock()
+
+    with patch("handlers.onboarding.update_intern", new_callable=AsyncMock), \
+         patch("handlers.onboarding.get_intern", new_callable=AsyncMock,
+               return_value=intern), \
+         patch("handlers.onboarding._personal_guide_button", new_callable=AsyncMock,
+               return_value=None), \
+         patch("core.topics.get_marathon_day", return_value=1), \
+         patch("core.topics.get_display_day", return_value=1), \
+         patch("core.tier_ui.send_tier_keyboard", new_callable=AsyncMock), \
+         patch("db.queries.aisystant.get_aisystant_id", new_callable=AsyncMock,
+               return_value=None), \
+         patch("db.queries.events.log_event", new_callable=AsyncMock) as mock_log:
+        await on_confirm(callback, state)
+
+    registration_call = next(
+        call for call in mock_log.await_args_list
+        if call.args[1] == "registration_completed"
+    )
+    assert registration_call.args[2]["source"] == "web"
+
+
+@pytest.mark.asyncio
+async def test_returning_user_deeplink_does_not_emit_new_registration():
+    """Повторный source-вход сохраняет first-touch и не создаёт регистрацию."""
+    from handlers.onboarding import cmd_start
+
+    intern = {
+        "onboarding_completed": True,
+        "current_context": {"onboarding": {"entry_source": "mcp-claude"}},
+        "completed_topics": [],
+        "language": "ru",
+        "name": "Test",
+        "mode": "marathon",
+    }
+    message = AsyncMock()
+    message.text = "/start src_web"
+    message.chat.id = 317106357
+    message.from_user = MagicMock(id=317106357)
+    state = AsyncMock()
+
+    with patch("handlers.onboarding.get_intern", new_callable=AsyncMock,
+               return_value=intern), \
+         patch("core.onboarder.storage.save_onboarding_context",
+               new_callable=AsyncMock) as mock_save, \
+         patch("handlers.get_dispatcher", return_value=None), \
+         patch("db.queries.activity.get_activity_stats", new_callable=AsyncMock,
+               return_value={"total": 0}), \
+         patch("core.topics.get_marathon_day", return_value=1), \
+         patch("core.topics.get_display_day", return_value=1), \
+         patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock,
+               return_value=0), \
+         patch("core.tier_ui.build_reply_keyboard", return_value=MagicMock()), \
+         patch("core.tier_ui.sync_menu_commands", new_callable=AsyncMock), \
+         patch("db.queries.aisystant.get_aisystant_id", new_callable=AsyncMock,
+               return_value=None), \
+         patch("handlers.onboarding._maybe_offer_onboarder",
+               new_callable=AsyncMock), \
+         patch("db.queries.events.log_event", new_callable=AsyncMock) as mock_log:
+        await cmd_start(message, state)
+
+    mock_save.assert_not_awaited()
+    mock_log.assert_not_awaited()
+    assert intern["current_context"]["onboarding"]["entry_source"] == "mcp-claude"

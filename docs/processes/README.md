@@ -24,6 +24,7 @@
 | P-05 | [Локализация](process-05-i18n.md) | Многоязычный интерфейс (ru/en/es/fr) | `i18n/` |
 | P-16 | [Publisher: content scan + backfill](process-16-publisher-content-scan.md) | Скан индекса знаний, auto-schedule в клуб, еженедельный backfill просроченных `ready` | `core/scheduler.py` |
 | P-17 | [GitHub App Install — Privacy Enforcement](process-17-github-app-install-privacy-enforcement.md) | Проверка и принудительная приватность репозитория после установки GitHub App в `/connect_guide` | `clients/github_app.py`, `oauth_server.py` |
+| P-18 | [Контракт выпуска — pilot → production](process-18-release-contract.md) | Смысл дрейфа, разрешённые различия сред, классификация дельт, audit-trail `incident-ok` (WP-562 Ф1) | `.githooks/pre-push`, `release-governance/incident-ok/` |
 
 ---
 
@@ -42,3 +43,4 @@
 |------|-----------|
 | 2026-01-23 | Создание раздела |
 | 2026-02-03 | Обновлены ссылки на файлы State Machine |
+| 2026-09-09 | +P-18 (контракт выпуска pilot → production, WP-562 Ф1) |

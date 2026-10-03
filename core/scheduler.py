@@ -28,7 +28,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED, DEVELOPER_CHAT_ID
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED, DEVELOPER_CHAT_ID, MENTORSHIP_DISCLAIMER_DAYS
 from db.connection import get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
@@ -329,6 +329,85 @@ async def _watch_delivery_queue():
         )
         # метка ПОСЛЕ успешной отправки: упавший send не съедает алерт на час
         _last_delivery_watch_alert_ts = time.time()
+    finally:
+        await bot.session.close()
+
+
+async def _drain_event_outbox():
+    """WP-567 Ф3(в): дожим public.event_outbox — доставка payment_received/
+    subscription_granted, отложенная транзакционным outbox в
+    handlers/subscription_stars.py и handlers/payments.py.
+
+    Тот же паттерн, что `_drain_delivery_queue` выше (FOR UPDATE SKIP LOCKED
+    внутри явной транзакции — вне неё asyncpg авто-коммитит SELECT и снимает
+    row-locks сразу, тогда конкурентные инстансы во время rolling deploy
+    возьмут одни и те же строки). Отличие: получатель здесь не Telegram, а
+    event-gateway (`post_event_or_raise`), поэтому используется `mark_delivered`/
+    `mark_failed`, а не статусы очереди Доставщика.
+    """
+    from db.queries.event_outbox import fetch_pending_outbox, mark_delivered, mark_failed
+    from helpers.dual_write import post_event_or_raise
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await fetch_pending_outbox(conn, batch=20)
+            for row in rows:
+                # Savepoint per row (cold review, 2026-09-12): without it, a
+                # DB hiccup on THIS row's own mark_delivered/mark_failed
+                # aborts the whole outer transaction -- including rows
+                # earlier in the same batch whose event-gateway POST already
+                # succeeded, forcing an unnecessary re-delivery of those on
+                # the next run. A savepoint confines that failure to the row
+                # that caused it.
+                try:
+                    async with conn.transaction():
+                        try:
+                            await post_event_or_raise(
+                                source="aist-bot",
+                                external_id=row["external_id"],
+                                event_type=row["event_type"],
+                                schema_version="v1",
+                                occurred_at=row["occurred_at"],
+                                account_id=row["account_id"],
+                                payload=row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"]),
+                            )
+                            await mark_delivered(conn, row["id"])
+                        except Exception as exc:
+                            logger.warning(f"[EventOutbox] delivery failed id={row['id']} type={row['event_type']} attempts={row['attempts']}: {exc}")
+                            await mark_failed(conn, row["id"], str(exc))
+                except Exception as savepoint_exc:
+                    logger.error(f"[EventOutbox] row id={row['id']} savepoint itself failed, will retry next run: {savepoint_exc}")
+
+
+_last_outbox_watch_alert_ts: float = 0.0
+
+
+async def _watch_event_outbox():
+    """WP-567 Ф3(в): сторож `event_outbox` — тот же принцип, что
+    `_watch_delivery_queue`: детектит «дренаж не работает» независимо от
+    причины (крон снят, `_drain_event_outbox` падает целиком раньше первой
+    строки и т.п.), не только по накопленным `attempts`. Fail-open (ошибка
+    БД не алертит — не зона этого монитора), cooldown 1 час.
+    """
+    global _last_outbox_watch_alert_ts
+
+    from core.operator_alerts import alert_event_outbox_stuck
+    from db.queries.event_outbox import count_stuck_outbox
+
+    stuck = await count_stuck_outbox(older_than_minutes=10)
+    if not stuck:
+        return
+
+    logger.error(f"[EventOutboxWatch] {stuck} событий висят недоставленными >10 мин")
+    if not _bot_token or not DEVELOPER_CHAT_ID:
+        return
+    if time.time() - _last_outbox_watch_alert_ts < 3600:
+        return
+    bot = Bot(token=_bot_token)
+    try:
+        if await alert_event_outbox_stuck(bot, stuck_count=stuck):
+            _last_outbox_watch_alert_ts = time.time()
     finally:
         await bot.session.close()
 
@@ -930,6 +1009,42 @@ async def _send_marathon_weekly_digest():
         await bot.session.close()
 
 
+async def _send_mentorship_disclaimer():
+    """WP-578: обнаружение согласия, способ 1 из 3 (решение пилота 17.09).
+
+    Раз в MENTORSHIP_DISCLAIMER_DAYS дней публикует в каждой зарегистрированной
+    группе потока (public.stream_chat) сообщение с кнопкой согласия — та же
+    формулировка и клавиатура, что у /mentor_consent (handlers/mentorship.py).
+    Дедуп через notification_log (§10.10): ключ меняется ровно раз в N дней
+    на чат, без отдельной колонки "когда отправлено в последний раз".
+    """
+    from db.queries.mentorship import list_active_stream_chats
+    from db.queries.notifications import try_insert_notification
+    from handlers.mentorship import CONSENT_PROMPT_TEXT, consent_keyboard
+
+    if not _bot_token:
+        return
+
+    chats = await list_active_stream_chats()
+    if not chats:
+        return
+
+    bot = Bot(token=_bot_token)
+    period_bucket = int(time.time() // 86400) // MENTORSHIP_DISCLAIMER_DAYS
+    try:
+        for telegram_chat_id, stream_id in chats:
+            dedup_key = f"mentorship_disclaimer:{telegram_chat_id}:{period_bucket}"
+            if not await try_insert_notification(telegram_chat_id, 'mentorship_disclaimer', dedup_key):
+                continue
+            try:
+                await bot.send_message(telegram_chat_id, CONSENT_PROMPT_TEXT, reply_markup=consent_keyboard())
+                logger.info(f"[MentorshipDisclaimer] Sent to chat={telegram_chat_id} stream={stream_id}")
+            except Exception as e:
+                logger.warning(f"[MentorshipDisclaimer] Failed to send to chat={telegram_chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+
 async def _check_marathon_split_delivery():
     """WP-330 С5 watchdog: убедиться что split-формат уроков уехал утром 31 мая.
 
@@ -1117,9 +1232,13 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
         aiogram_dispatcher: aiogram Dispatcher (FSM storage)
         bot_token: Telegram bot token
     """
-    # DISABLE_SCHEDULER=true — отключает scheduler (для тестовых инстансов с общей БД)
+    # DISABLE_SCHEDULER=true — отключает scheduler (для тестовых инстансов с общей БД).
+    # WARNING, не INFO: флаг гасит весь планировщик разом (доставку марафона,
+    # дайджесты, нуджи, health-пробы и т.д.), не только один job — незаметный
+    # дрейф этого флага на живом хостинге стоил боту суток простоя рассылки,
+    # прежде чем кто-то заметил строку в логе (WP-117/WP-562, 05.09.2026).
     if os.getenv("DISABLE_SCHEDULER", "false").lower() == "true":
-        logger.info("[Scheduler] DISABLE_SCHEDULER=true — планировщик отключён")
+        logger.warning("[Scheduler] DISABLE_SCHEDULER=true — ВЕСЬ планировщик отключён (все задачи, не только рассылка)")
         return None
 
     global _scheduler, _bot_dispatcher, _aiogram_dispatcher, _bot_token, _bot_id
@@ -1138,6 +1257,8 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # WP-418 Ф4: сторож очереди — БЕЗ гейта флага: ловит именно «точки мигрированы,
     # дренаж выключен» (плюс «drain падает»). Fail-open внутри.
     _scheduler.add_job(_watch_delivery_queue, 'cron', minute='*/10', max_instances=1)
+    _scheduler.add_job(_drain_event_outbox, 'cron', minute='*', max_instances=1)  # WP-567 Ф3в: дожим event_outbox
+    _scheduler.add_job(_watch_event_outbox, 'cron', minute='*/10', max_instances=1)  # WP-567 Ф3в: сторож event_outbox
     _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
     # DISABLE_DISCOURSE_PUBLISHER=true — отключает автопубликацию в клуб (systemsworld.club),
     # оставляя остальной scheduler активным. Нужно для инстансов, подключённых к общей с прод
@@ -1160,6 +1281,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
+    _scheduler.add_job(_send_mentorship_disclaimer, 'cron', hour=10, minute=13)  # WP-578: обнаружение согласия способ 1, дедуп сам держит каденцию раз в MENTORSHIP_DISCLAIMER_DAYS
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
@@ -1167,6 +1289,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     _scheduler.add_job(_confirm_pending_course_payments, 'cron', minute='*/10', max_instances=1)  # WP-446 Ф3b: проактивное подтверждение курсовых резервов
+    _scheduler.add_job(_check_pending_internship_payments, 'cron', minute='*/2', max_instances=1)  # WP-5: доставка ссылки на чат после оплаты INTERNSHIP (нет вебхука от Aisystant)
 
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)   # WP-327 Phase 3б: Discourse typing collection 03:30 UTC
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=17, minute=0)  # WP-327 Phase 3б: второй запуск 20:00 МСК
@@ -2200,6 +2323,96 @@ async def _confirm_pending_course_payments():
         logger.warning(f"[Scheduler] confirm_pending_course_payments failed: {e}")
 
 
+async def _check_pending_internship_payments():
+    """WP-5: доставка ссылки на чат потока после оплаты программы (purpose=INTERNSHIP).
+
+    create_internship_payment() отдаёт confirmationUrl, но Aisystant НЕ шлёт
+    вебхук о завершении такой оплаты (в отличие от SEMINAR/WORKSHOP — см.
+    oauth_server.py workshop_payment_handler, там ветки только на эти два
+    purpose). Старый бот (@SystemsSchool_bot) закрывает это поллингом
+    (threading.Timer + check-payment); здесь тот же поллинг — async cron,
+    т.к. threading.Timer несовместим с event loop aiogram.
+
+    Доставка — через core.notification_service.enqueue (WP-418 Доставщик),
+    не напрямую bot.send_message: этот модуль — новый отправитель, не входит
+    в pre-existing allowlist tests/smoke (WP-418 Ф3/Ф4), а прод уже держит
+    DELIVERY_LAYER_ENABLED=true (проверено 07.09.2026).
+
+    chatLink достаём из get_user_courses() (crm-course-passings), не из
+    ответа check-payment — там его нет. Обнаружено живьём 07.09.2026:
+    оплата 8000₽ за "Семинар: Интеллектуальная рабочая среда 2.0" ушла
+    молча, пользователь так и не получил ссылку на вход в чат.
+    """
+    from clients.aisystant import aisystant, find_potok_chat_link
+    from core.notification_service import enqueue, CLASS_CRITICAL
+    from db.queries.internship_payments import MAX_CHECK_ATTEMPTS, get_pending_checks, record_check_attempt
+    from i18n import t
+
+    pending = await get_pending_checks()
+    if not pending:
+        return
+
+    for row in pending:
+        check_id = row["id"]
+        lang = row["lang"] or "ru"
+        course_name = row["course_name"]
+        try:
+            result = await aisystant.check_payment(row["payment_id"], row["aisystant_id"])
+            status = (result or {}).get("paymentCheckResult")
+
+            if status == "SUCCEEDED":
+                chat_link = None
+                try:
+                    courses = await aisystant.get_user_courses(row["aisystant_id"])
+                    chat_link, found_name = find_potok_chat_link(courses, row["code"])
+                    course_name = found_name or course_name
+                except Exception as lookup_err:
+                    logger.warning(f"[Scheduler] WP-5: chatLink lookup failed for code={row['code']}: {lookup_err}")
+
+                key = 'internship.payment_success_with_link' if chat_link else 'internship.payment_success_no_link'
+                content_spec = {"text": t(key, lang, course=course_name), "format": "markdown"}
+                if chat_link:
+                    content_spec["actions"] = [{"label": t('internship.btn_join_chat', lang), "url": chat_link}]
+                # enqueue() ПЕРЕД record_check_attempt: enqueue идемпотентен по
+                # dedup_key (CLASS_CRITICAL, окно 24ч — core/notification_service.py
+                # _is_duplicate), а resolved_status="succeeded" — нет (get_pending_checks
+                # больше не вернёт эту строку). Если процесс упадёт между двумя
+                # вызовами, обратный порядок навсегда терял бы уведомление; в этом
+                # порядке следующий цикл просто повторит check-payment + enqueue
+                # (второй enqueue задедуплицируется) и лишь затем пометит resolved.
+                await enqueue(
+                    row["telegram_id"], CLASS_CRITICAL, content_spec,
+                    dedup_key=f"internship-payment-{row['payment_id']}",
+                    journal_type="internship_payment_success",
+                )
+                await record_check_attempt(check_id, resolved_status="succeeded")
+                logger.info(f"[Scheduler] WP-5: internship payment delivered, tg={row['telegram_id']}, code={row['code']}, has_link={bool(chat_link)}")
+
+            elif status == "FAILED":
+                content_spec = {"text": t('internship.payment_failed', lang, course=course_name), "format": "markdown"}
+                await enqueue(
+                    row["telegram_id"], CLASS_CRITICAL, content_spec,
+                    dedup_key=f"internship-payment-failed-{row['payment_id']}",
+                    journal_type="internship_payment_failed",
+                )
+                await record_check_attempt(check_id, resolved_status="failed")
+
+            elif row["attempts"] + 1 >= MAX_CHECK_ATTEMPTS:
+                content_spec = {"text": t('internship.payment_gave_up', lang, course=course_name), "format": "markdown"}
+                await enqueue(
+                    row["telegram_id"], CLASS_CRITICAL, content_spec,
+                    dedup_key=f"internship-payment-gaveup-{row['payment_id']}",
+                    journal_type="internship_payment_gaveup",
+                )
+                await record_check_attempt(check_id, resolved_status="gave_up")
+                logger.warning(f"[Scheduler] WP-5: internship payment check gave up, tg={row['telegram_id']}, code={row['code']}")
+
+            else:
+                await record_check_attempt(check_id)
+        except Exception as row_err:
+            logger.warning(f"[Scheduler] WP-5: internship payment check failed for id={check_id}: {row_err}")
+
+
 async def _better_stack_heartbeat():
     """WP-244 — пинг Better Stack heartbeat каждую минуту.
 
@@ -2309,6 +2522,7 @@ async def send_milestone_notifications():
                 active_days = user.get('active_days_total', 0) or 0
                 streak = user.get('longest_streak', 0) or 0
                 bloom = user.get('complexity_level', 1) or 1
+                events_last_7d = user.get('events_last_7d', 0) or 0
 
                 # Базовое сообщение
                 encouragement = ''
@@ -2317,6 +2531,15 @@ async def send_milestone_notifications():
                         encouragement = t('milestones.day_7_active', lang)
                     else:
                         encouragement = t('milestones.day_7_inactive', lang)
+                elif day == 14:
+                    # Тот же порог, что nudge_low_engagement (engagement_analyzer.py:
+                    # events_7d < 2) — иначе day_14 хвалит за активность, а нудж-система
+                    # через день независимо отмечает её как низкую по тем же данным
+                    # (инцидент 10 сен, Лапыгин: два уведомления подряд противоречили друг другу).
+                    if events_last_7d >= 2:
+                        encouragement = t('milestones.day_14_active', lang)
+                    else:
+                        encouragement = t('milestones.day_14_inactive', lang)
 
                 text = t(f'milestones.day_{day}', lang,
                          topics=topics_count,

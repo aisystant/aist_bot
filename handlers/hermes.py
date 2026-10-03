@@ -1,29 +1,33 @@
-"""WP-392 Ф3.1: Hermes-роутер.
+"""WP-392 Ф3.1 / WP-392 retirement (05.09): Hermes-роутер.
 
-Префикс «Гермес»/«hermes» ВСЕГДА адресует внешний Hermes-рантайм (Nous Research)
-через gateway-mcp `hermes_chat` (DP.SC.167) для tier ≥ T3.
+Внешний Hermes-рантайм (Nous Research) отключён от чата бота (решение пилота
+05.09 — см. DS-my-strategy/archive/wp-contexts/WP-392/retirement.md): реальный
+трафик был единицы диалогов за 2,5 недели, а РП-262 («бот = тонкий клиент
+ядра») сделает саму раздачу T4→Hermes не нужной архитектурно.
 
-Для tier < T3 префикс «Гермес» маршрутизирует к Проводнику (DP.SC.169) —
-онбординг-помощнику на Haiku с узким scope: тиры T1→T4 и следующий шаг.
+Префикс «Гермес»/«hermes» для tier ≥ T3 теперь отвечает `_HERMES_RETIRED_MSG`
+вместо вызова gateway-mcp `hermes_chat`. Для tier < T3 префикс по-прежнему
+маршрутизирует к Проводнику (DP.SC.169) — это ЛОКАЛЬНЫЙ Haiku-помощник по
+онбордингу, не внешний Hermes, и его отключение не входит в это решение.
+
+Вне scope этого файла — не трогать: `handlers/byok.py` (свой ключ для Hermes)
+и `/agent hermes` в `handlers/external_session.py` (движок VS Code-моста) —
+отдельные, менее используемые возможности, решение по ним не принято.
 
 Имя «Гермес»/«Hermes» зарезервировано за продуктом Nous Research. Наши собственные
 артефакты (Claude-сессии, Session Memory Injector и т.д.) так НЕ называются.
 """
 
-import io
 import logging
 import re
-import time
 
 from aiogram import Router
 from aiogram.dispatcher.event.bases import SkipHandler
-from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config.settings import CLAUDE_MODEL_HAIKU
 from db.queries import get_intern
-from helpers.message_split import prepare_html_parts, truncate_safe
 from helpers.typing_indicator import keep_typing
 
 logger = logging.getLogger(__name__)
@@ -31,12 +35,13 @@ logger = logging.getLogger(__name__)
 hermes_router = Router(name="hermes")
 
 _HERMES_PREFIXES = ("гермес", "hermes")
-_HERMES_SESSION_KEY = "hermes_session_id"  # FSM key for per-user session override (WP-428 Ф7)
+_HERMES_PREFIXES_RE = re.compile(r"^(гермес|hermes)[,:\s]+", re.IGNORECASE)
 _TIER_REQUIRED = 3
 _UNAVAILABLE_TIER_MSG = "Функция недоступна на твоём тире"
 # РП7 BOT-HERMES1: имя рантайма наружу не показываем. Два разных отказа —
 # «нет токена» (нужен повторный вход, ждать бесполезно) и «рантайм упал»
-# (нейтральное «попробуй позже»).
+# (нейтральное «попробуй позже»). Используется VS Code-мостом (external_session.py),
+# где Hermes-исполнитель отключением из этого файла не затронут.
 _SERVICE_DOWN_MSG = "Помощник сейчас недоступен. Попробуй позже."
 _RECONNECT_MSG = (
     "Похоже, доступ к платформе прервался: сессия входа истекла. "
@@ -45,10 +50,10 @@ _RECONNECT_MSG = (
 _RECONNECT_BTN = "🔗 Войти заново"
 _CONDUCTOR_UNAVAILABLE_MSG = "Проводник временно недоступен. Напиши /setup — там весь путь."
 _CONDUCTOR_MAX_TOKENS = 500
-
-_LONG_ARTIFACT_THRESHOLD = 3500  # chars; above this → send_document (WP-428 Ф8)
-_SUPPORTED_DOC_EXTENSIONS = (".txt", ".md")  # Layer 1 plain-text only; PDF = deferred
-_MAX_DOC_SIZE = 500_000  # bytes — guard against huge uploads
+_HERMES_RETIRED_MSG = (
+    "Гермес как отдельный помощник отключён. Просто напиши свой вопрос обычным "
+    "сообщением (или начни с «?») — ответит Наставник."
+)
 
 _TIER_LABELS = {
     0: "T0 (анонимный)",
@@ -73,7 +78,7 @@ def _conductor_system_prompt(tier_num: int) -> str:
         "3. Какие команды и функции доступны на текущем тире\n"
         "4. Общий обзор платформы: марафон, диагностика, личная база знаний\n\n"
         "Если вопрос вне scope: ответь «Я помогаю с подключением к платформе. "
-        "Для других вопросов — попробуй после подписки T3, где откроется Гермес.\"\n\n"
+        "Для других вопросов напиши «?» и свой вопрос — ответит Наставник.\"\n\n"
         "Отвечай по-русски, кратко (3-5 предложений). Будь дружелюбным и конкретным."
     )
 
@@ -99,69 +104,6 @@ def _is_onboarding_query(text: str) -> bool:
     """Вопрос про вход в сообщество (а не частность) — по ключевым словам."""
     low = (text or "").lower()
     return any(kw in low for kw in _ONBOARDING_QUERY_KEYWORDS)
-
-
-def _is_hermes_document(message: Message) -> bool:
-    """Document (file) with hermes prefix in caption — WP-428 Ф8 Layer 1."""
-    if message.chat.type in ("channel", "group", "supergroup"):
-        return False
-    if not message.document:
-        return False
-    caption = (message.caption or "").lower().lstrip()
-    return caption.startswith(_HERMES_PREFIXES)
-
-
-async def _extract_document_text(message: Message) -> str | None:
-    """Download .txt/.md attachment; return decoded text or None if unsupported.
-
-    Ephemeral: file is read once per request, not stored anywhere.
-    """
-    doc = message.document
-    if not doc:
-        return None
-    filename = (doc.file_name or "").lower()
-    if not any(filename.endswith(ext) for ext in _SUPPORTED_DOC_EXTENSIONS):
-        return None
-    if doc.file_size and doc.file_size > _MAX_DOC_SIZE:
-        return None
-    if not message.bot:
-        return None
-    buf = io.BytesIO()
-    await message.bot.download(doc, destination=buf)
-    return buf.getvalue().decode("utf-8", errors="replace")
-
-
-async def _hermes_reply(message: Message, placeholder: Message, response: str) -> None:
-    """Deliver Hermes response: edit placeholder, or send_document for long output."""
-    if len(response) > _LONG_ARTIFACT_THRESHOLD:
-        try:
-            await placeholder.delete()
-        except Exception:
-            pass  # best-effort: answer_document must proceed regardless
-        artifact = BufferedInputFile(response.encode("utf-8"), filename="hermes-response.txt")
-        await message.answer_document(artifact, caption="Гермес: ответ в файле")
-        return
-    try:
-        parts = prepare_html_parts(response)
-        for i, part in enumerate(parts):
-            if i == 0:
-                await placeholder.edit_text(part, parse_mode="HTML")
-            else:
-                await message.answer(part, parse_mode="HTML")
-    except Exception:
-        logger.exception("[hermes] HTML send failed for chat %s", message.chat.id)
-        try:
-            await placeholder.edit_text(truncate_safe(response))
-        except Exception:
-            logger.exception("[hermes] edit_text (plain) failed for chat %s", message.chat.id)
-            try:
-                await placeholder.delete()
-            except Exception:
-                pass  # best-effort
-            try:
-                await message.answer(truncate_safe(response))
-            except Exception:
-                logger.exception("[hermes] final fallback answer failed for chat %s", message.chat.id)
 
 
 async def _send_reconnect_prompt(message: Message) -> None:
@@ -197,29 +139,17 @@ async def _send_unavailable(message: Message, placeholder: Message | None, chat_
         await message.answer(_SERVICE_DOWN_MSG)
 
 
-@hermes_router.message(Command("hermes_reset"))
-async def on_hermes_reset(message: Message, state: FSMContext) -> None:
-    """WP-428 Ф7: reset Hermes conversation history by switching to a new session_id."""
-    if message.from_user is None:
-        return
-    user_id = message.from_user.id
-    new_sid = f"tg-{user_id}-reset-{int(time.time())}"
-    await state.update_data({_HERMES_SESSION_KEY: new_sid})
-    await message.answer("История Гермеса сброшена.")
-
-
 @hermes_router.message(_is_hermes_message)
 async def on_hermes(message: Message, state: FSMContext) -> None:
-    """«Гермес, <текст>» → hermes_chat. Tier < T3 → отказ.
+    """«Гермес, <текст>»: tier < T3 → Проводник (Haiku, локальный). tier ≥ T3 →
+    отдельный ИИ-помощник отключён (05.09), отвечаем `_HERMES_RETIRED_MSG`.
 
     WP-392 Ф3.1: префикс «Гермес» имеет абсолютный приоритет.
     SkipHandler ТОЛЬКО если marathon SM ждёт ответ (не ломать марафон).
     Не-онбордированным показываем отказ tier — не пропускаем в fallback.
-    WP-428 Ф7: session_id threads conversation history through Hermes.
     """
-    if message.from_user is None:  # Hermes is per-user; skip anonymous posts
+    if message.from_user is None:  # per-user; skip anonymous posts
         return
-    user_id = message.from_user.id
     chat_id = message.chat.id
     text = message.text or ""
 
@@ -247,56 +177,33 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         chat_id, tier, _TIER_REQUIRED,
     )
 
-    hermes_msg = re.sub(r"^(гермес|hermes)[,:\s]+", "", text, flags=re.IGNORECASE).strip() or text
-
-    if tier < _TIER_REQUIRED:
-        # DP.SC.169 deprecated (WP-406 Ф7) → поглощён Онбордером (DP.SC.170).
-        # Гибрид (WP-406 Ф5): живой Haiku-ответ Проводника на вопрос + кнопка
-        # «Освоиться» (вход Онбордера) только на онбординг-релевантные запросы.
-        from clients.claude import claude
-        try:
-            async with keep_typing(message):
-                response = await claude.generate(
-                    system_prompt=_conductor_system_prompt(tier),
-                    user_prompt=hermes_msg,
-                    max_tokens=_CONDUCTOR_MAX_TOKENS,
-                    model=CLAUDE_MODEL_HAIKU,
-                    allow_partial=True,
-                )
-        except Exception:
-            logger.exception("[hermes:conductor] Haiku call failed for chat %s", chat_id)
-            response = None
-        await message.answer(
-            f"Проводник: {response}" if response else _CONDUCTOR_UNAVAILABLE_MSG,
-            parse_mode="Markdown",
-        )
-        await _maybe_offer_onboarder_after_conductor(message, chat_id, hermes_msg)
+    if tier >= _TIER_REQUIRED:
+        await message.answer(_HERMES_RETIRED_MSG)
         return
 
-    from clients.gateway_mcp import gateway_mcp
-    if not gateway_mcp.is_connected(chat_id):
-        # Нет токена — вызов рантайма всё равно упёрся бы в 401. Предлагаем вход.
-        await _send_unavailable(message, None, chat_id)
-        return
-
-    state_data = await state.get_data()
-    session_id = state_data.get(_HERMES_SESSION_KEY, f"tg-{user_id}")
-
-    placeholder = await message.answer("⌛ Гермес думает…")
+    # DP.SC.169 deprecated (WP-406 Ф7) → поглощён Онбордером (DP.SC.170).
+    # Гибрид (WP-406 Ф5): живой Haiku-ответ Проводника на вопрос + кнопка
+    # «Освоиться» (вход Онбордера) только на онбординг-релевантные запросы.
+    # Этот путь — локальный Haiku-вызов, не внешний Hermes; отключением не затронут.
+    query = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+    from clients.claude import claude
     try:
-        response = await gateway_mcp.hermes_chat(
-            message=hermes_msg,
-            telegram_user_id=chat_id,
-            session_id=session_id,
-        )
+        async with keep_typing(message):
+            response = await claude.generate(
+                system_prompt=_conductor_system_prompt(tier),
+                user_prompt=query,
+                max_tokens=_CONDUCTOR_MAX_TOKENS,
+                model=CLAUDE_MODEL_HAIKU,
+                allow_partial=True,
+            )
     except Exception:
-        logger.exception("[hermes] hermes_chat failed for chat %s", chat_id)
+        logger.exception("[hermes:conductor] Haiku call failed for chat %s", chat_id)
         response = None
-
-    if response:
-        await _hermes_reply(message, placeholder, response)
-    else:
-        await _send_unavailable(message, placeholder, chat_id)
+    await message.answer(
+        f"Проводник: {response}" if response else _CONDUCTOR_UNAVAILABLE_MSG,
+        parse_mode="Markdown",
+    )
+    await _maybe_offer_onboarder_after_conductor(message, chat_id, query)
 
 
 async def _maybe_offer_onboarder_after_conductor(message: Message, chat_id: int, query: str) -> None:
@@ -326,70 +233,3 @@ async def _maybe_offer_onboarder_after_conductor(message: Message, chat_id: int,
         await offer.mark_offered(chat_id)
     except Exception as e:
         logger.warning("[hermes] failed to record offer timestamp for %s: %s", chat_id, e)
-
-
-@hermes_router.message(_is_hermes_document)
-async def on_hermes_document(message: Message, state: FSMContext) -> None:
-    """«Гермес, <caption>» + .txt/.md attachment → inject file contents into hermes_chat.
-
-    WP-428 Ф8: Layer 1 ephemeral file input. File is read once and not stored.
-    """
-    if message.from_user is None:
-        return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-
-    intern = await get_intern(chat_id)
-
-    from handlers.external_session import _sm_is_expecting_reply
-    from states.feed.digest import FeedDigestState
-    if await _sm_is_expecting_reply(chat_id) or FeedDigestState.is_waiting_fixation(chat_id):
-        raise SkipHandler
-
-    if not intern or not intern.get("onboarding_completed"):
-        await message.answer(_UNAVAILABLE_TIER_MSG)
-        return
-
-    from core.tier_detector import detect_ui_tier
-    tier = await detect_ui_tier(chat_id)
-    logger.info("[hermes:doc] chat_id=%s tier=%s", chat_id, tier)
-
-    if tier < _TIER_REQUIRED:
-        await message.answer(_UNAVAILABLE_TIER_MSG)
-        return
-
-    caption = message.caption or ""
-    hermes_msg = re.sub(r"^(гермес|hermes)[,:\s]+", "", caption, flags=re.IGNORECASE).strip()
-
-    doc_text = await _extract_document_text(message)
-    if doc_text is None:
-        supported = " ".join(_SUPPORTED_DOC_EXTENSIONS)
-        await message.answer(f"Файл не удалось прочитать. Поддерживаются: {supported} (до 500 КБ).")
-        return
-
-    filename = (message.document.file_name or "document") if message.document else "document"
-    hermes_msg = f"[File: {filename}]\n\n{doc_text}\n\n{hermes_msg}".strip()
-
-    from clients.gateway_mcp import gateway_mcp
-    if not gateway_mcp.is_connected(chat_id):
-        await _send_unavailable(message, None, chat_id)
-        return
-
-    state_data = await state.get_data()
-    session_id = state_data.get(_HERMES_SESSION_KEY, f"tg-{user_id}")
-
-    placeholder = await message.answer("⌛ Гермес думает…")
-    try:
-        response = await gateway_mcp.hermes_chat(
-            message=hermes_msg,
-            telegram_user_id=chat_id,
-            session_id=session_id,
-        )
-    except Exception:
-        logger.exception("[hermes:doc] hermes_chat failed for chat %s", chat_id)
-        response = None
-
-    if response:
-        await _hermes_reply(message, placeholder, response)
-    else:
-        await _send_unavailable(message, placeholder, chat_id)

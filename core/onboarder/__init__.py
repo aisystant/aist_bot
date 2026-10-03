@@ -50,14 +50,25 @@ __all__ = [
     "ENTRY_SOURCES",
     "DEFAULT_ENTRY_SOURCE",
     "normalize_entry_source",
+    "entry_source_from_intern",
 ]
 
 # WP-406 Ф16-B3: источник входа в онбординг (канал привлечения). Передаётся
 # deep-link'ом `/start src_<value>` (handlers/onboarding.py), хранится в
 # current_context['onboarding']['entry_source'] и попадает полем `source` в
-# payload событий onboarding_started / x2_completed / x3_completed /
-# onboarding_completed. По аналогии с entry_type (дефолт direct) — не заменяет его.
-ENTRY_SOURCES = ("site", "stand", "bot", "guide-kit")
+# payload событий registration_completed / onboarding_started / x2_completed /
+# x3_completed / onboarding_completed. По аналогии с entry_type (дефолт direct) —
+# не заменяет его.
+ENTRY_SOURCES = (
+    "site",
+    "stand",
+    "bot",
+    "guide-kit",
+    "mcp-claude",
+    "mcp-chatgpt",
+    "mcp-other",
+    "web",
+)
 DEFAULT_ENTRY_SOURCE = "bot"
 
 
@@ -73,6 +84,13 @@ def normalize_entry_source(value) -> str:
         if candidate in ENTRY_SOURCES:
             return candidate
     return DEFAULT_ENTRY_SOURCE
+
+
+def entry_source_from_intern(intern: dict | None) -> str:
+    """Вернуть канонический first-touch источник из профиля пользователя."""
+    current_context = (intern or {}).get("current_context") or {}
+    onboarding_context = current_context.get("onboarding") or {}
+    return normalize_entry_source(onboarding_context.get("entry_source"))
 
 
 async def get_status(chat_id: int) -> dict:

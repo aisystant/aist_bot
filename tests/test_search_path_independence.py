@@ -224,5 +224,5 @@ def test_runtime_pgcrypto_calls_are_schema_qualified_and_typed() -> None:
                         f"{path.relative_to(REPO_ROOT)}: {operation} arguments are not explicit"
                     )
 
-    assert call_count == 5, "Update the pgcrypto guard when adding a runtime call"
+    assert call_count == 7, "Update the pgcrypto guard when adding a runtime call"
     assert not violations, "\n".join(violations)

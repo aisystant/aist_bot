@@ -15,6 +15,8 @@ secrets.github_connections and the github rows of user_integrations; reused
 here rather than introducing a second key to manage.
 """
 
+import base64
+
 from config import GITHUB_TOKEN_ENCRYPTION_KEY, get_logger
 
 logger = get_logger(__name__)
@@ -68,7 +70,8 @@ async def decrypt_text_token(conn, stored: str | None) -> str | None:
     if not GITHUB_TOKEN_ENCRYPTION_KEY:
         _warn_if_no_key()
         raise RuntimeError("GITHUB_TOKEN_ENCRYPTION_KEY не установлен — не могу расшифровать сохранённый токен")
+    ciphertext = base64.b64decode(stored[len(_PREFIX):])
     return await conn.fetchval(
-        "SELECT public.pgp_sym_decrypt(decode($1, 'base64'), $2::text)::text",
-        stored[len(_PREFIX):], GITHUB_TOKEN_ENCRYPTION_KEY,
+        "SELECT public.pgp_sym_decrypt($1::bytea, $2::text)::text",
+        ciphertext, GITHUB_TOKEN_ENCRYPTION_KEY,
     )

@@ -1,18 +1,16 @@
 """
-Smoke-тесты: WP-392 Ф3.1b — T4-full mode (всё в Hermes, без префикса).
+Smoke-тесты: T4 fallback-роутинг после отключения Hermes (WP-392 retirement, 05.09).
+
+До 05.09 T4-full маршрутизировал ВЕСЬ обычный текст в Hermes, минуя SM/консультацию
+(WP-392 Ф3.1b). Пилот решил отключить внешний Hermes-рантайм в чате бота — T4 теперь
+ведёт себя как любой другой тир: обычный текст идёт в SM (dispatcher.route_message),
+gateway_mcp.hermes_chat из fallback.py больше не вызывается никогда.
 
 Критерии приёмки:
-- T4: «привет» → ответ Hermes, консультант не вызывается
-- T4: «напомни про завтрак» → ответ Hermes
-- T4: /mydata → платформа (не Hermes)
-- T3: «привет» → не Hermes (консультант или SM)
-- T3: «Гермес, привет» → Hermes
-- T0-T2: «?вопрос» → консультант
-- T0-T2: «Гермес, привет» → «недоступно на твоём тире»
-
-Тесты используют прямой вызов on_unknown_message (unit-style),
-т.к. dp.feed_update требует полного pipeline aiogram с моками
-на всех уровнях (hermes_router, commands, DB pool).
+- T4: «привет» → SM/консультант (не Hermes)
+- T4: /mydata → платформа (как раньше)
+- T4: «Гермес, привет» без активного SM-ожидания → перехватывается hermes_router
+  (handlers/hermes.py), fallback.py его не видит и не вызывает gateway_mcp
 """
 
 import contextlib
@@ -63,212 +61,62 @@ def patch_deps():
         yield
 
 
-# ─── T4-full: обычный текст → Hermes ───
-
 @pytest.mark.asyncio
-async def test_t4_plain_text_goes_to_hermes(state):
-    """T4: «привет» → hermes_chat, консультант не вызывается."""
+async def test_t4_plain_text_goes_to_sm_not_hermes(state):
+    """T4: «привет» → SM (как T1-T3), hermes_chat НЕ вызывается."""
     msg = _make_msg("привет")
-    mock_hermes = AsyncMock(return_value="Привет! Чем могу помочь?")
     mock_dp = MagicMock()
     mock_dp.is_sm_active = True
     mock_dp.route_message = AsyncMock(return_value=True)
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
-    mock_hermes.assert_called_once()
-    call_kwargs = mock_hermes.call_args.kwargs
-    assert call_kwargs.get("message") == "привет"
-    assert call_kwargs.get("telegram_user_id") == 12345
-    msg.answer.assert_awaited_once()
-    assert "Привет!" in msg.answer.await_args.args[0]
+    mock_gmc.hermes_chat.assert_not_called()
+    mock_dp.route_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_t4_reminder_goes_to_hermes(state):
-    """T4: «напомни про завтрак» → hermes_chat."""
-    msg = _make_msg("напомни про завтрак")
-    mock_hermes = AsyncMock(return_value="Используй /remind для напоминаний.")
-    mock_dp = MagicMock()
-    mock_dp.is_sm_active = True
-    mock_dp.route_message = AsyncMock(return_value=True)
-
-    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
-               return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
-         patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
-        await on_unknown_message(msg, state)
-
-    mock_hermes.assert_called_once()
-    assert mock_hermes.call_args.kwargs.get("message") == "напомни про завтрак"
-
-
-@pytest.mark.asyncio
-async def test_t4_command_skips_hermes(state):
-    """T4: /mydata → платформа (не Hermes)."""
+async def test_t4_command_skips_sm_text_routing(state):
+    """T4: /mydata → платформа (не задета отключением Hermes)."""
     msg = _make_msg("/mydata")
-    mock_hermes = AsyncMock(return_value="не должно вызваться")
     mock_dp = MagicMock()
     mock_dp.is_sm_active = True
     mock_dp.route_message = AsyncMock(return_value=True)
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
-    mock_hermes.assert_not_called()
+    mock_gmc.hermes_chat.assert_not_called()
     mock_dp.route_message.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_t4_hermes_prefix_stripped(state):
-    """T4: «Гермес, привет» → Hermes получает «привет» без префикса."""
+async def test_t4_hermes_prefix_never_reaches_fallback_gateway_call(state):
+    """T4: «Гермес, привет» — fallback.py больше не содержит fail-safe вызова
+
+    gateway_mcp.hermes_chat (удалён вместе с T4-full блоком). В проде такое
+    сообщение перехватывается hermes_router (handlers/hermes.py) раньше —
+    здесь проверяем только то, что fallback сам по себе безопасен: если
+    сообщение всё же дошло сюда (edge case регистрации роутеров), оно уходит
+    в обычный SM-путь, а не в Hermes.
+    """
     msg = _make_msg("Гермес, привет")
-    mock_hermes = AsyncMock(return_value="Привет!")
     mock_dp = MagicMock()
     mock_dp.is_sm_active = True
     mock_dp.route_message = AsyncMock(return_value=True)
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
-    mock_hermes.assert_called_once()
-    assert mock_hermes.call_args.kwargs.get("message") == "привет"
-
-
-# ─── T3: обычный текст → НЕ Hermes ───
-
-@pytest.mark.asyncio
-async def test_t3_plain_text_not_hermes(state):
-    """T3: «привет» → консультант/SM, hermes_chat НЕ вызывается."""
-    msg = _make_msg("привет")
-    mock_hermes = AsyncMock(return_value="не должно вызваться")
-    mock_dp = MagicMock()
-    mock_dp.is_sm_active = True
-    mock_dp.route_message = AsyncMock(return_value=True)
-
-    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
-               return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
-         patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
-        await on_unknown_message(msg, state)
-
-    mock_hermes.assert_not_called()
+    mock_gmc.hermes_chat.assert_not_called()
     mock_dp.route_message.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_t3_hermes_prefix_calls_hermes(state):
-    """T3: «Гермес, привет» → hermes_chat через fallback fail-safe."""
-    msg = _make_msg("Гермес, привет")
-    mock_hermes = AsyncMock(return_value="Привет от Hermes!")
-    mock_dp = MagicMock()
-    mock_dp.is_sm_active = True
-    mock_dp.route_message = AsyncMock(return_value=True)
-
-    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
-               return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
-         patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
-        await on_unknown_message(msg, state)
-
-    mock_hermes.assert_called_once()
-    assert "привет" in mock_hermes.call_args.kwargs.get("message", "").lower()
-    msg.answer.assert_awaited_once()
-    assert "Привет от Hermes!" in msg.answer.await_args.args[0]
-
-
-# ─── T0-T2: префикс → отказ ───
-
-@pytest.mark.asyncio
-async def test_t1_hermes_prefix_blocked(state):
-    """T1: «Гермес, привет» → «недоступно на твоём тире»."""
-    msg = _make_msg("Гермес, привет")
-    mock_hermes = AsyncMock(return_value="не должно вызваться")
-    mock_dp = MagicMock()
-    mock_dp.is_sm_active = True
-    mock_dp.route_message = AsyncMock(return_value=True)
-
-    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
-               return_value=make_intern(onboarding_completed=True, tier="T1", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=1), \
-         patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
-        await on_unknown_message(msg, state)
-
-    mock_hermes.assert_not_called()
-    msg.answer.assert_awaited_once()
-    assert "недоступна" in msg.answer.await_args.args[0]
-
-
-# ─── T4 session_id передаётся ───
-
-@pytest.mark.asyncio
-async def test_t4_session_id_passed(state):
-    """T4-full: session_id передаётся в hermes_chat (для памяти диалога)."""
-    msg = _make_msg("привет")
-    mock_hermes = AsyncMock(return_value="Ответ с памятью")
-    mock_dp = MagicMock()
-    mock_dp.is_sm_active = True
-    mock_dp.route_message = AsyncMock(return_value=True)
-
-    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
-               return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
-         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
-         patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
-        await on_unknown_message(msg, state)
-
-    call_kwargs = mock_hermes.call_args.kwargs
-    assert "session_id" in call_kwargs
-    # Первый вызов — session_id=None (новая сессия)
-    assert call_kwargs.get("session_id") is None
-
-
-@pytest.mark.asyncio
-async def test_t4_session_id_reused(state):
-    """T4-full: при повторном вызове передаётся сохранённый session_id."""
-    from handlers.fallback import _HERMES_SESSION_MAP
-
-    _HERMES_SESSION_MAP[12345] = "sess-abc-123"
-    try:
-        msg = _make_msg("а что дальше?")
-        mock_hermes = AsyncMock(return_value="Дальше — действуй")
-        mock_dp = MagicMock()
-        mock_dp.is_sm_active = True
-        mock_dp.route_message = AsyncMock(return_value=True)
-
-        with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
-                   return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
-             patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
-             patch("handlers.get_dispatcher", return_value=mock_dp), \
-             patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
-            mock_gmc.hermes_chat = mock_hermes
-            await on_unknown_message(msg, state)
-
-        assert mock_hermes.call_args.kwargs.get("session_id") == "sess-abc-123"
-    finally:
-        _HERMES_SESSION_MAP.pop(12345, None)

@@ -79,6 +79,15 @@ JOURNAL_URL = os.getenv("JOURNAL_URL") or os.getenv("DATABASE_URL")
 # Наблюдаемость системы и сессии. Health BD — special (не entity).
 HEALTH_URL = os.getenv("HEALTH_URL") or os.getenv("DATABASE_URL")
 
+# WP-578 Ф2: Рабочее место наставника — отдельный Neon-проект (не aisystant),
+# роль mentorship_app. Без fallback на DATABASE_URL: least-privilege граница
+# по прецеденту PRIVACY_DELETION_URL (не тот же случай "виден на dev" — это
+# отдельная БД). Отсутствие переменной НЕ роняет бота: db/connection.py
+# отдаёт None, engines/mentorship при этом молча отключается с WARN — на
+# проде переменной не будет до промоции из neon-migrations/sandbox/.
+MENTORSHIP_URL = os.getenv("MENTORSHIP_URL")
+MENTORSHIP_DISCLAIMER_DAYS = int(os.getenv("MENTORSHIP_DISCLAIMER_DAYS", "14"))
+
 # WP-253 Пробел C: OAuth-токены интеграций (GitHub, etc.) — Neon secrets БД.
 # DP.ARCH.004 §B7.3.1: secrets ∩ PII → pgcrypto column-level + RLS.
 # Fallback на DATABASE_URL только для локального dev; в production обязателен.
@@ -103,6 +112,12 @@ GATEWAY_MCP_TIMEOUT: int = int(os.getenv("GATEWAY_MCP_TIMEOUT", "3"))
 CHECKLIST_MCP_URL = os.getenv("CHECKLIST_MCP_URL", "")
 CHECKLIST_MCP_SERVICE_TOKEN_ONBOARDER = os.getenv("CHECKLIST_MCP_SERVICE_TOKEN_ONBOARDER", "")
 CHECKLIST_MCP_TIMEOUT: int = int(os.getenv("CHECKLIST_MCP_TIMEOUT", "3"))
+# WP-578 Ф3: standalone-сервис карточки участника и заметок наставника
+# (Railway, не Cloudflare Worker — редизайн 17.09). Тот же паттерн сервисного
+# токена, что checklist-mcp выше.
+MENTORSHIP_SERVICE_URL = os.getenv("MENTORSHIP_SERVICE_URL", "")
+MENTORSHIP_SERVICE_TOKEN = os.getenv("MENTORSHIP_SERVICE_TOKEN", "")
+MENTORSHIP_SERVICE_TIMEOUT: int = int(os.getenv("MENTORSHIP_SERVICE_TIMEOUT", "5"))
 
 # ============= LANGFUSE (L5 Observability, WP-179) =============
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
@@ -153,6 +168,16 @@ LMS_DATABASE_URL = os.getenv("LMS_DATABASE_URL", "")
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
+
+# WP-406 Ф22: /github (заметки) на GitHub App с repository_selection=selected
+# вместо OAuth scope "repo" (доступ ко всем репо аккаунта, WP-458 ВЫ-13).
+# Флаг управляет ТОЛЬКО UX новых подключений — уже подключённые по App
+# пользователи пишут через App независимо от значения флага (peer-сессия
+# 2026-09-10-08, раунд 2, решение пилота "вариант А").
+GITHUB_APP_NOTES_ENABLED = os.getenv("GITHUB_APP_NOTES_ENABLED", "false").lower() == "true"
+# GITHUB_APP_OAUTH_GRACE_UNTIL (дедлайн льготного периода OAuth WRITE) читается
+# напрямую в clients/github_auth.py, не здесь — единственный источник, без
+# дублирования (код-ревью peer-сессии 2026-09-10-08, Low).
 
 # ============= GOOGLE CALENDAR OAUTH (WP-128) =============
 GOOGLE_CALENDAR_CLIENT_ID = os.getenv("GOOGLE_CALENDAR_CLIENT_ID")
@@ -216,6 +241,18 @@ ALLOWED_TESTERS: set[int] = {int(x.strip()) for x in _allowed.split(",") if x.st
 
 # Telegram ID разработчика — освобождён от rate limiting
 DEVELOPER_CHAT_ID: int = int(os.getenv("DEVELOPER_CHAT_ID", "0"))
+
+# WP-253 Ф12.6 фаза A: dual-write профиля в persona.bot_profile за флагом.
+# Default off. Пустой список chat_id при включённом флаге = зеркалим всех
+# (используется на проде ПОСЛЕ поэтапного прохода через непустой allowlist
+# ниже, peer-session 2026-09-17-07). На pilot флаг остаётся выключенным, пока
+# нет отдельной Neon-ветки persona для пилотного окружения (pilot и prod
+# делят одну базу persona — найдено WP-253 Ф12.5, 17.09.2026).
+BOT_PROFILE_DUAL_WRITE_ENABLED: bool = os.getenv("BOT_PROFILE_DUAL_WRITE_ENABLED", "false").lower() == "true"
+_bot_profile_dual_write_chat_ids = os.getenv("BOT_PROFILE_DUAL_WRITE_CHAT_IDS", "")
+BOT_PROFILE_DUAL_WRITE_CHAT_IDS: set[int] = {
+    int(x.strip()) for x in _bot_profile_dual_write_chat_ids.split(",") if x.strip().isdigit()
+}
 
 # Telegram ID канала наставников марафона — алерты о пропусках и failed отправках
 MENTOR_CHANNEL_ID: int = int(os.getenv("MENTOR_CHANNEL_ID", "0"))
@@ -645,6 +682,12 @@ WP_VALIDATION_ENABLED = os.getenv("WP_VALIDATION_ENABLED", "true").lower() == "t
 # Включить запись фиксаций в fleeting-notes (для GitHub-пользователей)
 FIXATION_ENABLED = os.getenv("FIXATION_ENABLED", "true").lower() == "true"
 
+# ============= ЛЕНТА → КОНСУЛЬТАЦИЯ (WP-498 Ф17) =============
+
+# Свободный текст в Ленте (без «?») уходит в консультацию: память диалога, роли, кнопки
+# под ответом. "false" возвращает прежний одноразовый ответ Ленты без памяти.
+FEED_QUESTIONS_VIA_CONSULTATION = os.getenv("FEED_QUESTIONS_VIA_CONSULTATION", "true").lower() == "true"
+
 # ============= EXTERNAL SESSION /claude (WP-358) =============
 
 # Marathon/Assessment стейты, в которых SM ждёт ответа пилота. Если пилот
@@ -660,8 +703,9 @@ SM_EXPECTING_REPLY_STATES: dict[str, int] = {
     # WP-498 Ф13 (05.09, находка Fable-ревью): без этой строки follow-up внутри
     # активной консультации (Наставник и др.) у T4-аккаунтов уходил в Hermes
     # вместо ответа роли — персистентная сессия консультации работала только
-    # на первое сообщение. 5 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC.
-    "common.consultation": 5,
+    # на первое сообщение. 15 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC
+    # (РП-498 Ф17: было 5; равенство проверяет tests/test_role_free_for_all_tiers.py).
+    "common.consultation": 15,
 }
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
