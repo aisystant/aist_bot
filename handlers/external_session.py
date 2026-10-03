@@ -890,12 +890,23 @@ def _build_report_md(
     thread_text: str,
     topic_slug: Optional[str],
 ) -> str:
-    """Сгенерировать report.md для финализированной сессии. outcome=null (Ф10.5)."""
+    """Сгенерировать report.md для финализированной сессии. outcome=null (Ф10.5).
+
+    DP.SC.162 §close (решение пилота, WP-7 Ф121): tg_chat_id/target_bot/executor
+    переезжают из SESSION-<id>.md прямо в frontmatter report.md вместо отдельного
+    session.md — все три уже есть в meta_text, финализация их просто не читала.
+    """
     # Парсинг turn_count и created_at из meta
     turns_m = re.search(r"^turn_count:\s*\"?([0-9]+)\"?", meta_text, re.M)
     created_m = re.search(r"^created_at:\s*\"?([^\"\n]+)\"?", meta_text, re.M)
+    chat_id_m = re.search(r"^tg_chat_id:\s*\"?(-?[0-9]+)\"?", meta_text, re.M)
+    target_bot_m = re.search(r"^target_bot:\s*\"?([^\"\n]+)\"?", meta_text, re.M)
+    executor_m = re.search(r"^executor:\s*\"?([^\"\n]+)\"?", meta_text, re.M)
     turns = turns_m.group(1) if turns_m else "?"
     created = created_m.group(1) if created_m else ""
+    tg_chat_id = chat_id_m.group(1) if chat_id_m else "null"
+    target_bot = target_bot_m.group(1).strip() if target_bot_m else "null"
+    executor = executor_m.group(1).strip() if executor_m else "null"
     finalized = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     date = created[:10] if created else finalized[:10]
 
@@ -903,6 +914,9 @@ def _build_report_md(
     return (
         "---\n"
         f"session_id: {session_id}\n"
+        f"tg_chat_id: {tg_chat_id}\n"
+        f"target_bot: {target_bot}\n"
+        f"executor: {executor}\n"
         f"date: {date}\n"
         f"{fm_topic}\n"
         f"outcome: null\n"
