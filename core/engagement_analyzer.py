@@ -101,9 +101,18 @@ def check_streak_drop(engagement, user_meta):
 
 @rule("low_engagement_7d", cooldown_days=14)
 def check_low_engagement_7d(engagement, user_meta):
-    """Очень низкая активность за 7 дней (< 2 событий)."""
-    time_data = engagement.get('2_4_time', {})
-    events_7d = time_data.get('events_last_7d', 0) or 0
+    """Очень низкая активность за 7 дней (< 2 событий).
+
+    WP-117 Ф-cross-pipeline-contradiction: читает живой `events_7d_live`
+    (db/queries/nudges.py), не снимок цифрового двойника — та же величина,
+    что уже использует milestone day_14 (conversion.py). Инцидент 02-03.10:
+    твин не синхронизируется (cron отключён с WP-268), поэтому это правило
+    видело 0 при ≥19 живых событиях и противоречило похвале за ту же неделю.
+    `engagement` сохранён в сигнатуре ради единообразия с остальными RULES
+    (см. check_slot_missing_3d/check_inactivity_3d/check_streak_drop выше —
+    тот же паттерн неиспользуемого параметра).
+    """
+    events_7d = user_meta.get('events_7d_live', 0) or 0
 
     if events_7d < 2:
         return "nudge_low_engagement"

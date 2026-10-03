@@ -52,7 +52,13 @@ async def get_nudge_candidates() -> list[dict]:
                     FROM development.user_events
                     WHERE user_id = s.chat_id
                       AND event_type = 'slot_logged'
-                ) AS last_slot_at
+                ) AS last_slot_at,
+                (
+                    SELECT COUNT(*)
+                    FROM development.user_events
+                    WHERE user_id = s.chat_id
+                      AND created_at > NOW() - INTERVAL '7 days'
+                ) AS events_7d_live
             FROM development.user_state s
             JOIN public.users u ON u.telegram_id = s.chat_id
             LEFT JOIN public.digital_twins dt ON dt.user_id = u.id::text

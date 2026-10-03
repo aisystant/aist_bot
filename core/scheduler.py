@@ -2840,6 +2840,12 @@ async def send_engagement_nudges():
                 'x2_done': user.get('x2_completed_at') is not None,
                 'x3_done': user.get('x3_completed_at') is not None,
                 'account_created_at': user.get('account_created_at'),
+                # WP-117 Ф-cross-pipeline-contradiction: тот же живой факт, что уже
+                # читает milestone day_14 (db/queries/conversion.py) — не снимок
+                # цифрового двойника, синхронизация которого отключена (scheduler.py
+                # _dt_sync_engagement, выше). Инцидент 02-03.10: похвала и упрёк об
+                # одной неделе разошлись, потому что читали два разных источника.
+                'events_7d_live': user.get('events_7d_live', 0) or 0,
             }
 
             # Run rules (basic + derived-aware)
