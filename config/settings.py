@@ -153,6 +153,13 @@ ORY_BASE_URL = os.getenv("ORY_BASE_URL", "https://auth.system-school.ru/hydra")
 ORY_CLIENT_ID = os.getenv("ORY_CLIENT_ID")
 ORY_CLIENT_SECRET = os.getenv("ORY_CLIENT_SECRET")
 ORY_REDIRECT_URI = os.getenv("ORY_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/ory/callback")
+# WP-5 Ф58.4: enable only after the profile service has a dedicated read-only
+# Kratos identity credential and a real-account smoke test has passed.
+USER_PROFILE_SERVICE_URL = os.getenv("USER_PROFILE_SERVICE_URL", "").rstrip("/")
+ORY_LINK_GUARD_ENABLED = os.getenv("ORY_LINK_GUARD_ENABLED", "false").lower() == "true"
+if ORY_LINK_GUARD_ENABLED and DB_POOL_MAX_SIZE < 2:
+    raise ValueError("ORY_LINK_GUARD_ENABLED требует DB_POOL_MAX_SIZE >= 2")
+BOT_LINK_GUARD_SECRET = os.getenv("BOT_LINK_GUARD_SECRET", "")
 
 # ============= YOOKASSA (WP-181 Ф7) =============
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")

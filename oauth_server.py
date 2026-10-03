@@ -18,6 +18,7 @@ import json
 import os
 import re
 import uuid
+from contextlib import asynccontextmanager
 from typing import Optional
 from aiohttp import web
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -31,6 +32,18 @@ from clients.wakatime_oauth import wakatime_oauth
 from clients.ory_oauth import ory_oauth
 
 logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def _ory_link_write_lock(chat_id: int):
+    """Serialize link and token writes for one chat across bot processes."""
+    from db.connection import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(58, hashtext($1::text))", str(chat_id))
+            yield conn
 
 # Глобальная ссылка на бота для отправки уведомлений
 _bot_instance = None
@@ -1613,6 +1626,25 @@ async def _ory_already_linked_response(telegram_user_id: int) -> web.Response:
     )
 
 
+async def _ory_guard_response(
+    telegram_user_id: int, *, status: int, title: str, message: str,
+) -> web.Response:
+    """Show the same safe explanation in Telegram and the OAuth browser tab."""
+    if _bot_instance:
+        try:
+            await _bot_instance.send_message(chat_id=telegram_user_id, text=message)
+        except Exception:
+            logger.warning("[OryOAuth] Guard response could not be sent to Telegram")
+    return web.Response(
+        text=(
+            "<html><body style='font-family:sans-serif;text-align:center;padding:50px'>"
+            f"<h1>{title}</h1><p>{message}</p></body></html>"
+        ),
+        content_type="text/html",
+        status=status,
+    )
+
+
 async def ory_callback_handler(request: web.Request) -> web.Response:
     """Обрабатывает OAuth callback от Ory (WP-187: бот+Ory, T0→T1).
 
@@ -1713,42 +1745,89 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
     ory_id = userinfo["sub"]
     email = userinfo.get("email")
 
+    # WP-5 Ф58.4: the profile service verifies the token, obtains the *verified*
+    # email from Kratos, and checks contracts. The bot must not infer ownership
+    # from a userinfo email or write a link/tokens after any refusal.
+    from config.settings import ORY_LINK_GUARD_ENABLED
+    if ORY_LINK_GUARD_ENABLED:
+        from clients.ory_link_guard import (
+            ExistingOryAccount,
+            OryLinkGuardUnavailable,
+            VerifiedEmailRequired,
+            check_ory_link,
+        )
+        try:
+            approval = await check_ory_link(access_token, ory_id)
+            email = approval.email
+        except ExistingOryAccount:
+            return await _ory_guard_response(
+                telegram_user_id, status=409, title="Найден прежний аккаунт",
+                message=("На эту почту найден другой аккаунт с действующей подпиской. "
+                         f"Войдите через него или обратитесь в поддержку: {_SUPPORT_TELEGRAM}."),
+            )
+        except VerifiedEmailRequired:
+            return await _ory_guard_response(
+                telegram_user_id, status=422, title="Не удалось подтвердить почту",
+                message=("Подтвердите почту в аккаунте Ory и попробуйте снова. "
+                         f"Если нужна помощь, напишите {_SUPPORT_TELEGRAM}."),
+            )
+        except OryLinkGuardUnavailable:
+            logger.warning("[OryOAuth] Link guard unavailable; link and tokens not saved")
+            return await _ory_guard_response(
+                telegram_user_id, status=503, title="Проверка временно недоступна",
+                message="Не удалось завершить вход. Попробуйте позже; привязка не изменена.",
+            )
+
     # Привязываем ory_id к telegram_id (T0→T1) ДО сохранения токенов: при конфликте
     # (аккаунт Ory уже у другой строки) у проигравшей строки не остаётся чужих токенов.
     from db.queries.identity import OryAccountAlreadyLinked, link_ory
-    try:
-        linked = await link_ory(telegram_user_id, ory_id, email)
-    except OryAccountAlreadyLinked:
-        return await _ory_already_linked_response(telegram_user_id)
+    async with _ory_link_write_lock(telegram_user_id) as lock_conn:
+        try:
+            linked = await link_ory(telegram_user_id, ory_id, email)
+        except OryAccountAlreadyLinked:
+            return await _ory_already_linked_response(telegram_user_id)
 
-    if linked:
-        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
-    else:
-        logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
+        if not linked:
+            logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
+            return await _ory_guard_response(
+                telegram_user_id, status=409, title="Не удалось привязать аккаунт",
+                message=("Вернитесь в Telegram и начните вход заново. "
+                         f"Если ошибка повторится, напишите {_SUPPORT_TELEGRAM}."),
+            )
 
-    # Сохраняем Ory tokens для Gateway MCP (WP-209 Ф0)
-    refresh_token = tokens.get("refresh_token")
-    expires_in = tokens.get("expires_in", 3600)
-    logger.info(
-        f"[OryOAuth] Token fields: access={bool(access_token)}, "
-        f"refresh={bool(refresh_token)}, expires_in={expires_in}, "
-        f"keys={list(tokens.keys())}"
-    )
-    if access_token:
-        from datetime import datetime, timedelta
-        from db.queries.ory_tokens import save_ory_tokens
-        expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
-        await save_ory_tokens(
-            chat_id=telegram_user_id,
-            access_token=access_token,
-            refresh_token=refresh_token or "",
-            expires_at=expires_at,
-            ory_id=ory_id,
+        # A second writer must not replace the link before its tokens are saved.
+        current_sub = await lock_conn.fetchval(
+            "SELECT ory_id::text FROM public.users WHERE telegram_id = $1 FOR UPDATE",
+            telegram_user_id,
         )
-        logger.info(f"[OryOAuth] Saved Ory tokens for user {telegram_user_id}, expires_in={expires_in}s")
-        # Обновляем in-memory tokens для Gateway MCP
-        from clients.gateway_mcp import gateway_mcp
-        gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token or "", expires_at, ory_id)
+        if current_sub != ory_id:
+            return await _ory_guard_response(
+                telegram_user_id, status=409, title="Не удалось привязать аккаунт",
+                message="Привязка изменилась во время входа. Начните вход заново.",
+            )
+
+        # Сохраняем Ory tokens для Gateway MCP (WP-209 Ф0).
+        refresh_token = tokens.get("refresh_token")
+        expires_in = tokens.get("expires_in", 3600)
+        logger.info(
+            f"[OryOAuth] Token fields: access={bool(access_token)}, "
+            f"refresh={bool(refresh_token)}, expires_in={expires_in}, "
+            f"keys={list(tokens.keys())}"
+        )
+        if access_token:
+            from datetime import datetime, timedelta
+            from db.queries.ory_tokens import save_ory_tokens
+            expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+            await save_ory_tokens(
+                chat_id=telegram_user_id,
+                access_token=access_token,
+                refresh_token=refresh_token or "",
+                expires_at=expires_at,
+                ory_id=ory_id,
+            )
+            from clients.gateway_mcp import gateway_mcp
+            gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token or "", expires_at, ory_id)
+        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
 
     # WP-227 Ф6: backfill ЦД при T0→T1 OAuth (вариант B).
     # T0 пользователь впервые получает ory_id — создаём запись в digital_twins.
