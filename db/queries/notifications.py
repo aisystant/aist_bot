@@ -272,6 +272,35 @@ async def fetch_recent_nudges_by_type(
     return result
 
 
+async def fetch_recent_nudge_sends(chat_id: int, hours: int = 72) -> list[dict]:
+    """Все нуджи, отправленные ЭТОМУ пользователю за последние `hours`, любого типа.
+
+    WP-117 Ф-cross-pipeline-contradiction (S3): вход для кросс-конвейерного
+    арбитра (core/claims.get_recent_claims). Отличие от fetch_recent_nudges_by_type:
+    тот строит cooldown-карту по заранее известному набору типов для батча
+    пользователей; здесь — один пользователь, любой тип, фиксированное окно.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT external_id, ingested_at
+               FROM public.domain_event
+               WHERE source = 'aist-bot'
+                 AND event_type = 'notification_sent'
+                 AND external_id LIKE $1
+                 AND ingested_at > NOW() - INTERVAL '1 hour' * $2''',
+            f"notification-nudge:{chat_id}:%", hours,
+        )
+    claims: list[dict] = []
+    for row in rows:
+        # external_id = notification-nudge:{chat_id}:{date}:{nudge_type}
+        parts = row["external_id"].split(":")
+        if len(parts) < 4:
+            continue
+        claims.append({"nudge_key": parts[3], "observed_at": row["ingested_at"]})
+    return claims
+
+
 async def get_notification_stats(chat_id: int, days: int = 30) -> dict:
     """Статистика уведомлений пользователя за N дней (WP-253 B-port).
 

@@ -2526,11 +2526,18 @@ async def send_milestone_notifications():
 
                 # Базовое сообщение
                 encouragement = ''
+                # WP-117 Ф-cross-pipeline-contradiction (M): полярность для
+                # core/claims.py; None для дней без явного active/inactive
+                # деления (day 30/60/90) — conversion_event.action остаётся
+                # легаси 'shown', core/claims.py такие строки игнорирует.
+                milestone_polarity = None
                 if day == 7:
                     if active_days > 0 or topics_count > 0:
                         encouragement = t('milestones.day_7_active', lang)
+                        milestone_polarity = "active"
                     else:
                         encouragement = t('milestones.day_7_inactive', lang)
+                        milestone_polarity = "inactive"
                 elif day == 14:
                     # Тот же порог, что nudge_low_engagement (engagement_analyzer.py:
                     # events_7d < 2) — иначе day_14 хвалит за активность, а нудж-система
@@ -2538,8 +2545,10 @@ async def send_milestone_notifications():
                     # (инцидент 10 сен, Лапыгин: два уведомления подряд противоречили друг другу).
                     if events_last_7d >= 2:
                         encouragement = t('milestones.day_14_active', lang)
+                        milestone_polarity = "active"
                     else:
                         encouragement = t('milestones.day_14_inactive', lang)
+                        milestone_polarity = "inactive"
 
                 text = t(f'milestones.day_{day}', lang,
                          topics=topics_count,
@@ -2594,7 +2603,10 @@ async def send_milestone_notifications():
                         continue
 
                     # Логируем ПЕРЕД отправкой — предотвращает дубль при retry (legacy)
-                    await log_conversion_event(chat_id, 'C3', milestone)
+                    milestone_action = (
+                        f"shown:{milestone_polarity}" if milestone_polarity else "shown"
+                    )
+                    await log_conversion_event(chat_id, 'C3', milestone, action=milestone_action)
                     await bot.send_message(
                         chat_id, text,
                         reply_markup=keyboard,
@@ -2711,7 +2723,12 @@ async def send_engagement_nudges():
         is_ai_personalizable,
     )
     from core.nudge_delivery import get_recent_nudges_batch, select_and_enqueue
-    from core.nudge_producer import arbitrate_narrative, produce as produce_nudges
+    from core.nudge_producer import (
+        arbitrate_narrative,
+        produce as produce_nudges,
+        canonical_type_for_rule,
+    )
+    from core.claims import get_recent_claims, filter_cross_pipeline_candidates
     from db.queries.nudges import get_nudge_candidates
     from i18n import t
 
@@ -2857,6 +2874,21 @@ async def send_engagement_nudges():
             # filtering and before choosing the first message. A reactivation
             # cooldown must not let a contradictory recognition message pass.
             nudges = arbitrate_narrative(nudges)
+            if not nudges:
+                continue
+
+            # WP-117 Ф-cross-pipeline-contradiction (S3): Ф-narrative выше видит
+            # только кандидатов ЭТОГО тика нудж-движка — не видит milestone C3
+            # (отдельный конвейер, свой cron в 08:00 МСК). Инцидент 02-03.10:
+            # похвала day_14 в 11:00, упрёк nudge_low_engagement на следующий
+            # день — ушли бы и после Ф-narrative, потому что та их не видела
+            # вместе. Проверяем только если есть reactivation-кандидат —
+            # пропускаем лишний запрос к двум БД для recognition-only тиков.
+            if any(canonical_type_for_rule(n['rule_id']) == 'engagement_reactivation' for n in nudges):
+                recent_claims = await get_recent_claims(chat_id, hours=72)
+                nudges = filter_cross_pipeline_candidates(
+                    nudges, recent_claims, canonical_type_for_rule,
+                )
             if not nudges:
                 continue
 
