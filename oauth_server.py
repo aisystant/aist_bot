@@ -2070,6 +2070,7 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         # matching github_user_id) — the event sits in knowledge.orphaned_installation_events
         # forever, nothing re-reads that table. Surface it the moment it happens instead of
         # waiting for the user to complain.
+        # WP-559: acknowledge orphan alerts only after Telegram accepts delivery.
         import html as _html
         ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
         if not ops_chat_id:
