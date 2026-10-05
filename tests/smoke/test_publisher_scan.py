@@ -1,7 +1,7 @@
 """Регрессии недельного backfill и уведомлений публикатора (WP-502)."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -30,7 +30,7 @@ class _AcquireConnection:
         return None
 
 
-def _post(*, year: int, title: str, status: str = "ready") -> dict:
+def _post(*, year: int, title: str, status: str = "ready", tags: list[str] | None = None, created: str | None = None) -> dict:
     today = datetime.now().date()
     month, day = (today.month, today.day) if year == today.year else (1, 1)
     path = (
@@ -43,7 +43,8 @@ def _post(*, year: int, title: str, status: str = "ready") -> dict:
         f"title: {title}\n"
         f"status: {status}\n"
         "target: club\n"
-        "tags: []\n"
+        f"tags: {tags or []}\n"
+        f"created: {created or today.isoformat()}\n"
         "---\n"
         "Synthetic body.\n"
     )
@@ -144,7 +145,7 @@ def _install_scan_harness(
     monkeypatch.setattr(discourse_queries, "get_scheduled_dates", mocks["scheduled_dates"])
     monkeypatch.setattr(discourse_queries, "schedule_publication", mocks["schedule"])
     monkeypatch.setattr(user_queries, "moscow_now", lambda: datetime(current_year, 9, 2, 9, 0))
-    monkeypatch.setattr(settings, "PUBLISHER_DAYS", "tue,wed,thu,fri,sat,sun")
+    monkeypatch.setattr(settings, "PUBLISHER_DAYS", "mon,thu")
     monkeypatch.setattr(settings, "PUBLISHER_TIME", "10:00")
     monkeypatch.setattr(settings, "PUBLISHER_INTERVAL", 1)
     monkeypatch.setattr(settings, "PUBLISHER_MIN_QUEUE", 2)
@@ -181,6 +182,50 @@ async def test_notify_false_with_no_candidates_sends_nothing(monkeypatch):
     harness.mocks["scheduled_titles"].assert_awaited_once_with(SYNTHETIC_CHAT_ID)
     harness.mocks["schedule"].assert_not_awaited()
     harness.bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_monday_review_and_thursday_ready_post_use_separate_slots(monkeypatch):
+    year = datetime.now().year
+    first_october = datetime(year, 10, 1)
+    monday = first_october + timedelta(days=(7 - first_october.weekday()) % 7)
+    harness = _install_scan_harness(
+        monkeypatch,
+        posts=[
+            _post(year=year, title="Week review", tags=["итоги-недели"], created=monday.date().isoformat()),
+            _post(year=year, title="Regular ready"),
+        ],
+        schedule_results=[101, 102],
+    )
+    monkeypatch.setattr(user_queries, "moscow_now", lambda: monday.replace(hour=6))
+
+    await scheduler._smart_publisher_scan_unlocked(notify=False, backfill=True)
+
+    calls = harness.mocks["schedule"].await_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["title"] == "Week review"
+    assert calls[0].kwargs["schedule_time"] == monday.replace(hour=7)
+    assert calls[1].kwargs["title"] == "Regular ready"
+    assert calls[1].kwargs["schedule_time"] == (monday + timedelta(days=3)).replace(hour=7)
+
+
+@pytest.mark.asyncio
+async def test_stale_review_is_not_automatically_queued_next_monday(monkeypatch):
+    year = datetime.now().year
+    first_october = datetime(year, 10, 1)
+    monday = first_october + timedelta(days=(7 - first_october.weekday()) % 7)
+    stale = _post(
+        year=year,
+        title="Old review",
+        tags=["итоги-недели"],
+        created=(monday - timedelta(days=7)).date().isoformat(),
+    )
+    harness = _install_scan_harness(monkeypatch, posts=[stale])
+    monkeypatch.setattr(user_queries, "moscow_now", lambda: monday.replace(hour=6))
+
+    await scheduler._smart_publisher_scan_unlocked(notify=False, backfill=True)
+
+    harness.mocks["schedule"].assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -282,7 +327,7 @@ async def test_mixed_new_and_duplicate_candidates_confirm_only_new(monkeypatch):
     harness = _install_scan_harness(
         monkeypatch,
         posts=[new_post, duplicate],
-        schedule_results=[103, None],
+        schedule_results=[None, 103],
     )
 
     await scheduler._smart_publisher_scan_unlocked(notify=False, backfill=False)

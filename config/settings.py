@@ -661,7 +661,7 @@ DISCOURSE_BLOGS_CATEGORY_ID = int(os.getenv("DISCOURSE_BLOGS_CATEGORY_ID", "36")
 
 GITHUB_TOKEN = GITHUB_BOT_PAT or ""  # L2 Auto-Fix PAT (org repo only)
 # GITHUB_KNOWLEDGE_REPO removed — Publisher uses per-user OAuth tokens via github_connections.knowledge_repo
-PUBLISHER_DAYS = os.getenv("PUBLISHER_DAYS", "mon,tue,wed,thu,fri,sat,sun")  # Дни публикации (ежедневно)
+PUBLISHER_DAYS = os.getenv("PUBLISHER_DAYS", "mon,thu")  # Пн: итоги недели; Чт: готовый обычный пост
 PUBLISHER_TIME = os.getenv("PUBLISHER_TIME", "10:00")  # Время публикации (МСК)
 PUBLISHER_INTERVAL = int(os.getenv("PUBLISHER_INTERVAL", "2"))  # Мин. интервал между публикациями (дней)
 PUBLISHER_MIN_QUEUE = int(os.getenv("PUBLISHER_MIN_QUEUE", "2"))  # Мин. очередь

@@ -11,7 +11,7 @@
 | Тип | Процесс (фоновая доставка контента в клуб) |
 | Файл | `core/scheduler.py` (функция `_smart_publisher_scan`) |
 | Триггеры | cron `05:07 MSK` (daily, `notify=True`) · `date` +2 мин после старта (`notify=False`) · cron `вс 06:17 MSK` (backfill, `notify=False`) |
-| Константы | `PUBLISHER_DAYS`, `PUBLISHER_TIME`, `PUBLISHER_INTERVAL`, `PUBLISHER_MIN_QUEUE` (env, см. `config/settings.py`) |
+| Константы | `PUBLISHER_DAYS=mon,thu`, `PUBLISHER_TIME=10:00`, `PUBLISHER_INTERVAL`, `PUBLISHER_MIN_QUEUE` (env, см. `config/settings.py`) |
 | Гейт | `DISABLE_DISCOURSE_PUBLISHER=true` отключает все три job — для инстансов, делящих БД publication/community с прод (см. комментарий в `init_scheduler()`) |
 
 ---
@@ -21,7 +21,7 @@
 1. Для каждого пользователя с подключённым `knowledge_repo` и Discourse-аккаунтом — сканировать `docs/{текущий_год}/` (месячные папки + подпапки мультиканальных постов).
 2. `_is_recent(filename)` — пропускает файлы старше 14 дней (по дате в имени файла), не читая их содержимое. Это оптимизация объёма скана, **не TTL на публикацию**.
 3. Из прочитанных файлов — кандидаты: `status == "ready"`, `target == "club"`, не в `published_files/titles`, не в `scheduled_files/titles`.
-4. Auto-schedule кандидатов на ближайшие свободные слоты (`PUBLISHER_DAYS`/`PUBLISHER_TIME`/`PUBLISHER_INTERVAL`), итоги недели — сразу в ближайший цикл `:07/:37`.
+4. Auto-schedule: в понедельник до 10:00 МСК поставить один свежий пост с тегом `итоги-недели` на этот понедельник; обычные `ready`-посты поставить по одному на свободные четверги в 10:00 МСК. Старые итоги недели автоматически не переносить на следующий понедельник.
 5. Queue Watch (`notify=True` only): если запланировано < `PUBLISHER_MIN_QUEUE` — уведомление пользователю с подсказкой по драфтам.
 
 ## 2. Backfill (`backfill=True`, еженедельно вс 06:17 MSK)
