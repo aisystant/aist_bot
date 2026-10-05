@@ -3417,7 +3417,7 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
                 day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
                 pub_days = [day_map[d.strip()] for d in PUBLISHER_DAYS.split(",") if d.strip() in day_map]
                 if not pub_days:
-                    pub_days = [0, 2, 4]  # Default: Пн/Ср/Пт
+                    pub_days = [0, 3]  # Default: Пн/Чт
 
                 hour, minute = 10, 0
                 try:
@@ -3428,26 +3428,34 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
 
                 # Разделить: итоги недели (тег "итоги-недели") vs обычные посты
                 weekly_reviews = [p for p in candidates if "итоги-недели" in (p.get("tags") or [])]
-                regular = [p for p in candidates if "итоги-недели" not in (p.get("tags") or [])]
+                regular = sorted(
+                    (p for p in candidates if "итоги-недели" not in (p.get("tags") or [])),
+                    key=lambda p: (str(p.get("created", "")), p["path"]),
+                )
 
                 from clients.github_content import strip_frontmatter
                 import json
 
                 scheduled_posts = []
 
-                def _next_discourse_slot_utc(now: datetime) -> datetime:
-                    """Ближайший слот публикации :07 или :37 UTC."""
-                    if now.minute < 7:
-                        return now.replace(minute=7, second=0, microsecond=0)
-                    if now.minute < 37:
-                        return now.replace(minute=37, second=0, microsecond=0)
-                    nxt = now + timedelta(hours=1)
-                    return nxt.replace(minute=7, second=0, microsecond=0)
-
-                # Weekly reviews → публикация сразу (ближайший цикл :07/:37)
-                now_utc = datetime.utcnow()
-                for wr in weekly_reviews:
-                    slot_time = _next_discourse_slot_utc(now_utc)
+                # Понедельник закреплён за итогами прошлой недели. Берём только
+                # свежий обзор: старый ready-обзор не должен занять следующий понедельник.
+                monday = now_msk.date() - timedelta(days=now_msk.weekday())
+                monday_time = datetime.combine(
+                    monday, datetime.min.time().replace(hour=hour, minute=minute)
+                )
+                if now_msk.replace(tzinfo=None) < monday_time and 0 in pub_days:
+                    fresh_reviews = [
+                        p for p in weekly_reviews
+                        if str(p.get("created", ""))[:10] >= (monday - timedelta(days=1)).isoformat()
+                        and str(p.get("created", ""))[:10] <= monday.isoformat()
+                    ]
+                else:
+                    fresh_reviews = []
+                if len(fresh_reviews) > 1:
+                    logger.warning("[Publisher] %d weekly reviews ready for one Monday slot; scheduling newest", len(fresh_reviews))
+                for wr in sorted(fresh_reviews, key=lambda p: (str(p.get("created", "")), p["path"]), reverse=True)[:1]:
+                    slot_time = monday_time - timedelta(hours=3)  # MSK→UTC
                     raw = strip_frontmatter(wr["content"])
                     tags_json = json.dumps(wr["tags"]) if isinstance(wr["tags"], list) else "[]"
                     pub_id = await schedule_publication(
@@ -3465,16 +3473,15 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
                     else:
                         logger.info(f"[Publisher] Weekly review already scheduled (duplicate skipped): {wr['title']!r}")
 
-                # Regular → Вт-Вс (исключить Пн=0 из каденции)
+                # Regular → Чт (исключить зарезервированный для итогов Пн)
                 regular_pub_days = [d for d in pub_days if d != 0]
                 if not regular_pub_days:
-                    regular_pub_days = [1, 2, 3, 4, 5, 6]  # Вт-Вс
+                    regular_pub_days = [3]  # Чт
 
-                scheduled_count = await get_scheduled_count(chat_id)
                 occupied_dates = await get_scheduled_dates(chat_id)
                 slots = []
                 check_date = now_msk.date() + timedelta(days=1)  # Начинаем с завтра
-                max_check = 60  # Не дальше 60 дней
+                max_check = max(60, 7 * (len(regular) + len(occupied_dates) + 2))
 
                 for _ in range(max_check):
                     if check_date.weekday() in regular_pub_days and check_date not in occupied_dates:
