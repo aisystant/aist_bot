@@ -94,6 +94,9 @@ DO $preflight$
 DECLARE
     v_current_owner regrole;
     v_target_role CONSTANT text := 'rewards_points_engine_owner';
+    v_test_account_id UUID;
+    v_test_event_id BIGINT;
+    v_row_count INT;
 BEGIN
     -- Exact signature, not bare proname: rules out an overload match error.
     SELECT proowner INTO v_current_owner
@@ -115,8 +118,17 @@ BEGIN
         RAISE EXCEPTION '048 preflight: % cannot SET ROLE %, required for the ownership transfer', current_user, v_target_role;
     END IF;
 
-    IF NOT has_schema_privilege(v_target_role, 'public', 'CREATE') THEN
-        RAISE EXCEPTION '048 preflight: % lacks CREATE on schema public, ALTER FUNCTION OWNER TO would leave it unable to own the function correctly', v_target_role;
+    -- CREATE on schema public is granted temporarily below, right before
+    -- ALTER OWNER, and revoked right after -- PostgreSQL requires the new
+    -- owner to have it at the moment of the ALTER, not permanently (peer
+    -- review 09.10: the original version of this check required CREATE to
+    -- already be standing, which fought the narrow-role principle this
+    -- whole migration exists for). Preflight instead checks the role does
+    -- NOT already have it -- if it does, something unexpected granted it
+    -- (maybe a previous run's REVOKE failed silently), and the GRANT/REVOKE
+    -- pair below could not be trusted to leave a clean state.
+    IF has_schema_privilege(v_target_role, 'public', 'CREATE') THEN
+        RAISE EXCEPTION '048 preflight: % already has CREATE on schema public -- unexpected state, investigate before running (this migration grants and revokes it itself)', v_target_role;
     END IF;
 
     -- Artifact A (precondition, run separately -- see file docstring) must
@@ -140,6 +152,48 @@ BEGIN
     ) THEN
         RAISE EXCEPTION '048 preflight: % lacks EXECUTE on the SECURITY INVOKER helpers compute_effective_amount_v4 depends on', v_target_role;
     END IF;
+
+    -- has_table_privilege above proves a GRANT exists, not that a read
+    -- through the live FDW connection actually returns rows -- RLS on the
+    -- remote table evaluates per-row, under whatever remote user the
+    -- current FDW user mapping names, and a GRANT alone says nothing about
+    -- that (found live 09.10: this exact gap let a broken FDW path through
+    -- the old checks). PERFORM alone cannot catch "zero rows returned"
+    -- either -- it does not raise on an empty result (peer review 09.10,
+    -- Codex) -- so this reads a REAL existing row as neondb_owner first
+    -- (bypasses RLS, always succeeds today) and then re-reads the SAME row
+    -- as the target role, checking row count explicitly.
+    SELECT account_id INTO v_test_account_id
+    FROM _foreign_indicators.calculated_profile LIMIT 1;
+    IF v_test_account_id IS NULL THEN
+        RAISE EXCEPTION '048 preflight: _foreign_indicators.calculated_profile has no rows to test the FDW read path against';
+    END IF;
+
+    -- Read the test id directly from the foreign table itself (as
+    -- neondb_owner, bypasses RLS), not inferred via applied_events (peer
+    -- review 09.10, Codex -- a local event_id with a non-null external_id
+    -- does not prove the row still exists on the remote side right now).
+    SELECT id INTO v_test_event_id
+    FROM _foreign_learning.domain_event LIMIT 1;
+    IF v_test_event_id IS NULL THEN
+        RAISE EXCEPTION '048 preflight: _foreign_learning.domain_event has no rows to test the FDW read path against';
+    END IF;
+
+    EXECUTE 'SET LOCAL ROLE ' || v_target_role;
+
+    PERFORM 1 FROM _foreign_indicators.calculated_profile WHERE account_id = v_test_account_id;
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    IF v_row_count = 0 THEN
+        RAISE EXCEPTION '048 preflight: % cannot read an existing row from _foreign_indicators.calculated_profile via FDW -- run artifact A (RLS exception policy) first', v_target_role;
+    END IF;
+
+    PERFORM 1 FROM _foreign_learning.domain_event WHERE id = v_test_event_id;
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    IF v_row_count = 0 THEN
+        RAISE EXCEPTION '048 preflight: % cannot read an existing row from _foreign_learning.domain_event via FDW (event_id=%) -- run artifact A (RLS exception policy) first', v_target_role, v_test_event_id;
+    END IF;
+
+    RESET ROLE;
 END
 $preflight$;
 
@@ -157,9 +211,19 @@ REVOKE SELECT ON
     _foreign_reference.student_stage_multipliers
 FROM rewards_points_engine_owner;
 
+-- Temporary, scoped to this one ALTER OWNER statement (peer review 09.10,
+-- mirrors migration 040/WP-547's own GRANT-before/REVOKE-after pairing for
+-- the same reason): PostgreSQL requires the new owner to have CREATE on the
+-- containing schema at the moment ownership transfers, but nothing about
+-- owning this one function needs CREATE afterward. The preflight above
+-- already confirmed the role did not have it standing before this point.
+GRANT CREATE ON SCHEMA public TO rewards_points_engine_owner;
+
 ALTER FUNCTION public.compute_effective_amount_v4(
     uuid, bigint, text, jsonb, timestamp with time zone
 ) OWNER TO rewards_points_engine_owner;
+
+REVOKE CREATE ON SCHEMA public FROM rewards_points_engine_owner;
 
 DO $postflight$
 DECLARE
@@ -183,9 +247,41 @@ BEGIN
         RAISE EXCEPTION '048 postflight: owner is % after ALTER, expected rewards_points_engine_owner', v_new_owner;
     END IF;
 
+    -- CREATE must be gone again after the REVOKE above -- confirms the
+    -- temporary grant did not leak into a standing one (peer review 09.10).
+    IF has_schema_privilege('rewards_points_engine_owner', 'public', 'CREATE') THEN
+        RAISE EXCEPTION '048 postflight: rewards_points_engine_owner still has CREATE on schema public after REVOKE -- temporary grant leaked';
+    END IF;
+
+    -- The real production caller keeps EXECUTE independently of ownership
+    -- (its grant is not tied to who owns the function) -- confirms the
+    -- cutover does not silently break the path that actually credits
+    -- points in production (peer review 09.10, Codex).
+    IF NOT has_function_privilege('projection_writer_rewards', 'public.compute_effective_amount_v4(uuid, bigint, text, jsonb, timestamp with time zone)', 'EXECUTE') THEN
+        RAISE EXCEPTION '048 postflight: projection_writer_rewards lost EXECUTE on compute_effective_amount_v4 -- production crediting would break';
+    END IF;
+
+    -- Not asserted: whether neondb_owner keeps EXECUTE after the transfer.
+    -- Its ownership-implicit EXECUTE is gone, but PostgreSQL grants EXECUTE
+    -- to PUBLIC by default on function creation, and this migration never
+    -- checked whether that default was explicitly revoked for this specific
+    -- function -- asserting either way here would be guessing (peer review
+    -- 09.10, Codex). What this migration actually needs confirmed is the
+    -- line below: the real caller works.
+
     IF EXISTS (SELECT 1 FROM public.applied_events WHERE event_id IN (v_sentinel_event_referral, v_sentinel_event_general)) THEN
         RAISE EXCEPTION '048 postflight: sentinel event_id already exists -- pick different sentinels';
     END IF;
+
+    -- compute_effective_amount_v4 is now owned by rewards_points_engine_owner.
+    -- current_user (neondb_owner) lost its ownership-implicit EXECUTE, and
+    -- whether a PUBLIC grant still covers it is unconfirmed either way (see
+    -- "not asserted" note above) -- SET ROLE here removes the question
+    -- rather than relying on it: the sentinel calls below run as the actual
+    -- new owner, the same way the real production caller does (peer review
+    -- 09.10: an earlier version of this postflight called the function as
+    -- neondb_owner and failed with permission denied on one real run).
+    EXECUTE 'SET LOCAL ROLE rewards_points_engine_owner';
 
     -- Branch 1: referral_attributed -- the early-return path. Confirms the
     -- ownership transfer itself does not break the simple case.
@@ -215,6 +311,12 @@ BEGIN
     IF v_result_general IS NULL THEN
         RAISE EXCEPTION '048 postflight: general branch (ai_chat) returned NULL, expected a numeric delta';
     END IF;
+
+    -- Back to neondb_owner before touching applied_events/point_balances
+    -- directly (DELETE below) -- rewards_points_engine_owner has no DELETE
+    -- on applied_events (by design, peer review 09.10), only the triggers
+    -- invoked from inside compute_effective_amount_v4 write there.
+    RESET ROLE;
 
     DELETE FROM public.applied_events WHERE event_id IN (v_sentinel_event_referral, v_sentinel_event_general);
     DELETE FROM public.point_balances WHERE last_event_id IN (v_sentinel_event_referral, v_sentinel_event_general);
