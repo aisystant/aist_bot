@@ -363,6 +363,59 @@ class DetectorAcceptanceTests(unittest.TestCase):
         self.assertEqual(report["alert_delivery"], "failed")
         self.assertFalse(marker.exists())
 
+    def test_repeated_run_with_same_overdue_composition_sends_once(self):
+        # WP-568 live incident 2026-10-13: two close launchd fires both
+        # alerted for the identical overdue set.
+        self.diverge()
+        self.report()
+        self.age_manifest()
+        environment, marker = self.fake_transport(0)
+        first = self.report("--alert", expected=3, environment=environment)
+        self.assertEqual(first["alert_delivery"], "delivered")
+        marker.unlink()
+        second = self.report("--alert", expected=3, environment=environment)
+        self.assertEqual(second["alert_delivery"], "deduped")
+        self.assertFalse(marker.exists())
+
+    def test_alert_fires_again_once_age_bucket_advances(self):
+        self.diverge()
+        self.report()
+        self.age_manifest()
+        environment, marker = self.fake_transport(0)
+        self.report("--alert", expected=3, environment=environment)
+        marker.unlink()
+        # Push first_seen_unmatched_at 8 days further into the past — same
+        # delta_ids, but sla_deadline_at (always recomputed as first_seen +
+        # SLA_HOURS, see delta_record()) moves with it, so the age bucket
+        # (floor(age_days / 7)) advances: a new alert, not the one deduped.
+        records = [json.loads(line) for line in self.manifest.read_text().splitlines()]
+        for row in records:
+            row["first_seen_unmatched_at"] = (
+                detector.timestamp(row["first_seen_unmatched_at"])
+                - datetime.timedelta(days=8)
+            ).isoformat()
+            row["sla_deadline_at"] = (
+                detector.timestamp(row["first_seen_unmatched_at"])
+                + datetime.timedelta(hours=detector.SLA_HOURS)
+            ).isoformat()
+        self.manifest.write_text("".join(json.dumps(row) + "\n" for row in records))
+        report = self.report("--alert", expected=3, environment=environment)
+        self.assertEqual(report["alert_delivery"], "delivered")
+        self.assertTrue(marker.exists())
+
+    def test_alert_state_is_cleared_once_overdue_resolves(self):
+        feature = self.diverge()
+        self.report()
+        self.age_manifest()
+        environment, marker = self.fake_transport(0)
+        self.report("--alert", expected=3, environment=environment)
+        state_path = self.manifest.parent / "release-drift-alert-state.json"
+        self.assertTrue(state_path.exists())
+        self.git("checkout", "production")
+        self.git("cherry-pick", feature)
+        self.report("--alert", environment=environment)
+        self.assertFalse(state_path.exists())
+
     def test_missing_transport_is_not_success(self):
         with (
             mock.patch.object(detector.shutil, "which", return_value=None),

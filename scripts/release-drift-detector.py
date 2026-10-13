@@ -25,6 +25,7 @@ MANIFEST_PATH = (
     pathlib.Path.home() / "IWE/DS-my-strategy/machine/release-drift-manifest.jsonl"
 )
 SLA_HOURS = 24
+ALERT_AGE_BUCKET_DAYS = 7
 DIRECTIONS = ("pilot_only", "new_architecture_only", "tree_difference")
 POLICY_KEYWORDS = re.compile(
     r"auth|privacy|token|secret|encrypt|gdpr|migrat|permission|password|oauth|payment|consent",
@@ -503,6 +504,86 @@ def write_report(path: pathlib.Path, report: dict) -> None:
             pending.unlink()
 
 
+def overdue_alert_key(overdue: list[dict], now: str) -> str:
+    """Identify "the same alert" for dedup: composition + age bucket.
+
+    Same delta_ids but a deadline that crossed another ALERT_AGE_BUCKET_DAYS
+    boundary is treated as a new event (WP-568 peer-session 2026-10-13,
+    round 2 consensus) — otherwise a drift that keeps aging would only ever
+    alert once.
+    """
+    max_age_days = max(
+        (timestamp(now) - timestamp(row["sla_deadline_at"])).days for row in overdue
+    )
+    material = {
+        "delta_ids": sorted(row["delta_id"] for row in overdue),
+        "age_bucket": max_age_days // ALERT_AGE_BUCKET_DAYS,
+    }
+    return hashlib.sha256(
+        json.dumps(material, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def load_alert_state(path: pathlib.Path) -> dict | None:
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as source:
+        return json.load(source)
+
+
+def write_alert_state(path: pathlib.Path, state: dict | None) -> None:
+    """Atomically replace the state file, or remove it when state is None."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if state is None:
+        path.unlink(missing_ok=True)
+        return
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as target:
+            pending = pathlib.Path(target.name)
+            json.dump(state, target, ensure_ascii=False, indent=2)
+            target.write("\n")
+            target.flush()
+            os.fsync(target.fileno())
+        pending.replace(path)
+    finally:
+        if pending and pending.exists():
+            pending.unlink()
+
+
+def send_alert_deduped(
+    message: str,
+    overdue: list[dict],
+    now: str,
+    timeout: float,
+    source: str,
+    alert_state_path: pathlib.Path,
+) -> str:
+    """Send the overdue alert unless the same (composition, age bucket) was
+    already delivered. Read-decide-send-write runs under one lock so two
+    concurrent invocations (RunAtLoad + hourly timer, or a manual re-run
+    during deploy) cannot both pass the check against a stale state
+    (WP-568 peer-session 2026-10-13, round 1/2 — Kimi dedup-key design,
+    Codex transactional-lock finding).
+
+    Returns the `alert_delivery` value for the report.
+    """
+    with manifest_lock(alert_state_path):
+        key = overdue_alert_key(overdue, now)
+        prior = load_alert_state(alert_state_path)
+        if prior is not None and prior.get("sent_key") == key:
+            return "deduped"
+        send_alert(message, timeout, source)
+        write_alert_state(alert_state_path, {"sent_key": key, "sent_at": now})
+        return "delivered"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=pathlib.Path, default=REPO_ROOT)
@@ -588,19 +669,27 @@ def main(argv: list[str] | None = None) -> int:
 
     exit_code = 3 if report["overdue"] else 0
     report["alert_delivery"] = "not_needed" if args.alert else "not_requested"
+    alert_state_path = args.manifest.parent / "release-drift-alert-state.json"
     if args.alert and report["overdue"]:
         try:
-            send_alert(
+            report["alert_delivery"] = send_alert_deduped(
                 f"⚠️ WP-562: {len(report['overdue'])} неразрешённых записей старше {SLA_HOURS}ч. "
                 "Подробности в release-drift-manifest.jsonl.",
+                report["overdue"],
+                report["checked_at"],
                 args.git_timeout,
                 args.alert_source,
+                alert_state_path,
             )
-            report["alert_delivery"] = "delivered"
         except (DetectorError, OSError) as exc:
             report["alert_delivery"] = "failed"
             print(f"ERROR: {exc}", file=sys.stderr)
             exit_code = 2
+    elif args.alert and not report["overdue"]:
+        # Composition cleared: forget the last sent key, so the same
+        # delta_ids reappearing later alerts again instead of staying
+        # deduped against stale state (round 2 consensus).
+        write_alert_state(alert_state_path, None)
     try:
         if args.output:
             write_report(args.output, report)
