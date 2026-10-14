@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   prepare:
-    name: release-candidate-build-preparation
+    name: release-candidate-build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
