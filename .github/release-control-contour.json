@@ -6,7 +6,6 @@
     ".github/release-control-contract.json",
     ".github/release-drift-manifest.jsonl",
     ".github/workflows/pilot-prod-sync.yml",
-    ".github/workflows/release-candidate-build.yml",
     ".github/workflows/release-control-dry-run.yml",
     "release_manifest.py",
     "scripts/build_release_manifest.py",
@@ -39,6 +38,7 @@
   ],
   "not_gated": {
     "docs/processes/process-18-release-contract.md": "written process, no promotion code, already carried by production",
-    "scripts/release-drift-detector.py": "runs outside the promotion path, already carried by production"
+    "scripts/release-drift-detector.py": "runs outside the promotion path, already carried by production",
+    ".github/workflows/release-candidate-build.yml": "manual-only trigger (workflow_dispatch, no push), builds and publishes an artifact nobody deploys from yet -- never imported into the bot image, never runs automatically on this branch; registering it only enables GitHub's manual dispatch button (WP-562 Ф9, 15.10.2026)"
   }
 }
