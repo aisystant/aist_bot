@@ -90,11 +90,22 @@ jobs:
           sudo apt-get install -y skopeo >/dev/null
           echo "${GHCR_PASSWORD}" | skopeo login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           IMAGE="ghcr.io/aisystant/aist_bot-pilot"
-          ARCHIVE_DIGEST=$(skopeo inspect --format '{{.Digest}}' "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar")
-          skopeo copy "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar" "docker://${IMAGE}:${GITHUB_SHA}"
+          # The index_digest the previous step already verified is the manifest
+          # list's digest, not the archive's own outer wrapper entry (an
+          # artifact of the OCI layout's index.json, one level up, that an
+          # unflagged `skopeo inspect` on the archive reports instead -- the
+          # mismatch cost a full CI run to find, 15.10.2026). Trust that value
+          # rather than re-deriving a digest from the archive a second way.
+          EXPECTED_DIGEST=$(python3 -c "import json; print(json.load(open('${RUNNER_TEMP}/image-verification.json'))['index_digest'])")
+          # --multi-arch all --preserve-digests: without them skopeo's default
+          # copy narrows a multi-manifest source to the local/override
+          # platform and re-serializes it, silently dropping the attestation
+          # and publishing a different digest than what was verified.
+          skopeo copy --multi-arch all --preserve-digests \
+            "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar" "docker://${IMAGE}:${GITHUB_SHA}"
           PUBLISHED_DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${IMAGE}:${GITHUB_SHA}")
-          if [ "${ARCHIVE_DIGEST}" != "${PUBLISHED_DIGEST}" ]; then
-            echo "::error::published digest ${PUBLISHED_DIGEST} does not match verified archive digest ${ARCHIVE_DIGEST}" >&2
+          if [ "${EXPECTED_DIGEST}" != "${PUBLISHED_DIGEST}" ]; then
+            echo "::error::published digest ${PUBLISHED_DIGEST} does not match the verified index digest ${EXPECTED_DIGEST}" >&2
             exit 1
           fi
           echo "${IMAGE}@${PUBLISHED_DIGEST}" > "${RUNNER_TEMP}/published-reference.txt"
