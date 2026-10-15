@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "diagnose-first-question",
+      "source": "WP-562 Ф7",
+      "given": {
+        "description": "Участник без свежей диагностики ступени мастерства",
+        "profile": "participant-without-assessment"
+      },
+      "when": {
+        "description": "Участник отправляет команду /diagnose",
+        "kind": "command",
+        "value": "/diagnose"
+      },
+      "then": {
+        "description": "Бот присылает первый вопрос диагностики со шкалой ответов в виде inline-кнопок",
+        "expect": {
+          "inline_callback_prefixes": [
+            "diag:"
+          ],
+          "send_message_min": 1
+        }
+      }
+    },
+    {
+      "scenario_id": "start-new-participant-onboarding",
+      "source": "WP-562 Ф7",
+      "given": {
+        "description": "Новый пользователь без профиля и без привязанного аккаунта",
+        "profile": "new-participant"
+      },
+      "when": {
+        "description": "Пользователь отправляет команду /start",
+        "kind": "command",
+        "value": "/start"
+      },
+      "then": {
+        "description": "Бот присылает приветствие с основной клавиатурой и предлагает выбрать путь: марафон или привязка аккаунта",
+        "expect": {
+          "inline_callback_data": [
+            "onboarding_link_start",
+            "path_marathon"
+          ],
+          "reply_keyboard": true,
+          "send_message_min": 2
+        }
+      }
+    },
+    {
+      "scenario_id": "subscribe-shows-tariff-offer",
+      "source": "WP-562 Ф7",
+      "given": {
+        "description": "Участник с привязанным аккаунтом, для которого доступны платные тарифы",
+        "profile": "linked-participant-with-tariffs"
+      },
+      "when": {
+        "description": "Участник нажимает кнопку оформления подписки (aisystant_subscribe)",
+        "kind": "callback",
+        "value": "aisystant_subscribe"
+      },
+      "then": {
+        "description": "Бот подтверждает нажатие и присылает предложение подписки с кнопками-ссылками на оплату (конкретная цена не проверяется)",
+        "expect": {
+          "callback_answered": true,
+          "inline_url_button": true,
+          "send_message_min": 1
+        }
+      }
+    }
+  ]
+}
