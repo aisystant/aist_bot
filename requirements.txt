@@ -77,7 +77,7 @@ langfuse==4.6.1
     # via -r requirements.in
 magic-filter==1.0.12
     # via aiogram
-multidict==6.7.1
+multidict==6.9.1
     # via
     #   aiohttp
     #   yarl
