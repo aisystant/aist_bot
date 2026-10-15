@@ -1,0 +1,110 @@
+name: Release Candidate Build Preparation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-candidate-preparation-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: release-candidate-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact workflow commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+
+      - name: Validate declarations before building
+        run: |
+          python -I -B scripts/release_control.py validate-contract \
+            .github/release-control-contract.json --require-cutover-disabled
+          python -I -B scripts/build_release_manifest.py \
+            --repo . --source-ref "${GITHUB_SHA}" \
+            --contract .github/release-control-contract.json \
+            --metadata .github/release-metadata.json \
+            --release-id "wp562-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --output release-manifest.candidate.json \
+            --context-output wp562-build-context > "${RUNNER_TEMP}/manifest-build.json"
+          install -m 0444 release-manifest.candidate.json \
+            wp562-build-context/release-manifest.candidate.json
+          cmp release-manifest.candidate.json \
+            wp562-build-context/release-manifest.candidate.json
+
+      - name: Set up the image builder
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Build an OCI archive without publishing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        env:
+          DOCKER_BUILD_SUMMARY: 'false'
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
+        with:
+          context: ./wp562-build-context
+          file: ./wp562-build-context/Dockerfile
+          target: release
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/release-candidate.oci.tar
+          provenance: mode=min
+          sbom: false
+          push: false
+
+      - name: Verify the archived image and embedded manifest
+        run: |
+          python -I -B scripts/check_release_image.py \
+            --archive "${RUNNER_TEMP}/release-candidate.oci.tar" \
+            --embedded-manifest release-manifest.candidate.json \
+            > "${RUNNER_TEMP}/image-verification.json"
+
+      - name: Preserve the archive and declared build inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate-preparation-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/release-candidate.oci.tar
+            ${{ runner.temp }}/manifest-build.json
+            ${{ runner.temp }}/image-verification.json
+            release-manifest.candidate.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish the verified archive to GHCR by digest
+        if: github.ref == 'refs/heads/pilot' && github.event_name != 'pull_request'
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sudo apt-get update -y >/dev/null
+          sudo apt-get install -y skopeo >/dev/null
+          echo "${GHCR_PASSWORD}" | skopeo login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          IMAGE="ghcr.io/aisystant/aist_bot-pilot"
+          ARCHIVE_DIGEST=$(skopeo inspect --format '{{.Digest}}' "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar")
+          skopeo copy "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar" "docker://${IMAGE}:${GITHUB_SHA}"
+          PUBLISHED_DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${IMAGE}:${GITHUB_SHA}")
+          if [ "${ARCHIVE_DIGEST}" != "${PUBLISHED_DIGEST}" ]; then
+            echo "::error::published digest ${PUBLISHED_DIGEST} does not match verified archive digest ${ARCHIVE_DIGEST}" >&2
+            exit 1
+          fi
+          echo "${IMAGE}@${PUBLISHED_DIGEST}" > "${RUNNER_TEMP}/published-reference.txt"
+          echo "Published ${IMAGE}@${PUBLISHED_DIGEST} (tag ${GITHUB_SHA} is a convenience pointer, not the deploy identity)"
+
+      - name: Preserve the published reference
+        if: github.ref == 'refs/heads/pilot' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate-published-reference-${{ github.sha }}
+          path: ${{ runner.temp }}/published-reference.txt
+          if-no-files-found: error
+          retention-days: 90
