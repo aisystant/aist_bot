@@ -12,6 +12,7 @@ contents or effective deployment identity.
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import hashlib
 import importlib.util
@@ -30,7 +31,16 @@ OCI_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
 OCI_CONFIG = "application/vnd.oci.image.config.v1+json"
 OCI_LAYER = "application/vnd.oci.image.layer.v1.tar"
 OCI_GZIP = OCI_LAYER + "+gzip"
+OCI_EMPTY = "application/vnd.oci.empty.v1+json"
 IN_TOTO = "application/vnd.in-toto+json"
+# The OCI spec's canonical "empty" descriptor: sha256 of the two bytes "{}",
+# used instead of a real config blob by attestation manifests (provenance,
+# SBOM) that have no runtime config of their own. Buildx embeds it inline via
+# the descriptor's own `data` field rather than writing a second copy of the
+# same two bytes as a blob file.
+EMPTY_CONFIG_DIGEST = (
+    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+)
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 BLOB_PATH = re.compile(r"blobs/sha256/[0-9a-f]{64}\Z")
 MAX_ARCHIVE_BYTES = 2 * 1024**3
@@ -164,6 +174,11 @@ class _Descriptor:
     size: int
     platform: dict | None
     annotations: dict
+    # Set only when the descriptor embeds its own content (OCI `data` field)
+    # instead of pointing at a blob file. Populated with bytes that this
+    # parse() call has already hashed against `digest` -- never trust an
+    # unverified inline payload. None means "look up blobs/sha256/<digest>".
+    data: bytes | None
 
     @classmethod
     def parse(cls, value):
@@ -176,12 +191,30 @@ class _Descriptor:
             or type(size) is not int
             or not 0 < size <= MAX_BLOB_BYTES
             or not isinstance(value.get("mediaType"), str)
-            or "data" in value
             or "urls" in value
         ):
             raise ImageVerificationError(
                 "OCI descriptor digest, size, or locality is invalid"
             )
+        data = None
+        if "data" in value:
+            raw = value["data"]
+            if not isinstance(raw, str):
+                raise ImageVerificationError(
+                    "OCI descriptor inline data must be base64 text"
+                )
+            try:
+                data = base64.b64decode(raw, validate=True)
+            except ValueError as exc:
+                raise ImageVerificationError(
+                    "OCI descriptor inline data is not valid base64"
+                ) from exc
+            if len(data) != size or hashlib.sha256(
+                data
+            ).hexdigest() != digest.removeprefix("sha256:"):
+                raise ImageVerificationError(
+                    "OCI descriptor inline data does not match its own digest"
+                )
         platform = value.get("platform")
         annotations = value.get("annotations", {})
         if (
@@ -193,7 +226,7 @@ class _Descriptor:
             )
         ):
             raise ImageVerificationError("OCI descriptor metadata is invalid")
-        return cls(value["mediaType"], digest, size, platform, annotations)
+        return cls(value["mediaType"], digest, size, platform, annotations, data)
 
 
 def _descriptor_list(value, label):
@@ -251,6 +284,9 @@ class _OCIArchive:
         return member
 
     def json_blob(self, descriptor):
+        if descriptor.data is not None:
+            # _Descriptor.parse already verified data against digest/size.
+            return _json_object(descriptor.data, "OCI blob")
         return _json_object(
             _read_member(self.archive, self.blob(descriptor), MAX_METADATA_BYTES),
             "OCI blob",
@@ -315,29 +351,52 @@ def _config_and_layers(archive, descriptor, manifest):
     return config_descriptor, platform, layers, diff_ids
 
 
+def _attestation_layers(archive, manifest):
+    """Validate an attestation manifest's config and layers.
+
+    An attestation (provenance, SBOM) has no runtime config -- buildx gives it
+    the OCI "empty" descriptor instead, and lists its predicate documents
+    directly as layers. Neither has a `rootfs`/`diff_ids` relationship to
+    check, so this does not reuse _config_and_layers, which assumes a real
+    image config and would reject an empty one as malformed rather than as
+    "not applicable here".
+    """
+    config_descriptor = _Descriptor.parse(manifest.get("config"))
+    if (
+        config_descriptor.media_type != OCI_EMPTY
+        or config_descriptor.digest != EMPTY_CONFIG_DIGEST
+        or config_descriptor.data is None
+    ):
+        raise ImageVerificationError(
+            "attestation config must be the recognized empty descriptor"
+        )
+    layers = _descriptor_list(manifest.get("layers"), "OCI manifest layers")
+    for layer in layers:
+        if layer.media_type != IN_TOTO:
+            raise ImageVerificationError("unsupported attestation layer media type")
+        archive.json_blob(layer)
+    return layers
+
+
 def _runnable(archive, manifests):
     runnable = []
     attestations = []
     for descriptor, manifest in manifests:
-        config, platform, layers, diff_ids = _config_and_layers(
-            archive, descriptor, manifest
-        )
-        if (
+        is_attestation = (
             descriptor.annotations.get("vnd.docker.reference.type")
             == "attestation-manifest"
-        ):
-            if platform != {"os": "unknown", "architecture": "unknown"}:
+        )
+        if is_attestation:
+            if descriptor.platform != {"os": "unknown", "architecture": "unknown"}:
                 raise ImageVerificationError(
                     "attestation must not masquerade as a runnable image"
                 )
-            for layer, diff_id in zip(layers, diff_ids, strict=True):
-                if layer.media_type != IN_TOTO or layer.digest != diff_id:
-                    raise ImageVerificationError(
-                        "unsupported attestation layer or diff ID"
-                    )
-                archive.json_blob(layer)
+            _attestation_layers(archive, manifest)
             attestations.append(descriptor)
         else:
+            config, platform, layers, diff_ids = _config_and_layers(
+                archive, descriptor, manifest
+            )
             if platform != {"os": "linux", "architecture": "amd64"}:
                 raise ImageVerificationError(
                     "runnable image platform must be linux/amd64"

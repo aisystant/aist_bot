@@ -79,6 +79,17 @@ class ImageFixture:
     def json_blob(self, payload, media_type, **metadata):
         return self.blob(canonical_json_bytes(payload), media_type, **metadata)
 
+    def rewrite_json_blob(self, descriptor, payload):
+        """Replace a manifest's own JSON content in place, under a fresh
+        digest -- a stored blob is keyed by its content's hash, so editing
+        the content without moving it to a new key leaves the old key
+        pointing at bytes that no longer match it (archive load then rejects
+        the whole fixture with an unrelated "raw digest mismatch")."""
+        del self.blobs["blobs/sha256/" + descriptor["digest"][7:]]
+        raw = canonical_json_bytes(payload)
+        self.blobs["blobs/sha256/" + _digest(raw)[7:]] = raw
+        descriptor["digest"], descriptor["size"] = _digest(raw), len(raw)
+
     def add_layer(self, payload, media_type=verifier.OCI_GZIP):
         stored = (
             gzip.compress(payload, mtime=0)
@@ -112,15 +123,18 @@ class ImageFixture:
         )
 
     def attestation(self, image):
+        # Shaped like real buildx output (WP-562 Ф9, 15.10.2026, found by a
+        # live GitHub Actions run this fixture never matched): the config is
+        # the OCI "empty" descriptor, embedded inline via `data`, not a real
+        # OCI_CONFIG blob with a fabricated rootfs -- attestations carry no
+        # runtime filesystem at all.
         layer = self.json_blob({"subject": [], "predicate": {}}, verifier.IN_TOTO)
-        config = self.json_blob(
-            {
-                "os": "unknown",
-                "architecture": "unknown",
-                "rootfs": {"type": "layers", "diff_ids": [layer["digest"]]},
-            },
-            verifier.OCI_CONFIG,
-        )
+        config = {
+            "mediaType": verifier.OCI_EMPTY,
+            "digest": verifier.EMPTY_CONFIG_DIGEST,
+            "size": 2,
+            "data": "e30=",
+        }
         return self.json_blob(
             {
                 "schemaVersion": 2,
@@ -282,6 +296,36 @@ def test_attestation_must_reference_selected_image(image_fixture):
     attestation["annotations"]["vnd.docker.reference.digest"] = "sha256:" + "0" * 64
     fixture.write([image, attestation])
     with pytest.raises(verifier.ImageVerificationError, match="not linked"):
+        fixture.verify()
+
+
+def test_attestation_config_must_be_the_recognized_empty_descriptor(image_fixture):
+    fixture = image_fixture
+    image = fixture.image()
+    attestation = fixture.attestation(image)
+    payload = json.loads(fixture.blobs["blobs/sha256/" + attestation["digest"][7:]])
+    payload["config"] = fixture.json_blob(
+        {"not": "the empty object"}, verifier.OCI_CONFIG
+    )
+    fixture.rewrite_json_blob(attestation, payload)
+    fixture.write([image, attestation])
+    with pytest.raises(
+        verifier.ImageVerificationError, match="recognized empty descriptor"
+    ):
+        fixture.verify()
+
+
+def test_attestation_inline_config_data_must_match_its_own_digest(image_fixture):
+    fixture = image_fixture
+    image = fixture.image()
+    attestation = fixture.attestation(image)
+    payload = json.loads(fixture.blobs["blobs/sha256/" + attestation["digest"][7:]])
+    payload["config"]["data"] = "eyJ4IjoxfQ=="  # base64('{"x":1}'), not "{}"
+    fixture.rewrite_json_blob(attestation, payload)
+    fixture.write([image, attestation])
+    with pytest.raises(
+        verifier.ImageVerificationError, match="does not match its own digest"
+    ):
         fixture.verify()
 
 
