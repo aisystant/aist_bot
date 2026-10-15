@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: release-candidate-preparation-${{ github.sha }}
@@ -79,3 +80,31 @@ jobs:
             release-manifest.candidate.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish the verified archive to GHCR by digest
+        if: github.ref == 'refs/heads/pilot' && github.event_name != 'pull_request'
+        env:
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sudo apt-get update -y >/dev/null
+          sudo apt-get install -y skopeo >/dev/null
+          echo "${GHCR_PASSWORD}" | skopeo login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          IMAGE="ghcr.io/aisystant/aist_bot-pilot"
+          ARCHIVE_DIGEST=$(skopeo inspect --format '{{.Digest}}' "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar")
+          skopeo copy "oci-archive:${RUNNER_TEMP}/release-candidate.oci.tar" "docker://${IMAGE}:${GITHUB_SHA}"
+          PUBLISHED_DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${IMAGE}:${GITHUB_SHA}")
+          if [ "${ARCHIVE_DIGEST}" != "${PUBLISHED_DIGEST}" ]; then
+            echo "::error::published digest ${PUBLISHED_DIGEST} does not match verified archive digest ${ARCHIVE_DIGEST}" >&2
+            exit 1
+          fi
+          echo "${IMAGE}@${PUBLISHED_DIGEST}" > "${RUNNER_TEMP}/published-reference.txt"
+          echo "Published ${IMAGE}@${PUBLISHED_DIGEST} (tag ${GITHUB_SHA} is a convenience pointer, not the deploy identity)"
+
+      - name: Preserve the published reference
+        if: github.ref == 'refs/heads/pilot' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate-published-reference-${{ github.sha }}
+          path: ${{ runner.temp }}/published-reference.txt
+          if-no-files-found: error
+          retention-days: 90

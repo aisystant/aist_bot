@@ -11,7 +11,7 @@
   },
   "artifact": {
     "digest_kind": "oci_manifest",
-    "oci_repository": "registry.example.invalid/team/app",
+    "oci_repository": "ghcr.io/aisystant/aist_bot-pilot",
     "platform": {
       "os": "linux",
       "architecture": "amd64"
