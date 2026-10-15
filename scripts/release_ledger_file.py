@@ -323,6 +323,7 @@ class FileLedger:
             contract_digest=outcome["contract_digest"],
             contract_edition=outcome["contract_edition"],
             required_checks_digest=outcome["required_checks_digest"],
+            behavior_scenarios_digest=outcome["behavior_scenarios_digest"],
             state=next_state,
             state_version=state.state_version,
             fencing_token=state.fencing_token,
@@ -498,6 +499,7 @@ class FileLedger:
                     "contract_digest": request.contract_digest,
                     "contract_edition": request.contract_edition,
                     "required_checks_digest": request.required_checks_digest,
+                    "behavior_scenarios_digest": request.behavior_scenarios_digest,
                     "evidence_hash": request.evidence_hash,
                     "recorded_at": recorded_at,
                 }

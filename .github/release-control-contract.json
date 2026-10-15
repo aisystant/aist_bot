@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_edition": "wp562-f1-c",
+  "contract_edition": "wp562-f7-a",
   "repository": {
     "owner": "aisystant",
     "name": "aist_bot"
@@ -118,6 +118,11 @@
     "release-control-contract",
     "scenario-compliance"
   ],
+  "behavior_scenarios": [
+    "diagnose-first-question",
+    "start-new-participant-onboarding",
+    "subscribe-shows-tariff-offer"
+  ],
   "forbidden_paths": [
     "hashlib.py",
     "hashlib/__init__.py",
@@ -142,6 +147,7 @@
     ".githooks/pre-push",
     ".github/CODEOWNERS",
     ".github/actions/reject-python-shadows/action.yml",
+    ".github/release-behavior-scenarios.json",
     ".github/release-control-contract.json",
     ".github/release-metadata.json",
     ".github/workflows/check-dt-indicators.yml",
@@ -179,6 +185,7 @@
     "scripts/check_release_image.py",
     "scripts/check_release_metadata.py",
     "scripts/record_pilot_prod_correspondence.py",
+    "scripts/release_behavior_scenarios.py",
     "scripts/release_control.py",
     "tests/__init__.py",
     "tests/test_autofix_security.py",
@@ -188,6 +195,7 @@
     "tests/test_pilot_prod_parity.py",
     "tests/test_readiness.py",
     "tests/test_release_attestation.py",
+    "tests/test_release_behavior_scenarios.py",
     "tests/test_release_control.py",
     "tests/test_release_control_workflows.py",
     "tests/test_release_image.py",

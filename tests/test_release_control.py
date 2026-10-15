@@ -28,6 +28,9 @@ from scripts.release_control import (
     AuthorityEvidence,
     AuthorityRejected,
     AuthorityVerificationReceipt,
+    BehaviorScenarioReceipt,
+    BehaviorScenarioResult,
+    BehaviorScenarioVerificationRequest,
     CheckResult,
     CheckSuiteReceipt,
     CheckSuiteVerificationRequest,
@@ -106,6 +109,9 @@ DIGEST_F = _sha("f")
 NEGATIVE_MATRIX_EVIDENCE_REF = _sha("9")
 SOURCE_COMMIT = "1" * 40
 SOURCE_TREE = "2" * 40
+BEHAVIOR_SCENARIOS_DIGEST = canonical_sha256(
+    loads_strict_json(CONTRACT_PATH.read_bytes())["behavior_scenarios"]
+)
 
 
 def _contract(*, cutover: bool):
@@ -905,6 +911,7 @@ class FakeLedger:
                     contract_digest=request.contract_digest,
                     contract_edition=request.contract_edition,
                     required_checks_digest=request.required_checks_digest,
+                    behavior_scenarios_digest=request.behavior_scenarios_digest,
                     state=OperationState.APPLIED,
                     state_version=updated.state_version,
                     fencing_token=updated.fencing_token,
@@ -958,6 +965,7 @@ class FakeLedger:
                     contract_digest=outcome.contract_digest,
                     contract_edition=outcome.contract_edition,
                     required_checks_digest=outcome.required_checks_digest,
+                    behavior_scenarios_digest=outcome.behavior_scenarios_digest,
                     state=OperationState.OBSERVED_APPLIED,
                     state_version=updated.state_version,
                     fencing_token=updated.fencing_token,
@@ -1156,6 +1164,54 @@ class ForgedProviderApplyResult(ProviderApplyResult):
     pass
 
 
+class FakeBehaviorScenarioResolver:
+    """Echoes the request with every scenario passed unless overridden."""
+
+    def __init__(
+        self,
+        *,
+        failure: Exception | None = None,
+        receipt_overrides: dict[str, object] | None = None,
+        failing_scenarios: tuple[str, ...] = (),
+    ) -> None:
+        self.calls = 0
+        self.failure = failure
+        self.receipt_overrides = receipt_overrides or {}
+        self.failing_scenarios = failing_scenarios
+        self.last_request: BehaviorScenarioVerificationRequest | None = None
+
+    def resolve_verified(self, request: BehaviorScenarioVerificationRequest):
+        self.calls += 1
+        self.last_request = request
+        if self.failure is not None:
+            raise self.failure
+        values = {
+            "schema_version": 1,
+            "receipt_id": "40000000-0000-4000-8000-000000000001",
+            "request_digest": request.request_digest,
+            "repository": request.repository,
+            "contract_digest": request.contract_digest,
+            "contract_edition": request.contract_edition,
+            "manifest_release_id": request.manifest_release_id,
+            "artifact_digest": request.artifact_digest,
+            "scenario_ids": request.scenario_ids,
+            "results": tuple(
+                BehaviorScenarioResult(
+                    scenario_id=scenario_id,
+                    passed=scenario_id not in self.failing_scenarios,
+                    expectation_hash=canonical_sha256({"scenario": scenario_id}),
+                )
+                for scenario_id in request.scenario_ids
+            ),
+            "verified_at": NOW,
+            "verifier_identity": "behavior-runner",
+        }
+        values.update(self.receipt_overrides)
+        if values.pop("return_untyped", False):
+            return values
+        return BehaviorScenarioReceipt(**values)
+
+
 class FakeProvider:
     def __init__(
         self,
@@ -1253,6 +1309,7 @@ def _pilot_receipt(operation, **overrides: object) -> AppliedReleaseReceipt:
             if is_rollback
             else operation.required_checks_digest
         ),
+        "behavior_scenarios_digest": BEHAVIOR_SCENARIOS_DIGEST,
         "state": OperationState.APPLIED,
         "state_version": 2,
         "fencing_token": 10,
@@ -1303,6 +1360,7 @@ def _execute(
     authority=None,
     clock=None,
     verifier=None,
+    behavior_resolver=None,
 ):
     return execute_operation(
         contract=contract,
@@ -1312,6 +1370,9 @@ def _execute(
         authority_verifier=verifier or FakeAuthorityVerifier(),
         ledger=ledger or FakeLedger(),
         provider=provider or FakeProvider(),
+        behavior_scenario_resolver=(
+            behavior_resolver or FakeBehaviorScenarioResolver()
+        ),
     )
 
 
@@ -3091,7 +3152,7 @@ def test_provider_request_binds_atomic_target_snapshot_and_trusted_time_window()
         operation=operation,
         provider=provider,
         ledger=ledger,
-        clock=SequenceClock(NOW, NOW, NOW, NOW),
+        clock=SequenceClock(NOW, NOW, NOW, NOW, NOW, NOW),
     )
 
     request = provider.requests[0]
@@ -3176,7 +3237,7 @@ def test_slow_provider_intent_cas_rechecks_deadline_before_mutation() -> None:
         operation=operation,
         ledger=ledger,
         provider=provider,
-        clock=SequenceClock(NOW, NOW, NOW, operation.evidence_valid_until),
+        clock=SequenceClock(NOW, NOW, NOW, NOW, NOW, operation.evidence_valid_until),
     )
 
     assert result.state is ExecutionState.OUTCOME_UNKNOWN
@@ -3552,6 +3613,9 @@ def test_expired_verified_plan_evidence_blocks_provider() -> None:
             clock=FakeClock(later),
             ledger=ledger,
             provider=provider,
+            behavior_resolver=FakeBehaviorScenarioResolver(
+                receipt_overrides={"verified_at": later}
+            ),
         )
 
     assert ledger.claim_calls == 0
@@ -3563,7 +3627,7 @@ def test_plan_evidence_expiring_after_claim_is_unknown_without_provider_call() -
     operation = _plan(contract).operations[0]
     ledger = FakeLedger()
     provider = FakeProvider()
-    clock = SequenceClock(NOW, NOW, NOW + timedelta(minutes=5))
+    clock = SequenceClock(NOW, NOW, NOW, NOW, NOW + timedelta(minutes=5))
 
     result = _execute(
         contract=contract,
@@ -3575,7 +3639,7 @@ def test_plan_evidence_expiring_after_claim_is_unknown_without_provider_call() -
 
     assert result.state is ExecutionState.OUTCOME_UNKNOWN
     assert result.provider_called is False
-    assert clock.calls == 3
+    assert clock.calls == 5
     assert ledger.outcome_calls == 1
     assert ledger.states[operation.operation_fingerprint].state is (
         OperationState.OUTCOME_UNKNOWN
@@ -3599,7 +3663,7 @@ def test_authority_expiring_after_claim_is_unknown_without_provider_call() -> No
         authority=authority,
         ledger=ledger,
         provider=provider,
-        clock=SequenceClock(NOW, NOW, NOW + timedelta(seconds=2)),
+        clock=SequenceClock(NOW, NOW, NOW, NOW, NOW + timedelta(seconds=2)),
     )
 
     assert result.state is ExecutionState.OUTCOME_UNKNOWN
@@ -3621,7 +3685,7 @@ def test_trusted_clock_failure_after_claim_is_unknown_without_provider_call() ->
         operation=operation,
         ledger=ledger,
         provider=provider,
-        clock=SequenceClock(NOW, NOW, RuntimeError("trusted time lost")),
+        clock=SequenceClock(NOW, NOW, NOW, NOW, RuntimeError("trusted time lost")),
     )
 
     assert result.state is ExecutionState.OUTCOME_UNKNOWN
@@ -4568,3 +4632,243 @@ def test_preview_runs_as_isolated_cli(preview_inputs):
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["mutation_authorized"] is False
     assert result.stderr == ""
+
+
+# --- WP-562 Ф7: behavior scenarios gate ---
+
+
+def test_contract_exposes_sorted_behavior_scenarios() -> None:
+    contract = load_release_control_contract(CONTRACT_PATH)
+    payload = loads_strict_json(CONTRACT_PATH.read_bytes())
+
+    assert contract.behavior_scenarios == tuple(payload["behavior_scenarios"])
+    assert 3 <= len(contract.behavior_scenarios) <= 4
+    assert contract.contract_edition == "wp562-f7-a"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda payload: payload.pop("behavior_scenarios"),
+        lambda payload: payload["behavior_scenarios"].reverse(),
+        lambda payload: payload.__setitem__("behavior_scenarios", []),
+        lambda payload: payload["behavior_scenarios"].append("Bad_ID"),
+        lambda payload: payload["behavior_scenarios"].append(
+            payload["behavior_scenarios"][-1]
+        ),
+    ],
+    ids=["missing", "unsorted", "empty", "bad-id", "duplicate"],
+)
+def test_contract_rejects_malformed_behavior_scenarios(mutation) -> None:
+    payload = loads_strict_json(CONTRACT_PATH.read_bytes())
+    mutation(payload)
+
+    with pytest.raises(ContractError):
+        validate_release_control_contract(payload)
+
+
+def test_behavior_gate_runs_before_disabled_cutover_stop() -> None:
+    contract = _contract(cutover=False)
+    operation = _plan(contract).operations[0]
+    resolver = FakeBehaviorScenarioResolver()
+    ledger = FakeLedger()
+
+    with pytest.raises(CutoverBlocked):
+        _execute(
+            contract=contract,
+            operation=operation,
+            ledger=ledger,
+            behavior_resolver=resolver,
+        )
+
+    assert resolver.calls == 1
+    request = resolver.last_request
+    assert request.scenario_ids == contract.behavior_scenarios
+    assert request.contract_digest == contract.contract_digest
+    assert request.manifest_release_id == operation.manifest_release_id
+    assert request.artifact_digest == operation.artifact_digest
+    assert ledger.claim_calls == 0
+
+
+def test_failed_behavior_scenario_blocks_before_claim() -> None:
+    contract = _contract(cutover=True)
+    operation = _plan(contract).operations[0]
+    ledger = FakeLedger()
+    provider = FakeProvider()
+    resolver = FakeBehaviorScenarioResolver(
+        failing_scenarios=(contract.behavior_scenarios[0],)
+    )
+
+    with pytest.raises(EvidenceRejected, match="did not pass"):
+        _execute(
+            contract=contract,
+            operation=operation,
+            ledger=ledger,
+            provider=provider,
+            behavior_resolver=resolver,
+        )
+
+    assert ledger.negative_matrix_calls == 0
+    assert ledger.claim_calls == 0
+    assert provider.calls == 0
+
+
+def test_behavior_resolver_failure_is_fail_closed() -> None:
+    contract = _contract(cutover=False)
+    operation = _plan(contract).operations[0]
+
+    with pytest.raises(EvidenceRejected, match="resolver failed"):
+        _execute(
+            contract=contract,
+            operation=operation,
+            behavior_resolver=FakeBehaviorScenarioResolver(
+                failure=RuntimeError("runner crashed")
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"return_untyped": True}, "untyped"),
+        ({"request_digest": DIGEST_A}, "mismatch: request_digest"),
+        ({"contract_digest": DIGEST_A}, "mismatch: contract_digest"),
+        ({"contract_edition": "other-edition"}, "mismatch: contract_edition"),
+        ({"manifest_release_id": "other-release"}, "mismatch: manifest_release_id"),
+        ({"artifact_digest": DIGEST_B}, "mismatch: artifact_digest"),
+        ({"scenario_ids": ("only-one",)}, "mismatch: scenario_ids"),
+        ({"verified_at": NOW - timedelta(seconds=301)}, "stale"),
+        ({"verified_at": NOW + timedelta(seconds=1)}, "future"),
+    ],
+)
+def test_behavior_receipt_mismatch_is_rejected(overrides, message) -> None:
+    contract = _contract(cutover=False)
+    operation = _plan(contract).operations[0]
+
+    with pytest.raises(EvidenceRejected, match=message):
+        _execute(
+            contract=contract,
+            operation=operation,
+            behavior_resolver=FakeBehaviorScenarioResolver(receipt_overrides=overrides),
+        )
+
+
+def test_behavior_results_must_cover_every_contract_scenario() -> None:
+    contract = _contract(cutover=False)
+    operation = _plan(contract).operations[0]
+    partial = tuple(
+        BehaviorScenarioResult(
+            scenario_id=scenario_id,
+            passed=True,
+            expectation_hash=canonical_sha256({"scenario": scenario_id}),
+        )
+        for scenario_id in contract.behavior_scenarios[:-1]
+    )
+
+    with pytest.raises(EvidenceRejected, match="not exact"):
+        _execute(
+            contract=contract,
+            operation=operation,
+            behavior_resolver=FakeBehaviorScenarioResolver(
+                receipt_overrides={"results": partial}
+            ),
+        )
+
+
+def test_behavior_results_must_not_reuse_an_expectation() -> None:
+    contract = _contract(cutover=False)
+    operation = _plan(contract).operations[0]
+    reused = tuple(
+        BehaviorScenarioResult(
+            scenario_id=scenario_id, passed=True, expectation_hash=DIGEST_A
+        )
+        for scenario_id in contract.behavior_scenarios
+    )
+
+    with pytest.raises(EvidenceRejected, match="reuse"):
+        _execute(
+            contract=contract,
+            operation=operation,
+            behavior_resolver=FakeBehaviorScenarioResolver(
+                receipt_overrides={"results": reused}
+            ),
+        )
+
+
+def test_existing_durable_result_does_not_rerun_behavior_scenarios() -> None:
+    contract = _contract(cutover=False)
+    operation = _plan(contract).operations[0]
+    ledger = FakeLedger()
+    ledger.seed_uncertain(operation, state=OperationState.APPLIED)
+    resolver = FakeBehaviorScenarioResolver()
+
+    result = _execute(
+        contract=contract,
+        operation=operation,
+        ledger=ledger,
+        behavior_resolver=resolver,
+    )
+
+    assert result.state is ExecutionState.APPLIED
+    assert resolver.calls == 0
+
+
+def test_applied_pilot_receipt_records_passed_scenarios_digest() -> None:
+    contract = _contract(cutover=True)
+    operation = _plan(contract).operations[0]
+    ledger = FakeLedger()
+
+    result = _execute(contract=contract, operation=operation, ledger=ledger)
+
+    assert result.state is ExecutionState.APPLIED
+    expected = canonical_sha256(list(contract.behavior_scenarios))
+    assert expected == BEHAVIOR_SCENARIOS_DIGEST
+    assert ledger.last_outcome_request.behavior_scenarios_digest == expected
+    assert ledger.pilot_receipt.behavior_scenarios_digest == expected
+    assert ledger.pilot_receipt.to_mapping()["behavior_scenarios_digest"] == expected
+
+
+def test_uncertain_outcome_also_records_behavior_digest() -> None:
+    contract = _contract(cutover=True)
+    operation = _plan(contract).operations[0]
+    ledger = FakeLedger()
+
+    result = _execute(
+        contract=contract,
+        operation=operation,
+        ledger=ledger,
+        provider=FakeProvider(failure=TimeoutError("provider lost")),
+    )
+
+    assert result.state is ExecutionState.OUTCOME_UNKNOWN
+    assert ledger.last_outcome_request.next_state is OperationState.OUTCOME_UNKNOWN
+    assert ledger.last_outcome_request.behavior_scenarios_digest == (
+        BEHAVIOR_SCENARIOS_DIGEST
+    )
+
+
+def test_production_rejects_pilot_receipt_without_behavior_digest() -> None:
+    contract = _contract(cutover=True)
+    production = _qualified_production(contract)
+    ledger = FakeLedger()
+    ledger.pilot_receipt = _pilot_receipt(
+        production, behavior_scenarios_digest="not-a-digest"
+    )
+
+    with pytest.raises(SchemaError, match="behavior_scenarios_digest"):
+        _execute(contract=contract, operation=production, ledger=ledger)
+
+    assert ledger.claim_calls == 0
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"scenario_id": "Bad_ID", "passed": True, "expectation_hash": DIGEST_A},
+        {"scenario_id": "ok-id", "passed": 1, "expectation_hash": DIGEST_A},
+        {"scenario_id": "ok-id", "passed": True, "expectation_hash": "raw text"},
+    ],
+)
+def test_behavior_result_schema_is_strict(values) -> None:
+    with pytest.raises(SchemaError):
+        BehaviorScenarioResult(**values)

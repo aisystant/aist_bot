@@ -91,6 +91,7 @@ MAX_IDENTIFIER_LENGTH = 128
 MAX_REFERENCE_LENGTH = 512
 MAX_TARGET_SNAPSHOT_AGE_SECONDS = 300
 MAX_ARTIFACT_RECEIPT_AGE_SECONDS = 900
+MAX_BEHAVIOR_SCENARIO_RECEIPT_AGE_SECONDS = 300
 RECONCILIATION_MAX_SNAPSHOT_AGE_SECONDS = 300
 RECONCILIATION_MIN_SETTLING_SECONDS = 60
 RECONCILIATION_MIN_ZERO_INTERVAL_SECONDS = 30
@@ -429,6 +430,7 @@ class ReleaseControlContract:
     rollback_retention_recheck_seconds: int
     rollback_reattestation_seconds: int
     required_checks: tuple[str, ...]
+    behavior_scenarios: tuple[str, ...]
     protected_paths: tuple[str, ...]
     forbidden_paths: tuple[str, ...]
     cutover_enabled: bool
@@ -464,6 +466,7 @@ _CONTRACT_KEYS = {
     "promotion",
     "rollback",
     "required_checks",
+    "behavior_scenarios",
     "protected_paths",
     "forbidden_paths",
     "cutover",
@@ -811,6 +814,9 @@ def validate_release_control_contract(payload: Any) -> ReleaseControlContract:
             reattestation,
         ) = _validate_contract_rollback(root["rollback"])
         checks, paths, forbidden_paths = _validate_contract_checks_and_paths(root)
+        behavior_scenarios = _check_ids(
+            root["behavior_scenarios"], "contract.behavior_scenarios"
+        )
         (
             cutover_enabled,
             negative_matrix_max_age,
@@ -840,6 +846,7 @@ def validate_release_control_contract(payload: Any) -> ReleaseControlContract:
         rollback_retention_recheck_seconds=retention_recheck,
         rollback_reattestation_seconds=reattestation,
         required_checks=checks,
+        behavior_scenarios=behavior_scenarios,
         protected_paths=paths,
         forbidden_paths=forbidden_paths,
         cutover_enabled=cutover_enabled,
@@ -1466,6 +1473,188 @@ def _check_suite_valid_until(
         ),
     )
     return oldest_evidence + timedelta(seconds=max_age_seconds)
+
+
+@dataclass(frozen=True)
+class BehaviorScenarioVerificationRequest:
+    """Ask a trusted runner to replay the contract's user-facing scenarios."""
+
+    repository: str
+    contract_digest: str
+    contract_edition: str
+    manifest_release_id: str
+    artifact_digest: str
+    scenario_ids: tuple[str, ...]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "repository": self.repository,
+            "contract_digest": self.contract_digest,
+            "contract_edition": self.contract_edition,
+            "manifest_release_id": self.manifest_release_id,
+            "artifact_digest": self.artifact_digest,
+            "scenario_ids": list(self.scenario_ids),
+        }
+
+    @property
+    def request_digest(self) -> str:
+        return _hash(self.to_mapping(), "behavior-scenario verification request")
+
+
+@dataclass(frozen=True)
+class BehaviorScenarioResult:
+    """Pass/fail fact for one scenario; never carries bot text or user data."""
+
+    scenario_id: str
+    passed: bool
+    expectation_hash: str
+
+    def __post_init__(self) -> None:
+        _bounded_string(
+            self.scenario_id,
+            "behavior_result.scenario_id",
+            maximum=64,
+            pattern=_CHECK_ID_RE,
+        )
+        _boolean(self.passed, "behavior_result.passed")
+        _digest(self.expectation_hash, "behavior_result.expectation_hash")
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "scenario_id": self.scenario_id,
+            "passed": self.passed,
+            "expectation_hash": self.expectation_hash,
+        }
+
+
+@dataclass(frozen=True)
+class BehaviorScenarioReceipt:
+    schema_version: int
+    receipt_id: str
+    request_digest: str
+    repository: str
+    contract_digest: str
+    contract_edition: str
+    manifest_release_id: str
+    artifact_digest: str
+    scenario_ids: tuple[str, ...]
+    results: tuple[BehaviorScenarioResult, ...]
+    verified_at: datetime
+    verifier_identity: str
+
+    def __post_init__(self) -> None:
+        _literal(self.schema_version, 1, "behavior_scenarios.schema_version")
+        _canonical_uuid(self.receipt_id, "behavior_scenarios.receipt_id")
+        _digest(self.request_digest, "behavior_scenarios.request_digest")
+        _bounded_string(self.repository, "behavior_scenarios.repository", maximum=129)
+        _digest(self.contract_digest, "behavior_scenarios.contract_digest")
+        _safe_id(self.contract_edition, "behavior_scenarios.contract_edition")
+        _safe_id(self.manifest_release_id, "behavior_scenarios.manifest_release_id")
+        _digest(self.artifact_digest, "behavior_scenarios.artifact_digest")
+        _check_ids(self.scenario_ids, "behavior_scenarios.scenario_ids")
+        if not isinstance(self.results, tuple) or not 1 <= len(self.results) <= 32:
+            raise SchemaError("behavior_scenarios.results must be a bounded tuple")
+        if any(type(result) is not BehaviorScenarioResult for result in self.results):
+            raise SchemaError("behavior_scenarios contains an untyped result")
+        _utc(self.verified_at, "behavior_scenarios.verified_at")
+        _safe_id(self.verifier_identity, "behavior_scenarios.verifier_identity")
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "receipt_id": self.receipt_id,
+            "request_digest": self.request_digest,
+            "repository": self.repository,
+            "contract_digest": self.contract_digest,
+            "contract_edition": self.contract_edition,
+            "manifest_release_id": self.manifest_release_id,
+            "artifact_digest": self.artifact_digest,
+            "scenario_ids": list(self.scenario_ids),
+            "results": [result.to_mapping() for result in self.results],
+            "verified_at": _timestamp(self.verified_at),
+            "verifier_identity": self.verifier_identity,
+        }
+
+    @property
+    def receipt_hash(self) -> str:
+        return _hash(self.to_mapping(), "behavior-scenario receipt")
+
+    @property
+    def passed_scenarios_digest(self) -> str:
+        """Digest of the passed scenario IDs only, not of any bot response."""
+
+        return _hash(
+            [result.scenario_id for result in self.results if result.passed],
+            "behavior_scenarios.passed",
+        )
+
+
+class VerifiedBehaviorScenarioResolverPort(Protocol):
+    def resolve_verified(
+        self,
+        request: BehaviorScenarioVerificationRequest,
+    ) -> BehaviorScenarioReceipt:
+        """Replay every requested scenario and report structural pass/fail."""
+
+
+def _resolve_behavior_scenarios(
+    *,
+    contract: ReleaseControlContract,
+    operation: ReleaseOperation,
+    resolver: VerifiedBehaviorScenarioResolverPort,
+    clock: TrustedClockPort,
+) -> BehaviorScenarioReceipt:
+    request = BehaviorScenarioVerificationRequest(
+        repository=contract.repository,
+        contract_digest=contract.contract_digest,
+        contract_edition=contract.contract_edition,
+        manifest_release_id=operation.manifest_release_id,
+        artifact_digest=operation.artifact_digest,
+        scenario_ids=contract.behavior_scenarios,
+    )
+    started_at = _trusted_now(clock)
+    try:
+        receipt = resolver.resolve_verified(request)
+    except Exception as exc:
+        LOGGER.warning(
+            "behavior-scenario resolver failed closed (%s)", type(exc).__name__
+        )
+        raise EvidenceRejected("verified behavior-scenario resolver failed") from exc
+    now = _trusted_post_call_now(clock, started_at, "behavior-scenario resolution")
+    if type(receipt) is not BehaviorScenarioReceipt:
+        raise EvidenceRejected(
+            "behavior-scenario resolver returned an untyped assertion"
+        )
+    expected = {
+        "request_digest": request.request_digest,
+        "repository": request.repository,
+        "contract_digest": request.contract_digest,
+        "contract_edition": request.contract_edition,
+        "manifest_release_id": request.manifest_release_id,
+        "artifact_digest": request.artifact_digest,
+        "scenario_ids": request.scenario_ids,
+    }
+    for field_name, expected_value in expected.items():
+        if getattr(receipt, field_name) != expected_value:
+            raise EvidenceRejected(f"behavior-scenario receipt mismatch: {field_name}")
+    scenario_ids = tuple(result.scenario_id for result in receipt.results)
+    if scenario_ids != contract.behavior_scenarios:
+        raise EvidenceRejected(
+            "behavior-scenario results are not exact, sorted, and unique"
+        )
+    if any(result.passed is not True for result in receipt.results):
+        raise EvidenceRejected("behavior scenario did not pass")
+    if len({result.expectation_hash for result in receipt.results}) != len(
+        receipt.results
+    ):
+        raise EvidenceRejected("behavior-scenario results reuse an expectation")
+    if (
+        _age_seconds(receipt.verified_at, now, "behavior_scenarios.verified_at")
+        > MAX_BEHAVIOR_SCENARIO_RECEIPT_AGE_SECONDS
+    ):
+        raise EvidenceRejected("behavior-scenario receipt is stale")
+    return receipt
 
 
 @dataclass(frozen=True)
@@ -3692,6 +3881,7 @@ class AppliedReleaseReceipt:
     contract_digest: str
     contract_edition: str
     required_checks_digest: str
+    behavior_scenarios_digest: str
     state: OperationState
     state_version: int
     fencing_token: int
@@ -3715,6 +3905,7 @@ class AppliedReleaseReceipt:
             "contract_digest": self.contract_digest,
             "contract_edition": self.contract_edition,
             "required_checks_digest": self.required_checks_digest,
+            "behavior_scenarios_digest": self.behavior_scenarios_digest,
             "state": self.state.value,
             "state_version": self.state_version,
             "fencing_token": self.fencing_token,
@@ -4353,6 +4544,7 @@ class LedgerOutcomeRequest:
     contract_digest: str
     contract_edition: str
     required_checks_digest: str
+    behavior_scenarios_digest: str
     evidence_hash: str
 
 
@@ -4534,6 +4726,10 @@ def _validate_pilot_receipt(
         maximum=2**63 - 1,
     )
     _digest(receipt.provider_evidence_hash, "pilot_receipt.provider_evidence_hash")
+    _digest(
+        receipt.behavior_scenarios_digest,
+        "pilot_receipt.behavior_scenarios_digest",
+    )
 
 
 def _pilot_receipt_query(operation: ReleaseOperation) -> PilotReceiptQuery:
@@ -5028,6 +5224,7 @@ def _outcome_request(
     operation: ReleaseOperation,
     next_state: OperationState,
     evidence_hash: str,
+    behavior_scenarios_digest: str,
 ) -> LedgerOutcomeRequest:
     return LedgerOutcomeRequest(
         external_id=claim.external_id,
@@ -5047,6 +5244,9 @@ def _outcome_request(
         contract_digest=operation.contract_digest,
         contract_edition=operation.contract_edition,
         required_checks_digest=operation.required_checks_digest,
+        behavior_scenarios_digest=_digest(
+            behavior_scenarios_digest, "outcome.behavior_scenarios_digest"
+        ),
         evidence_hash=_digest(evidence_hash, "outcome.evidence_hash"),
     )
 
@@ -5190,6 +5390,7 @@ def _record_uncertain(
     claim: ClaimReceipt,
     operation: ReleaseOperation,
     reason_code: str,
+    behavior_scenarios_digest: str,
 ) -> None:
     evidence_hash = _hash(
         {"reason_code": _safe_id(reason_code, "reason_code")},
@@ -5202,6 +5403,7 @@ def _record_uncertain(
                 operation=operation,
                 next_state=OperationState.OUTCOME_UNKNOWN,
                 evidence_hash=evidence_hash,
+                behavior_scenarios_digest=behavior_scenarios_digest,
             )
         )
     except Exception as exc:  # noqa: BLE001 - ledger port failure is fail-closed
@@ -5216,6 +5418,7 @@ def _temporal_gate_after_claim(
     claim: ClaimReceipt,
     operation: ReleaseOperation,
     ledger: ReleaseLedgerPort,
+    behavior_scenarios_digest: str,
 ) -> datetime | None:
     """Recheck trusted time after slow ports and before provider mutation."""
 
@@ -5227,6 +5430,7 @@ def _temporal_gate_after_claim(
             claim=claim,
             operation=operation,
             reason_code="pre-provider-clock-unavailable",
+            behavior_scenarios_digest=behavior_scenarios_digest,
         )
         return None
     planning_deadline = _utc(
@@ -5244,6 +5448,7 @@ def _temporal_gate_after_claim(
             claim=claim,
             operation=operation,
             reason_code="pre-provider-evidence-expired",
+            behavior_scenarios_digest=behavior_scenarios_digest,
         )
         return None
     return current_now
@@ -5284,6 +5489,7 @@ def execute_operation(
     authority_verifier: AuthorityVerifierPort,
     ledger: ReleaseLedgerPort,
     provider: ReleaseProviderPort,
+    behavior_scenario_resolver: VerifiedBehaviorScenarioResolverPort,
 ) -> ExecutionResult:
     """Execute at most once after all contract, pilot, authority, and CAS gates."""
 
@@ -5291,6 +5497,14 @@ def execute_operation(
     existing_result = _existing_durable_result(ledger=ledger, operation=operation)
     if existing_result is not None:
         return existing_result
+    # Behavior scenarios run before the cutover stop so the gate is exercised
+    # even while the repository contract keeps cutover disabled.
+    behavior_scenarios_digest = _resolve_behavior_scenarios(
+        contract=contract,
+        operation=operation,
+        resolver=behavior_scenario_resolver,
+        clock=clock,
+    ).passed_scenarios_digest
     if not contract.cutover_enabled:
         raise CutoverBlocked("cutover is disabled by the repository contract")
     clock = _MonotonicTrustedClock(clock)
@@ -5377,6 +5591,7 @@ def execute_operation(
         claim=claim,
         operation=operation,
         ledger=ledger,
+        behavior_scenarios_digest=behavior_scenarios_digest,
     )
     if provider_not_before is None:
         return ExecutionResult(
@@ -5421,6 +5636,7 @@ def execute_operation(
             claim=claim,
             operation=operation,
             reason_code="provider-intent-unavailable",
+            behavior_scenarios_digest=behavior_scenarios_digest,
         )
         return ExecutionResult(
             state=ExecutionState.OUTCOME_UNKNOWN,
@@ -5436,6 +5652,7 @@ def execute_operation(
             claim=claim,
             operation=operation,
             ledger=ledger,
+            behavior_scenarios_digest=behavior_scenarios_digest,
         )
         is None
     ):
@@ -5453,6 +5670,7 @@ def execute_operation(
             claim=claim,
             operation=operation,
             reason_code="provider-exception",
+            behavior_scenarios_digest=behavior_scenarios_digest,
         )
         return ExecutionResult(
             state=ExecutionState.OUTCOME_UNKNOWN,
@@ -5469,6 +5687,7 @@ def execute_operation(
             claim=claim,
             operation=operation,
             reason_code="provider-response-mismatch",
+            behavior_scenarios_digest=behavior_scenarios_digest,
         )
         return ExecutionResult(
             state=ExecutionState.OUTCOME_UNKNOWN,
@@ -5480,6 +5699,7 @@ def execute_operation(
         operation=operation,
         next_state=OperationState.APPLIED,
         evidence_hash=provider_result.receipt_hash,
+        behavior_scenarios_digest=behavior_scenarios_digest,
     )
     try:
         applied = ledger.record_outcome(outcome)

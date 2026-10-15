@@ -40,6 +40,7 @@ jobs:
           tests/test_release_drift_detector.py
           tests/test_release_drift_ci.py
           tests/test_branch_auto_deploy.py
+          tests/test_release_behavior_scenarios.py
           -q --tb=short
 
       - name: Run the exact candidate smoke profile

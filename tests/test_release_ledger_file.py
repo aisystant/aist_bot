@@ -8,6 +8,7 @@ that property, not just the happy path a mock would already give for free.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from dataclasses import replace as dataclasses_replace
@@ -33,6 +34,7 @@ from scripts.release_ledger_file import FileLedger, LedgerJournalError
 NOW = datetime(2026, 10, 14, 6, 0, tzinfo=UTC)
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
+DIGEST_C = "sha256:" + "c" * 64
 
 
 def _fingerprint(tag: str) -> str:
@@ -109,6 +111,7 @@ def test_record_outcome_rejects_stale_fencing_token(tmp_path):
         contract_digest=DIGEST_B,
         contract_edition="edition-1",
         required_checks_digest=DIGEST_A,
+        behavior_scenarios_digest=DIGEST_C,
         evidence_hash=DIGEST_A,
     )
     assert ledger.record_outcome(stale_request) is None
@@ -136,6 +139,7 @@ def test_record_outcome_to_applied_exposes_pilot_receipt(tmp_path):
         contract_digest=DIGEST_B,
         contract_edition="edition-1",
         required_checks_digest=DIGEST_A,
+        behavior_scenarios_digest=DIGEST_C,
         evidence_hash=DIGEST_A,
     )
     updated = ledger.record_outcome(outcome_request)
@@ -157,6 +161,7 @@ def test_record_outcome_to_applied_exposes_pilot_receipt(tmp_path):
     assert receipt is not None
     assert receipt.state is OperationState.APPLIED
     assert receipt.durable is True
+    assert receipt.behavior_scenarios_digest == DIGEST_C
 
 
 def test_reconcile_compare_and_swap_rejects_stale_version(tmp_path):
@@ -212,6 +217,55 @@ def test_malformed_journal_record_stops_cas_instead_of_skipping(tmp_path):
     ledger = FileLedger(path)
     with pytest.raises(LedgerJournalError):
         ledger.state_snapshot("fp-1")
+
+
+def test_outcome_record_predating_behavior_scenarios_digest_fails_closed(tmp_path):
+    """An outcome record written before WP-562 Ф7 added the field is a
+    malformed record, same as any other missing required field -- it must
+    raise LedgerJournalError (fail-closed), never a raw KeyError."""
+
+    path = tmp_path / "ledger.jsonl"
+    ledger = FileLedger(path)
+    claim = ledger.claim_and_burn(_claim_request())
+    outcome_request = LedgerOutcomeRequest(
+        external_id=claim.external_id,
+        claim_id=claim.claim_id,
+        operation_fingerprint=claim.operation_fingerprint,
+        expected_state=OperationState.CLAIMED_LOCKED,
+        expected_version=1,
+        fencing_token=claim.fencing_token,
+        next_state=OperationState.APPLIED,
+        target=TargetName.PILOT,
+        repository="aisystant/aist_bot",
+        release_id="release-1",
+        manifest_release_id="release-1",
+        action=ReleaseAction.PROMOTE,
+        artifact_digest=DIGEST_A,
+        embedded_manifest_hash=DIGEST_B,
+        contract_digest=DIGEST_B,
+        contract_edition="edition-1",
+        required_checks_digest=DIGEST_A,
+        behavior_scenarios_digest=DIGEST_C,
+        evidence_hash=DIGEST_A,
+    )
+    assert ledger.record_outcome(outcome_request) is not None
+
+    # Simulate a pre-WP-562-Ф7 journal: strip the field the old writer never
+    # emitted, the way it would look if replayed unmodified from history.
+    lines = path.read_text().splitlines()
+    outcome_line_index = next(
+        index
+        for index, line in enumerate(lines)
+        if '"kind": "outcome"' in line
+    )
+    outcome_record = json.loads(lines[outcome_line_index])
+    del outcome_record["behavior_scenarios_digest"]
+    lines[outcome_line_index] = json.dumps(outcome_record)
+    path.write_text("\n".join(lines) + "\n")
+
+    stale_ledger = FileLedger(path)
+    with pytest.raises(LedgerJournalError, match="behavior_scenarios_digest"):
+        stale_ledger.state_snapshot(claim.operation_fingerprint)
 
 
 def test_provider_intent_rejects_mismatched_claim_id(tmp_path):
