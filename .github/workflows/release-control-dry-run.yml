@@ -47,6 +47,14 @@ jobs:
 
   development-image:
     name: development-image-build
+    # Push to new-architecture (production) runs the contract check only --
+    # a direct push there is a hotfix/process-error path, not a development
+    # iteration, so there is no Dockerfile change to validate (WP-562 Ф8).
+    # Any job that needs a push trigger on new-architecture must justify it
+    # here, not add one by analogy.
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/pilot')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
