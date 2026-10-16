@@ -1,4 +1,4 @@
-"""Offline tests for UnavailableRailwayReleaseProvider (WP-562 Ф3.3)."""
+"""Offline tests for the Railway provider/observer stubs (WP-562 Ф3.3)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,11 @@ from unittest.mock import Mock
 
 import scripts.railway_release_provider as railway_release_provider
 from scripts.railway_release_provider import (
+    ObserverCapabilityUnavailable,
     ProviderCapabilityUnavailable,
+    UnavailableRailwayProviderObserver,
     UnavailableRailwayReleaseProvider,
+    release_observer_factory,
     release_provider_factory,
 )
 
@@ -55,10 +58,38 @@ class UnavailableProviderTests(unittest.TestCase):
         )
 
     def test_factory_is_not_configurable_by_argument(self) -> None:
-        import inspect
-
         signature = inspect.signature(release_provider_factory)
         self.assertEqual(len(signature.parameters), 0)
+
+
+class UnavailableObserverTests(unittest.TestCase):
+    def test_observe_verified_raises_without_touching_the_operation(self) -> None:
+        observer = UnavailableRailwayProviderObserver()
+        operation = Mock(name="ReleaseOperation")
+        uncertainty_started_at = Mock(name="datetime")
+
+        with self.assertRaises(ObserverCapabilityUnavailable):
+            observer.observe_verified(operation, uncertainty_started_at)
+
+        self.assertEqual(operation.method_calls, [])
+        self.assertEqual(uncertainty_started_at.method_calls, [])
+
+    def test_factory_returns_the_stub(self) -> None:
+        self.assertIsInstance(
+            release_observer_factory(), UnavailableRailwayProviderObserver
+        )
+
+    def test_factory_is_not_configurable_by_argument(self) -> None:
+        signature = inspect.signature(release_observer_factory)
+        self.assertEqual(len(signature.parameters), 0)
+
+    def test_capability_errors_are_distinct_exception_types(self) -> None:
+        """apply() and observe_verified() must fail with distinguishable
+        errors -- a caller (or a future diagnostic) telling them apart by
+        exception type should not have to parse the message text.
+        """
+        self.assertFalse(issubclass(ObserverCapabilityUnavailable, ProviderCapabilityUnavailable))
+        self.assertFalse(issubclass(ProviderCapabilityUnavailable, ObserverCapabilityUnavailable))
 
 
 if __name__ == "__main__":
