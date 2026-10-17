@@ -1434,6 +1434,7 @@ async def create_tables(pool: asyncpg.Pool):
                 status TEXT NOT NULL DEFAULT 'pending',
                 source TEXT NOT NULL DEFAULT 'bot',
                 payment_id TEXT,
+                product TEXT,
                 paid_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT NOW()
             )
