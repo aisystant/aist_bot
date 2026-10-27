@@ -492,3 +492,88 @@ async def test_error_detail_keeps_only_short_codes(service):
         details.append(caught.value.detail)
 
     assert details == ["ChatFrozen", "", ""]
+
+
+# --- /chat_collect --------------------------------------------------------
+
+class CollectBot(FakeBot):
+    """Бот, который уже стоит в чате администратором: события my_chat_member не было."""
+
+    def __init__(self, order, member, *, chat_type="supergroup", username=None):
+        super().__init__(order)
+        self._member = member
+        self._chat = SimpleNamespace(id=CHAT, type=chat_type, title="Поток", username=username)
+
+    async def get_chat(self, chat_id):
+        return self._chat
+
+    async def get_chat_member(self, chat_id, user_id):
+        return self._member
+
+    async def me(self):
+        return SimpleNamespace(id=777)
+
+
+def collect_command(text, bot, *, sender_id=OWNER):
+    message, answers = command(text, sender_id=sender_id)
+    message.bot = bot
+    return message, answers
+
+
+async def test_collect_starts_collection_in_a_chat_where_the_bot_is_already_admin(fake):
+    fake.state = "unknown"
+    order: list = []
+    bot = CollectBot(order, admin())
+    message, _ = collect_command(f"/chat_collect {CHAT}", bot)
+
+    await h.cmd_chat_collect(message)
+
+    assert chat_steps(order) == [("send", CHAT), ("pin", CHAT)]
+    assert any(c[0] == "register" and c[1] == CHAT for c in fake.calls)
+    assert CHAT in h._active
+    assert (OWNER, "Сбор по чату «Поток» включён, участники уведомлены.") in bot.sent
+
+
+async def test_collect_does_not_notify_the_chat_twice_when_collection_is_already_active(fake):
+    fake.state = "active"
+    order: list = []
+    bot = CollectBot(order, admin())
+    message, answers = collect_command(f"/chat_collect {CHAT}", bot)
+
+    await h.cmd_chat_collect(message)
+
+    assert chat_steps(order) == [] and not any(c[0] in ("register", "unregister") for c in fake.calls)
+    assert answers == ["Сбор по этому чату уже идёт."] and CHAT in h._active
+
+
+@pytest.mark.parametrize("member", [ChatMemberMember.model_construct(), ChatMemberLeft.model_construct()])
+async def test_collect_refuses_when_the_bot_is_not_admin(fake, member):
+    order: list = []
+    message, answers = collect_command(f"/chat_collect {CHAT}", CollectBot(order, member))
+
+    await h.cmd_chat_collect(message)
+
+    assert chat_steps(order) == [] and answers == ["Бот не администратор этой группы: сбор не включён."]
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("/chat_collect", h.COLLECT_USAGE_TEXT),
+    ("/chat_collect abc", h.COLLECT_USAGE_TEXT),
+    ("/chat_collect -1", "Этого чата нет в списке разрешённых для сбора."),
+])
+async def test_collect_rejects_bad_or_unlisted_chat_without_touching_telegram_or_service(fake, text, expected):
+    order: list = []
+    message, answers = collect_command(text, CollectBot(order, admin()))
+
+    await h.cmd_chat_collect(message)
+
+    assert answers == [expected] and order == [] and fake.calls == []
+
+
+async def test_collect_is_silent_for_non_owner(fake):
+    message, answers = collect_command(f"/chat_collect {CHAT}", CollectBot([], admin()), sender_id=999)
+
+    with pytest.raises(SkipHandler):
+        await h.cmd_chat_collect(message)
+
+    assert answers == [] and fake.calls == []
