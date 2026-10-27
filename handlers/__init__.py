@@ -78,6 +78,9 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .hermes import hermes_router
     from .byok import byok_router
 
+    # chat_analyst_router первым: иначе общий хендлер команд (settings) отвечает на /chat_collect
+    # и /chat_digest раньше. Хендлеры модуля отдают событие дальше (SkipHandler), если оно не его.
+    dp.include_router(chat_analyst_router)
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
     dp.include_router(showcase_router)
@@ -108,9 +111,6 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     # mentorship_router ДО channels_router (WP-578 Ф2): /mentor_stream должен
     # долетать в группе раньше catch-all-хендлера упоминаний SC.118, который
     # matches ЛЮБОЕ групповое сообщение и останавливает дальнейший роутинг.
-    # chat_analyst_router тоже ДО channels_router и по той же причине; его хендлеры
-    # отдают событие дальше (SkipHandler), SC.118 продолжает работать.
-    dp.include_router(chat_analyst_router)
     dp.include_router(mentorship_router)
     dp.include_router(channels_router)
     dp.include_router(ory_register_router)

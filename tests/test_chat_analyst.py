@@ -577,3 +577,16 @@ async def test_collect_is_silent_for_non_owner(fake):
         await h.cmd_chat_collect(message)
 
     assert answers == [] and fake.calls == []
+
+
+def test_chat_analyst_router_is_registered_before_the_generic_command_handlers():
+    """Иначе общий хендлер команд отвечает меню на /chat_collect и /chat_digest (найдено 27.10)."""
+    from aiogram import Dispatcher as AiogramDispatcher
+
+    from handlers import setup_handlers
+
+    dp = AiogramDispatcher()
+    setup_handlers(dp, SimpleNamespace())
+
+    names = [router.name for router in dp.sub_routers]
+    assert names[0] == "chat_analyst"
