@@ -131,14 +131,18 @@ async def _handle_membership(cfg: Config, update: ChatMemberUpdated) -> None:
 
 
 async def _start_collection(cfg: Config, update: ChatMemberUpdated) -> None:
-    chat = update.chat
-    bot = update.bot
     if update.from_user is None or update.from_user.id != cfg.owner_id:
         return
+    await _begin_collection(cfg, update.bot, update.chat, update.new_chat_member, update.date.timestamp())
+
+
+async def _begin_collection(cfg: Config, bot, chat, member, added_at: float) -> None:
+    """Уведомить чат, закрепить уведомление и зарегистрировать чат в сервисе.
+    Общий путь для события «бот стал админом» и команды /chat_collect."""
     if chat.username:
         await bot.send_message(cfg.owner_id, f"Чат «{chat.title}» публичный: сбор не включён (только закрытые чаты).")
         return
-    if not _can_pin(update.new_chat_member, chat.type):
+    if not _can_pin(member, chat.type):
         await bot.send_message(
             cfg.owner_id,
             f"Сбор по чату «{chat.title}» не включён: дайте боту право закреплять сообщения.",
@@ -155,7 +159,7 @@ async def _start_collection(cfg: Config, update: ChatMemberUpdated) -> None:
         notice = await bot.send_message(chat.id, NOTICE_TEXT.format(terms_url=cfg.terms_url))
         await bot.pin_chat_message(chat.id, notice.message_id)
         notified_at = time.time()
-        await cfg.client.register(chat.id, update.date.timestamp(), notified_at)
+        await cfg.client.register(chat.id, added_at, notified_at)
     except (TelegramAPIError, ChatAnalystError) as err:
         logger.error("[chat_analyst] start failed chat=%s error=%s", chat.id, type(err).__name__)
         await bot.send_message(cfg.owner_id, f"Сбор по чату «{chat.title}» не включён: {type(err).__name__}.")
@@ -163,6 +167,48 @@ async def _start_collection(cfg: Config, update: ChatMemberUpdated) -> None:
     _suspended.discard(chat.id)
     _active.add(chat.id)
     await bot.send_message(cfg.owner_id, f"Сбор по чату «{chat.title}» включён, участники уведомлены.")
+
+
+# --- /chat_collect --------------------------------------------------------
+
+COLLECT_USAGE_TEXT = "Формат: /chat_collect <id чата>. Для чата, где бот уже администратор."
+
+
+@chat_analyst_router.message(Command("chat_collect"))
+async def cmd_chat_collect(message: Message):
+    """Начать сбор в чате, где бот стал админом до включения функции: события my_chat_member не будет."""
+    cfg = _config()
+    sender = message.from_user
+    if cfg is None or sender is None or message.chat.type != "private" or sender.id != cfg.owner_id:
+        raise SkipHandler
+    parts = (message.text or "").split()
+    try:
+        chat_id = int(parts[1]) if len(parts) == 2 else None
+    except ValueError:
+        chat_id = None
+    if chat_id is None:
+        await message.answer(COLLECT_USAGE_TEXT, parse_mode=None)
+        return
+    if chat_id not in cfg.chats:
+        await message.answer("Этого чата нет в списке разрешённых для сбора.", parse_mode=None)
+        return
+    bot = message.bot
+    try:
+        chat = await bot.get_chat(chat_id)
+        member = await bot.get_chat_member(chat_id, (await bot.me()).id)
+        state = (await cfg.client.status(chat_id)).get("state")
+    except (TelegramAPIError, ChatAnalystError) as err:
+        logger.warning("[chat_analyst] collect precheck failed chat=%s error=%s", chat_id, type(err).__name__)
+        await message.answer(f"Не удалось проверить чат: {type(err).__name__}.", parse_mode=None)
+        return
+    if chat.type not in GROUP_TYPES or not _is_admin(member):
+        await message.answer("Бот не администратор этой группы: сбор не включён.", parse_mode=None)
+        return
+    if state == "active":
+        _active.add(chat_id)
+        await message.answer("Сбор по этому чату уже идёт.", parse_mode=None)
+        return
+    await _begin_collection(cfg, bot, chat, member, time.time())
 
 
 # --- сообщения групп ------------------------------------------------------
