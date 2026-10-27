@@ -56,6 +56,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .features import features_router
     from .mentorship import mentorship_router
     from .channels import channels_router
+    from .chat_analyst import chat_analyst_router
     from .workshop import workshop_router
     from .showcase import showcase_router
     from .ory_register import ory_register_router
@@ -77,6 +78,9 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .hermes import hermes_router
     from .byok import byok_router
 
+    # chat_analyst_router первым: иначе общий хендлер команд (settings) отвечает на /chat_collect
+    # и /chat_digest раньше. Хендлеры модуля отдают событие дальше (SkipHandler), если оно не его.
+    dp.include_router(chat_analyst_router)
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
     dp.include_router(showcase_router)

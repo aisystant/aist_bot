@@ -181,6 +181,11 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("handlers/legacy/learning.py", "send_practice_topic"),
 ("handlers/legacy/learning.py", "send_theory_topic"),
 ("handlers/legacy/learning.py", "send_topic"),
+    # WP-612 Ф5: реактивная отправка по событию/команде владельца — уведомление об архивации
+    # в закрытый чат при включении сбора (условия закрепляются в самом чате) и ответ владельцу
+    # в личку. Адресат — тот самый чат/владелец, не батч и не расписание; очередь Доставщика
+    # здесь вредна: сбор нельзя регистрировать, пока уведомление не опубликовано и не закреплено.
+("handlers/chat_analyst.py", "_begin_collection"),
     # WP-578: реактивная отправка сразу по команде наставника (тот же класс,
     # что handlers/workshop.py: _send_direct_masterskaya_invite ниже) —
     # адресат неизвестен заранее (берётся из reply в момент вызова), не
