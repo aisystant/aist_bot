@@ -92,6 +92,16 @@ def test_postflight_proves_the_paths_that_broke_before_and_rolls_back():
     assert "'{}'::jsonb" in postflight  # the f-string escaped the braces
 
 
+def test_preflight_takes_set_without_inherit_only_when_missing_and_admin_is_held():
+    preflight = SQL[:SQL.index("$preflight$;")]
+    grant = "GRANT projection_writer_rewards TO neondb_owner WITH INHERIT FALSE, SET TRUE;"
+
+    assert grant in preflight
+    assert preflight.index("'MEMBER WITH ADMIN OPTION'") < preflight.index(grant)
+    assert preflight.index("NOT pg_has_role(current_user, 'projection_writer_rewards', 'SET')") < preflight.index(grant)
+    assert "still cannot SET ROLE" in preflight[preflight.index(grant):]
+
+
 def test_rewards_dsn_is_derived_from_the_reference_one_keeping_host_and_options(monkeypatch):
     monkeypatch.delenv("REWARDS_URL", raising=False)
     monkeypatch.setenv("NEON_REFERENCE_URL", "postgresql://host.example/reference?sslmode=require")

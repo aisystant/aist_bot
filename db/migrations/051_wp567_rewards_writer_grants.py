@@ -41,15 +41,15 @@ ends with a deliberate exception, so it is all rolled back, trigger side effects
 applied_events rows included. It then asserts the role has no table-wide write and no
 DELETE/TRUNCATE on the tables.
 
-Preflight needs neondb_owner to be allowed to SET ROLE to the narrow role. On PG16 the
-creator of a role gets ADMIN but not SET unless createrole_self_grant says otherwise; if
-the preflight refuses for that reason, first run (as neondb_owner):
-    GRANT projection_writer_rewards TO neondb_owner WITH INHERIT FALSE, SET TRUE;
+The postflight needs neondb_owner to SET ROLE to the narrow role. On PG16 the creator of a
+role gets ADMIN but not SET (the first live run on 2026-10-28 refused exactly there), so the
+preflight grants neondb_owner SET without INHERIT when it holds ADMIN and SET is missing.
 
 Rollback (as neondb_owner):
     REVOKE ALL ON public.point_balances, public.typing_daily, public.applied_events,
                   public.subscribers_snapshot, public.first_payment_guard FROM projection_writer_rewards;
     -- and EXECUTE on compute_typing_points if the run printed that it granted it
+    REVOKE projection_writer_rewards FROM neondb_owner;  -- only if the run printed that it granted SET
 
 Manual run (needs a rewards-DB owner DSN; without REWARDS_URL it is derived from
 NEON_REFERENCE_URL, the preflight still refuses anything but neondb_owner):
@@ -128,8 +128,17 @@ BEGIN
         RAISE EXCEPTION '051 preflight: {ROLE} missing, cannot log in, or bypasses RLS';
     END IF;
 
+    -- The postflight needs SET ROLE. On PG16 the role's creator holds ADMIN but not SET
+    -- (seen on the first live run 2026-10-28), so take SET only, without inheriting anything.
     IF NOT pg_has_role(current_user, '{ROLE}', 'SET') THEN
-        RAISE EXCEPTION '051 preflight: % cannot SET ROLE {ROLE} (see the migration docstring for the one-line grant)', current_user;
+        IF NOT pg_has_role(current_user, '{ROLE}', 'MEMBER WITH ADMIN OPTION') THEN
+            RAISE EXCEPTION '051 preflight: % can neither SET ROLE {ROLE} nor grant itself membership', current_user;
+        END IF;
+        GRANT {ROLE} TO neondb_owner WITH INHERIT FALSE, SET TRUE;
+        RAISE NOTICE '051: granted neondb_owner SET (no INHERIT) on {ROLE}';
+    END IF;
+    IF NOT pg_has_role(current_user, '{ROLE}', 'SET') THEN
+        RAISE EXCEPTION '051 preflight: % still cannot SET ROLE {ROLE}', current_user;
     END IF;
 
     FOR v_table IN SELECT unnest(ARRAY[{_sql_list(TABLES)}]) LOOP
