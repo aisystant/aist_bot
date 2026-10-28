@@ -440,7 +440,7 @@ async def test_long_digest_is_split_under_the_telegram_limit(fake):
 def test_module_is_off_without_full_configuration(monkeypatch):
     for name in ("CHAT_ANALYST_URL", "CHAT_ANALYST_TOKEN", "CHAT_ANALYST_CHATS", "CHAT_ANALYST_TERMS_URL"):
         monkeypatch.setenv(name, "x" if name != "CHAT_ANALYST_CHATS" else "1")
-    monkeypatch.setenv("DEVELOPER_CHAT_ID", "5")
+    monkeypatch.setenv("CHAT_ANALYST_OWNER_ID", "5")
     assert h._config() is not None
 
     monkeypatch.delenv("CHAT_ANALYST_TERMS_URL")
@@ -476,7 +476,7 @@ def test_garbage_in_owner_id_turns_the_module_off(monkeypatch):
     for name in ("CHAT_ANALYST_URL", "CHAT_ANALYST_TOKEN", "CHAT_ANALYST_TERMS_URL"):
         monkeypatch.setenv(name, "x")
     monkeypatch.setenv("CHAT_ANALYST_CHATS", "1")
-    monkeypatch.setenv("DEVELOPER_CHAT_ID", "not-a-number")
+    monkeypatch.setenv("CHAT_ANALYST_OWNER_ID", "not-a-number")
 
     assert h._config() is None
 
