@@ -153,6 +153,30 @@ async def was_notification_sent(idempotency_key: str) -> bool:
         return row is not None
 
 
+async def get_legacy_template_update_chat_ids(version: str) -> set[int]:
+    """Chats that already got this release under the pre-WP-529 key.
+
+    The old handler keyed on the raw CHANGELOG header
+    ("template_update:{chat_id}:[0.41.10] — 2026-10-27"); the new one keys on
+    "0.41.10". Without this lookup the switch re-sends a release still in the
+    notify window. Remove once no release announced the old way can be re-sent.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT external_id FROM public.domain_event "
+            "WHERE source = 'aist-bot' AND event_type = 'notification_sent' "
+            "AND external_id LIKE $1",
+            f"notification-template_update:%:[{version}]%",
+        )
+    chat_ids = set()
+    for row in rows:
+        chat_part = row["external_id"].split(":")[1]
+        if chat_part.lstrip("-").isdigit():
+            chat_ids.add(int(chat_part))
+    return chat_ids
+
+
 async def send_idempotent(
     chat_id: int,
     notification_type: str,

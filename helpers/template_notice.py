@@ -17,7 +17,7 @@ _VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?")
 _ALLOWED_ATTRS = {"b": (), "i": (), "u": (), "s": (), "code": (), "pre": (), "a": ("href",)}
 _TAG_RE = re.compile(r'<(/?)([a-zA-Z]+)((?:\s+[a-z]+="[^"<>]*")*)\s*>')
 _ATTR_RE = re.compile(r'([a-z]+)="([^"<>]*)"')
-_BARE_AMP_RE = re.compile(r"&(?!(?:amp|lt|gt|quot|#\d+);)")
+_BARE_AMP_RE = re.compile(r"&(?!(?:amp|lt|gt|quot|#\d+|#x[0-9a-fA-F]+);)")
 
 HOW_TO_UPDATE = (
     "<b>Как обновить:</b> скажите своему Claude <i>«обнови мой экзокортекс»</i> "
