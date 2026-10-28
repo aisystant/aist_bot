@@ -77,6 +77,8 @@ CREATE INDEX idx_notification_log_created ON notification_log(created_at);
 | `milestone` | `milestone:{chat_id}:{milestone_name}` | `:1472` |
 | `nudge` | `nudge:{chat_id}:{date}:{nudge_key}` | `:1582` |
 | `event` | `event:{chat_id}:{event_id}` | `:1673` |
+| `template_update` | `template_update:{chat_id}:{version}` (через Доставщик, journal_key; до РП-529 — `…:{chat_id}:[{version}] — {date}`, учитывается `get_legacy_template_update_chat_ids`) | `oauth_server.py` |
+| `template_update` (предпросмотр) | `template_update_preview:{version}:{sha256(text)[:12]}` → только `DEVELOPER_CHAT_ID` | `oauth_server.py` |
 
 **Правило выбора detail:**
 - **Daily events** (lesson, reminder, digest) → включать дату → ровно одна отправка за сутки
