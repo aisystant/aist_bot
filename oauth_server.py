@@ -1101,19 +1101,28 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
 
 
 async def template_update_handler(request: web.Request) -> web.Response:
-    """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
+    """Webhook для GitHub Action: анонс выпуска шаблона IWE подписчикам.
 
     POST /api/template-update
     Headers: X-Webhook-Secret: <TEMPLATE_WEBHOOK_SECRET>
-    Body JSON: {version, changelog, commit_count}
+    Body JSON: {version, message_html?, preview?}
+
+    WP-529: текст анонса собирает и проверяет CI шаблона (release-notice-build.py).
+    Бот — тонкий клиент: проверяет границу (helpers.template_notice) и ставит
+    сообщение в Доставщик (DP.SC.177). Нет текста или он не прошёл проверку —
+    короткий анонс со ссылкой на выпуск. Старый формат {version, changelog}
+    тоже получает короткий анонс. preview=true — только в DEVELOPER_CHAT_ID
+    (предпросмотр автору перед рассылкой), ключ зависит от текста.
     """
     import os
     import json
+    import hashlib
+    from config import DEVELOPER_CHAT_ID
+    from core.notification_service import enqueue, CLASS_TRANSACTIONAL
+    from helpers.template_notice import build_template_notice, parse_release_version
 
-    # Аутентификация
     expected_secret = os.getenv('TEMPLATE_WEBHOOK_SECRET', '')
     provided_secret = request.headers.get('X-Webhook-Secret', '')
-
     if not expected_secret or provided_secret != expected_secret:
         logger.warning("[TemplateUpdate] Invalid or missing webhook secret")
         return web.Response(text="Forbidden", status=403)
@@ -1123,177 +1132,46 @@ async def template_update_handler(request: web.Request) -> web.Response:
     except Exception:
         return web.Response(text="Bad request", status=400)
 
-    version = body.get('version', '')
-    changelog = body.get('changelog', '')
-    commit_count = body.get('commit_count', 0)
+    version = parse_release_version(str(body.get('version', '')))
+    if not version:
+        logger.warning("[TemplateUpdate] No release version in payload")
+        return web.Response(text="Bad request: version", status=400)
 
-    if not commit_count:
-        return web.Response(text=json.dumps({"ok": True, "sent": 0, "reason": "no_commits"}), content_type="application/json")
+    message_text, notice_kind = build_template_notice(version, body.get('message_html') or '')
+    logger.info("[TemplateUpdate] version=%s notice=%s length=%d", version, notice_kind, len(message_text))
 
-    # Не рассылаем, если changelog пустой или тривиальный (нет содержательных изменений)
-    if not changelog or not changelog.strip():
-        logger.info("[TemplateUpdate] Empty changelog with %d commits — skipping notification", commit_count)
-        return web.Response(text=json.dumps({"ok": True, "sent": 0, "reason": "empty_changelog"}), content_type="application/json")
-
-    # LLM-переработка changelog в user-friendly release notes
-    # Fallback: regex-очистка (прежнее поведение) при любой ошибке LLM
-    repo_url = "https://github.com/TserenTserenov/FMT-exocortex-template"
-    rewritten_body = None
-
-    try:
-        from clients.claude import claude
-        from config import CLAUDE_MODEL_HAIKU
-
-        release_note_prompt = (
-            "Ты объясняешь другу за чашкой кофе, что нового появилось в продукте IWE "
-            "(Intellectual Work Environment — интеллектуальная рабочая среда, шаблон экзокортекса для Claude Code). "
-            "Друг не программист и не читал код — ему важно, что стало лучше ДЛЯ НЕГО, а не как это устроено внутри.\n\n"
-            "Перепиши технический changelog в понятный рассказ на русском языке.\n\n"
-            "Правила:\n"
-            "1. Нумерованные пункты на верхнем уровне (1, 2, 3...), вложенные — буллеты (•)\n"
-            "2. Каждый пункт начинай с пользы или эффекта («стало быстрее», «теперь не теряется» и т.п.), "
-            "не с названия компонента или файла\n"
-            "3. ЗАПРЕЩЕНЫ внутренние имена и коды: номера рабочих продуктов (WP-102), названия модулей/скриптов/"
-            "переменных (guide-kit, ResidencyGate, USER-SPACE и т.п.), имена файлов, аббревиатуры без расшифровки. "
-            "Если для сути пункта имя всё же нужно — поясни его смысл русским словом перед именем, в скобках\n"
-            "4. Секции: Добавлено, Изменено, Исправлено (только те, что есть в changelog)\n"
-            "5. Формат вывода — HTML для Telegram: <b>жирный</b> для заголовков секций, "
-            "без markdown. Не используй <ul>/<ol>/<li> — Telegram их не поддерживает\n"
-            "6. Кратко, по делу, без воды. Максимум 20 строк\n"
-            "7. НЕ добавляй ничего от себя — только переформулируй то, что есть в changelog\n"
-            "8. НЕ добавляй заголовок, приветствие или заключение — только тело release notes\n"
-            "9. ГРУППИРОВКА ПО СМЫСЛУ (не по хронологии коммитов): объединяй пункты в 4-6 смысловых блоков "
-            "(например «быстрее открывается день», «надёжнее хранятся личные данные», «починили ошибки») "
-            "вместо построчного пересказа списка коммитов. Если несколько пунктов описывают одну и ту же "
-            "функцию — объедини в ОДИН пункт с общим описанием, не повторяй одно и то же разными словами\n"
-            "10. ПОЛНОТА: каждый пункт должен быть содержательным и отличаться от других. "
-            "Если после группировки осталось мало пунктов — это нормально, не раздувай\n"
-            "11. ПРОЧИЕ ИЗМЕНЕНИЯ: если в changelog есть мелкие правки, рефакторинг или "
-            "технические изменения — добавь в конце строку: «А также мелкие улучшения и исправления»\n"
-            "12. ССЫЛКИ НА ФАЙЛЫ: если в changelog есть markdown-ссылки вида "
-            "[имя](путь/к/файлу) — преобразуй их в HTML-ссылки на GitHub: "
-            f'<a href="{repo_url}/blob/main/путь/к/файлу">имя</a>. '
-            "Ставь ссылку на ключевой файл изменения (1-2 ссылки на пункт, не больше). "
-            "Если ссылок в changelog нет — не выдумывай"
-        )
-
-        rewritten_body = await claude.generate(
-            system_prompt=release_note_prompt,
-            user_prompt=changelog,
-            max_tokens=1500,
-            model=CLAUDE_MODEL_HAIKU,
-        )
-
-        if rewritten_body:
-            rewritten_body = rewritten_body.strip()
-            # Detect if LLM returned raw Markdown instead of HTML (headers, bold, tables)
-            if re.search(r'(^#{1,6}\s|\*\*.+\*\*|\|[-| :]+\|)', rewritten_body, re.MULTILINE):
-                logger.warning("[TemplateUpdate] LLM returned Markdown instead of HTML, falling back to regex")
-                rewritten_body = None
-            else:
-                logger.info("[TemplateUpdate] LLM rewrite successful (%d chars)", len(rewritten_body))
-        else:
-            logger.warning("[TemplateUpdate] LLM returned empty, falling back to regex")
-
-    except Exception as e:
-        logger.warning("[TemplateUpdate] LLM rewrite failed (%s), falling back to regex", e)
-        rewritten_body = None
-
-    if rewritten_body:
-        # LLM-переработанный вариант
-        from helpers.message_split import sanitize_file_extensions
-        rewritten_body = sanitize_file_extensions(rewritten_body)
-        message_text = (
-            f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
-            f"{rewritten_body}\n\n"
-            f"<b>Как обновить:</b>\n"
-            f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
-            f"2. Или в терминале: <code>bash update.sh</code>\n"
-            f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
-            f'<a href="{repo_url}">Репозиторий шаблона</a>'
-        )
+    if body.get('preview') is True:
+        if not DEVELOPER_CHAT_ID:
+            return web.Response(text="Preview chat not configured", status=503)
+        text_hash = hashlib.sha256(message_text.encode()).hexdigest()[:12]
+        recipients = [(DEVELOPER_CHAT_ID, f"template_update_preview:{version}:{text_hash}")]
     else:
-        # Fallback: regex cleanup
-        clean_changelog = changelog
-        section_map = {
-            'Added': 'Добавлено', 'Fixed': 'Исправлено', 'Changed': 'Изменено',
-            'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
-        }
-        for en, ru in section_map.items():
-            clean_changelog = re.sub(rf'^#{{1,6}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
-        # Strip remaining markdown headers
-        clean_changelog = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', clean_changelog, flags=re.MULTILINE)
-        # Strip markdown tables: separator rows removed, data rows flattened to bullet points
-        clean_changelog = re.sub(r'^\|[-| :]+\|\s*$', '', clean_changelog, flags=re.MULTILINE)
-        clean_changelog = re.sub(r'^\|(.+)\|$', lambda m: '• ' + ' — '.join(c.strip() for c in m.group(1).split('|') if c.strip()), clean_changelog, flags=re.MULTILINE)
-        clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
-        clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
-        from helpers.message_split import sanitize_file_extensions
-        clean_changelog = sanitize_file_extensions(clean_changelog)
-        clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
-        clean_changelog = re.sub(r'^\s+-\s+', '  • ', clean_changelog, flags=re.MULTILINE)
-        clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
+        from db.queries.users import get_template_update_subscribers
+        recipients = [(chat_id, f"template_update:{chat_id}:{version}")
+                      for chat_id in await get_template_update_subscribers()]
 
-        message_text = (
-            f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
-            f"{commit_count} коммит(ов) за последние 24ч\n\n"
-            f"{clean_changelog}\n\n"
-            f"<b>Как обновить:</b>\n"
-            f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
-            f"2. Или в терминале: <code>bash update.sh</code>\n"
-            f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
-            f'<a href="{repo_url}">Репозиторий шаблона</a>'
-        )
-
-    # Получаем подписчиков
-    from db.queries.users import get_template_update_subscribers
-    subscribers = await get_template_update_subscribers()
-
-    if not subscribers:
-        logger.info("[TemplateUpdate] No subscribers, skipping broadcast")
-        return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
-
-    # Рассылка с батчингом (30 msg/sec TG limit)
-    # Idempotency (§10.10): notify-update.yml пересылает один и тот же релиз
-    # повторно, если в окне "сегодня/вчера" ещё нет нового тега (issue: 0.40.1
-    # ушла 17.09 и 18.09). Дедуп по (chat_id, version) через общий
-    # log-before-send механизм (WP-152/WP-268) переживает и повторные ранны
-    # экшена, и ручной workflow_dispatch.
-    from db.queries.notifications import send_idempotent
-
-    sent = 0
-    skipped = 0
-    failed = 0
-    for i, chat_id in enumerate(subscribers):
-        idempotency_key = f"template_update:{chat_id}:{version}"
-
-        async def _send(cid=chat_id):
-            await _bot_instance.send_message(
-                chat_id=cid,
-                text=message_text,
-                parse_mode="HTML",
-            )
-
+    # Idempotency (§10.10): notify-update.yml повторяет релиз, пока он в окне
+    # «сегодня/вчера». Ключ (chat_id, version) = journal_key Доставщика: drain
+    # подавляет повтор как journal-dup и после окна дедупа очереди.
+    queued = skipped = failed = 0
+    for chat_id, key in recipients:
         try:
-            delivered = await send_idempotent(
-                chat_id, "template_update", idempotency_key, _send,
-                payload={"version": version},
+            result = await enqueue(
+                chat_id, CLASS_TRANSACTIONAL, {"text": message_text, "format": "html"},
+                dedup_key=key, journal_key=key, journal_type="template_update",
             )
-            if delivered:
-                sent += 1
-            else:
-                skipped += 1
         except Exception as e:
-            logger.warning(f"[TemplateUpdate] Failed to send to {chat_id}: {e}")
+            logger.warning("[TemplateUpdate] enqueue failed chat=%s: %s", chat_id, e)
             failed += 1
+            continue
+        if result["status"] == "queued":
+            queued += 1
+        else:
+            skipped += 1
 
-        # TG rate limit: 30 msg/sec → sleep every 25 messages
-        if (i + 1) % 25 == 0:
-            await asyncio.sleep(1)
-
-    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, skipped={skipped}, failed={failed}")
-
-    result = {"ok": True, "sent": sent, "skipped": skipped, "failed": failed}
+    logger.info("[TemplateUpdate] Enqueued: queued=%d skipped=%d failed=%d", queued, skipped, failed)
+    result = {"ok": True, "version": version, "notice": notice_kind, "preview": body.get('preview') is True,
+              "queued": queued, "skipped": skipped, "failed": failed}
     return web.Response(text=json.dumps(result), content_type="application/json")
 
 
