@@ -1165,7 +1165,8 @@ async def template_update_handler(request: web.Request) -> web.Response:
         logger.warning("[TemplateUpdate] No release version in payload")
         return web.Response(text="Bad request: version", status=400)
 
-    message_text, notice_kind = build_template_notice(version, body.get('message_html') or '')
+    message_html = body.get('message_html')
+    message_text, notice_kind = build_template_notice(version, message_html if isinstance(message_html, str) else '')
     logger.info("[TemplateUpdate] version=%s notice=%s length=%d", version, notice_kind, len(message_text))
 
     if body.get('preview') is True:
@@ -1175,8 +1176,13 @@ async def template_update_handler(request: web.Request) -> web.Response:
         recipients = [(DEVELOPER_CHAT_ID, f"template_update_preview:{version}:{text_hash}")]
     else:
         from db.queries.users import get_template_update_subscribers
+        from db.queries.notifications import get_legacy_template_update_chat_ids
+        already_notified = await get_legacy_template_update_chat_ids(version)
         recipients = [(chat_id, f"template_update:{chat_id}:{version}")
-                      for chat_id in await get_template_update_subscribers()]
+                      for chat_id in await get_template_update_subscribers()
+                      if chat_id not in already_notified]
+        if already_notified:
+            logger.info("[TemplateUpdate] %d chats already got %s under the legacy key", len(already_notified), version)
 
     # Idempotency (§10.10): notify-update.yml повторяет релиз, пока он в окне
     # «сегодня/вчера». Ключ (chat_id, version) = journal_key Доставщика: drain

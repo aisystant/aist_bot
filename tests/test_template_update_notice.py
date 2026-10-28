@@ -32,10 +32,12 @@ def _request(body, secret="test-secret"):
     return request
 
 
-async def _run(body, subscribers=(111, 222), enqueue_side_effect=None):
+async def _run(body, subscribers=(111, 222), enqueue_side_effect=None, legacy_notified=()):
     with patch("db.queries.users.get_template_update_subscribers", new_callable=AsyncMock) as subs, \
+         patch("db.queries.notifications.get_legacy_template_update_chat_ids", new_callable=AsyncMock) as legacy, \
          patch("core.notification_service.enqueue", new_callable=AsyncMock) as enqueue:
         subs.return_value = list(subscribers)
+        legacy.return_value = set(legacy_notified)
         enqueue.side_effect = enqueue_side_effect or (lambda *a, **k: {"notification_id": 1, "status": "queued"})
         response = await template_update_handler(_request(body))
     return response, enqueue
@@ -64,7 +66,7 @@ def test_unsafe_html_rejected(bad):
 
 
 def test_escaped_entities_allowed():
-    assert is_safe_telegram_html("Tom &amp; Jerry &lt;3")
+    assert is_safe_telegram_html("Tom &amp; Jerry &lt;3 Claude&#x27;s &#39;")
 
 
 def test_build_falls_back_to_short_notice_for_truncated_text():
@@ -210,3 +212,22 @@ async def test_preview_without_developer_chat_is_refused(monkeypatch):
 
     assert response.status == 503
     enqueue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_notified_under_legacy_key_is_not_resent(monkeypatch):
+    """0.41.10 went out 28.10 under "template_update:{chat}:[0.41.10] — 2026-10-27"."""
+    monkeypatch.setenv("TEMPLATE_WEBHOOK_SECRET", "test-secret")
+    response, enqueue = await _run({"version": "0.41.10", "message_html": GOOD_HTML}, legacy_notified=(111,))
+
+    assert [call.args[0] for call in enqueue.await_args_list] == [222]
+    assert '"queued": 1' in response.text
+
+
+@pytest.mark.asyncio
+async def test_non_string_message_html_gets_short_notice(monkeypatch):
+    monkeypatch.setenv("TEMPLATE_WEBHOOK_SECRET", "test-secret")
+    response, enqueue = await _run({"version": "0.41.10", "message_html": 42}, subscribers=(111,))
+
+    assert response.status == 200
+    assert enqueue.await_args_list[0].args[2]["text"] == short_notice("0.41.10")
