@@ -6,7 +6,7 @@
 - my_chat_member  — бот стал админом: уведомить участников, закрепить, зарегистрировать
                     чат; бота убрали или сняли права: снять регистрацию
 - сообщения групп — передача в сервис, только пока сервис подтверждает, что сбор включён
-- /chat_digest    — admin-команда (только DEVELOPER_CHAT_ID, ответ только в личку)
+- /chat_digest    — admin-команда (только CHAT_ANALYST_OWNER_ID, ответ только в личку)
 
 Хендлеры по окончании всегда отдают событие дальше (SkipHandler): после них работает
 детекция упоминаний каналов (SC.118), она ловит любое групповое сообщение.
@@ -70,10 +70,10 @@ def _config() -> Config | None:
     chats = os.getenv("CHAT_ANALYST_CHATS", "")
     terms_url = os.getenv("CHAT_ANALYST_TERMS_URL", "")
     try:
-        owner_id = int(os.getenv("DEVELOPER_CHAT_ID", "0"))
+        owner_id = int(os.getenv("CHAT_ANALYST_OWNER_ID", "0"))
         allowed = frozenset(int(part) for part in chats.split(",") if part.strip())
     except ValueError:
-        logger.error("[chat_analyst] config ignored: DEVELOPER_CHAT_ID or CHAT_ANALYST_CHATS is not numeric")
+        logger.error("[chat_analyst] config ignored: CHAT_ANALYST_OWNER_ID or CHAT_ANALYST_CHATS is not numeric")
         return None
     if not (url and token and chats and terms_url and owner_id):
         return None
