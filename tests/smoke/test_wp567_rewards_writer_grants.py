@@ -90,3 +90,13 @@ def test_postflight_proves_the_paths_that_broke_before_and_rolls_back():
     assert sub_block.rindex("RAISE EXCEPTION USING ERRCODE = 'P0051'") > sub_block.rindex("INSERT INTO")
     assert "has_table_privilege(v_table, 'DELETE')" in postflight
     assert "'{}'::jsonb" in postflight  # the f-string escaped the braces
+
+
+def test_rewards_dsn_is_derived_from_the_reference_one_keeping_host_and_options(monkeypatch):
+    monkeypatch.delenv("REWARDS_URL", raising=False)
+    monkeypatch.setenv("NEON_REFERENCE_URL", "postgresql://host.example/reference?sslmode=require")
+
+    assert migration._dsn_from_env() == "postgresql://host.example/rewards?sslmode=require"
+
+    monkeypatch.setenv("REWARDS_URL", "postgresql://explicit.example/rewards")
+    assert migration._dsn_from_env() == "postgresql://explicit.example/rewards"

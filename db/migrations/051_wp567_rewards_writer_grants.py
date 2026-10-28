@@ -51,13 +51,16 @@ Rollback (as neondb_owner):
                   public.subscribers_snapshot, public.first_payment_guard FROM projection_writer_rewards;
     -- and EXECUTE on compute_typing_points if the run printed that it granted it
 
-Manual run (needs a rewards-DB owner DSN):
-    REWARDS_URL=<dsn as neondb_owner> python -m db.migrations.051_wp567_rewards_writer_grants
+Manual run (needs a rewards-DB owner DSN; without REWARDS_URL it is derived from
+NEON_REFERENCE_URL, the preflight still refuses anything but neondb_owner):
+    AIST_ENV_ALLOW=NEON_REFERENCE_URL ~/IWE/scripts/with-aist-env.sh \
+        .venv/bin/python -m db.migrations.051_wp567_rewards_writer_grants
 """
 
 import asyncio
 import os
 import sys
+from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 
@@ -283,10 +286,21 @@ async def migrate(pool: asyncpg.Pool) -> list[tuple]:
     return missing_before
 
 
+def _dsn_from_env() -> str | None:
+    """REWARDS_URL, or the rewards database next to NEON_REFERENCE_URL (same owner credentials),
+    so the pilot never pastes a connection string on the command line."""
+    if os.environ.get("REWARDS_URL"):
+        return os.environ["REWARDS_URL"]
+    reference = os.environ.get("NEON_REFERENCE_URL")
+    if reference:
+        return urlunparse(urlparse(reference)._replace(path="/rewards"))
+    return None
+
+
 if __name__ == "__main__":
-    dsn = os.environ.get("REWARDS_URL") or os.environ.get("DATABASE_URL")
+    dsn = _dsn_from_env()
     if not dsn:
-        print("Error: REWARDS_URL not set", file=sys.stderr)
+        print("Error: set REWARDS_URL or NEON_REFERENCE_URL", file=sys.stderr)
         sys.exit(1)
 
     async def run():
