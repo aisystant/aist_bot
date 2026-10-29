@@ -225,6 +225,13 @@ async def cmd_chat_collect(message: Message):
                 logger.error("[chat_analyst] unregister failed for now-public chat=%s status=%s", chat_id, err.status)
             await message.answer(f"Чат «{chat.title}» стал публичным — сбор остановлен.", parse_mode=None)
             return
+        # Условия ветки (админ подтверждён живьём, чат остался закрытым, сервис
+        # говорит active) ровно те, при которых возобновление безопасно -- снять
+        # паузу, иначе чат может застрять в _suspended с прошлого отказа
+        # unregister() навсегда, пока бот не перезапустят (найдено повторным
+        # ревью, WP-612 Ф5): /chat_collect отчитается "уже идёт", но пересылка
+        # не возобновится, потому что _is_collecting проверяет _suspended первым.
+        _suspended.discard(chat_id)
         _active.add(chat_id)
         await message.answer("Сбор по этому чату уже идёт.", parse_mode=None)
         return

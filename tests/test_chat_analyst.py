@@ -557,6 +557,28 @@ async def test_collect_does_not_notify_the_chat_twice_when_collection_is_already
     assert answers == ["Сбор по этому чату уже идёт."] and CHAT in h._active
 
 
+async def test_collect_resumes_actual_forwarding_after_a_stale_suspension(fake):
+    """Сценарий с живого ревью: бот перестал быть админом (unregister упал,
+    чат остался в _suspended), затем права вернули НЕ через my_chat_member
+    (событие не пришло или adder не владелец) -- владелец вызывает
+    /chat_collect, сервис подтверждает active, чат остался закрытым. "Уже
+    идёт" должно означать именно это -- не просто ответ, а реальную пересылку
+    (найдено повторным ревью, WP-612 Ф5): без discard чат застревал в
+    _suspended до рестарта процесса."""
+    fake.state = "active"
+    h._suspended.add(CHAT)  # оставлено прошлым отказом unregister()
+    bot = CollectBot([], admin())
+    message, answers = collect_command(f"/chat_collect {CHAT}", bot)
+
+    await h.cmd_chat_collect(message)
+    assert answers == ["Сбор по этому чату уже идёт."]
+    fake.calls.clear()
+
+    await deliver_group_message(group_message(bot=bot))
+
+    assert any(c[0] == "send_message" for c in fake.calls)
+
+
 @pytest.mark.parametrize("member", [ChatMemberMember.model_construct(), ChatMemberLeft.model_construct()])
 async def test_collect_refuses_when_the_bot_is_not_admin(fake, member):
     order: list = []
