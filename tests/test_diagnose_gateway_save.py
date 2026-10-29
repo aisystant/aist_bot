@@ -179,7 +179,7 @@ class TestFinishDiagnose:
         assert kwargs["event_id"] == first["event_id"]
         assert kwargs["occurred_at"] == first["occurred_at"]
         assert kwargs["cp_scores"] == first["cp_scores"]
-        assert state.data == {}
+        assert state.data["pending_save"] is None
         assert texts(message) == ["✅ Результат сохранён."]
         sync.assert_awaited_once()
 
@@ -254,6 +254,30 @@ class TestFinishDiagnose:
         message, _bridge, _sync = await run_finish(state, gw)
         gw.record_cp_assessment.assert_not_awaited()
         assert "Диагностика не завершена" in texts(message)[0]
+
+
+class TestFailureSafety:
+    async def test_exception_in_gateway_still_shows_result_and_retry(self):
+        state = FakeState(finished_data())
+        gw = gateway(result=None)
+        gw.record_cp_assessment = AsyncMock(side_effect=RuntimeError("db down"))
+        message, bridge, sync = await run_finish(state, gw)
+
+        shown = texts(message)
+        assert "Результаты диагностики" in shown[0]
+        assert shown[-1] == diagnose._SAVE_NOTES[SAVE_UNKNOWN]
+        assert "pending_save" in state.data
+        sync.assert_not_awaited()
+        bridge.assert_awaited_once()
+
+    async def test_successful_retry_keeps_unrelated_fsm_data(self):
+        state = FakeState({"pending_save": {
+            "event_id": "tg-diagnose:a", "occurred_at": "2026-10-29T10:00:00+00:00", "account_id": ACCOUNT,
+            "profile": {"stage": 3, "bottleneck_slot": "cp.rhy", "recommended_stream": "S3", "skip_to_stage": 3},
+            "cp_scores": {"cp.rhy": 3}, "questions_count": 5,
+        }, "other_scenario": "kept"})
+        await run_retry(state, gateway(result=ok_result()))
+        assert state.data == {"pending_save": None, "other_scenario": "kept"}
 
 
 class TestRetryWithoutAttempt:

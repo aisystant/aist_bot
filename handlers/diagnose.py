@@ -742,7 +742,12 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
         return
 
     profile = pending["profile"]
-    outcome = await _write_attempt(message.chat.id, pending)
+    try:
+        outcome = await _write_attempt(message.chat.id, pending)
+    except Exception:
+        # Исход неизвестен: результат и кнопка повтора всё равно показываются.
+        logger.exception("[diagnose] save attempt raised (chat=%s)", message.chat.id)
+        outcome = SAVE_UNKNOWN
     recorded = outcome in (SAVE_OK, SAVE_NO_EVENT)
 
     if first_pass:
@@ -754,7 +759,11 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
         await message.answer(_format_result(profile, valid_until), parse_mode="HTML")
 
     if outcome == SAVE_OK:
-        await state.clear()
+        if first_pass:
+            await state.clear()
+        else:
+            # Повтор мог прийти из другого сценария: убираем только свою попытку.
+            await state.update_data(pending_save=None)
         if not first_pass:
             await message.answer("✅ Результат сохранён.")
     else:
