@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import html
 import logging
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -26,8 +27,8 @@ from aiogram.types import (
 
 from db.queries.cp_assessment import (
     MANDATORY_SLOTS,
+    CP_TTL_DAYS,
     get_latest_cp_assessment,
-    save_cp_assessment,
     compute_cp_stage,
     describe_bottleneck,
 )
@@ -37,6 +38,7 @@ diagnose_router = Router(name="diagnose")
 
 CB_PREFIX = "diag"
 CB_FORCE_RESTART = "diag-force:restart"
+CB_RETRY_SAVE = "diag-save:retry"
 
 # Cooldown между диагностиками. WP-318 Ф6 ставил 30 дней без явного rationale.
 # 2026-05-30 (post WP-353 closure): снижено до 7 дней — Аттестатор обновляет
@@ -440,7 +442,8 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
 
 async def _start_phase1(target, state: FSMContext, account_id: str | None) -> None:
     """Старт фазы 1: подготовка state + первый вопрос. target = Message (для cmd) или callback.message (для force-restart)."""
-    await state.update_data(scores={}, account_id=account_id, q_count=0)
+    await state.update_data(scores={}, account_id=account_id, q_count=0,
+                            attempt_id=str(uuid.uuid4()), pending_save=None)
     q = PHASE1_QUESTIONS[0]
     await state.set_state(DiagnoseStates.q1)
     # WP-406 Ф19: обёртка «зачем→что» вокруг вопросов. Сами вопросы/шкала не меняются
@@ -591,15 +594,18 @@ async def answer_q6(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _finish_diagnose(message: Message, state: FSMContext) -> None:
-    """Вычислить профиль, сохранить, показать результат.
+    """Вычислить профиль, записать самооценку через инструмент, показать результат.
 
     WP-370: §6.1 v5.0 compliance.
     - q_count < MIN_ANCHORS (4 mandatory) → partial: показать «не завершена», не вычислять stage.
     - cp.skl derive из cp.rhy (§6.1 line 144 «cp.skl определяется из ответа на cp.rhy»).
     - all mandatory ≥ 4 → bottleneck = None (показывается как «нет узких мест»).
+
+    WP-578 Ф21.4: запись идёт только через инструмент сервиса учебного контекста.
+    Завершённая попытка (ключ, время, профиль) остаётся в FSM, пока запись не подтверждена:
+    повтор той же попытки не создаёт второй записи.
     """
     data = await state.get_data()
-    await state.clear()
 
     account_id = data.get("account_id")
     scores_raw = data.get("scores", {})
@@ -607,6 +613,7 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
 
     # WP-370 partial-flag: меньше 4 mandatory ответов — диагностика недостоверна.
     if q_count < MIN_ANCHORS:
+        await state.clear()
         await message.answer(
             "⚠️ <b>Диагностика не завершена</b>\n\n"
             f"Получено ответов: {q_count} из {MIN_ANCHORS} обязательных.\n"
@@ -631,6 +638,7 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
     profile = compute_cp_stage(scores)
 
     if not account_id:
+        await state.clear()
         logger.warning("[diagnose] no account_id — skip save")
         await message.answer(
             _format_result(profile, None),
@@ -640,40 +648,136 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
         await check_x3_return_to_bridge(message.bot, message.chat.id, profile)
         return
 
-    try:
-        row_id = await save_cp_assessment(
-            account_id=account_id,
-            cp_scores=scores,
-            source="dialogue",
-            interface="tg",
-            questions_count=q_count,
-        )
-        from datetime import timedelta
-        from datetime import datetime as _dt
-        valid_until = (_dt.now(timezone.utc) + timedelta(days=180)).isoformat()
-        await message.answer(
-            _format_result(profile, valid_until),
-            parse_mode="HTML",
-        )
-        logger.info("[diagnose] saved id=%s stage=%s", row_id, profile["stage"])
-
-        # WP-349 mini-sync: мгновенное обновление cp_stage в onboarding_state
-        try:
-            from db.queries.onboarding_journey import sync_cp_stage_to_onboarding_state
-            await sync_cp_stage_to_onboarding_state(account_id, profile["stage"])
-        except Exception as sync_e:
-            logger.warning("[diagnose] mini-sync cp_stage failed (non-fatal): %s", sync_e)
-    except Exception as e:
-        logger.error("[diagnose] save failed: %s", e)
-        await message.answer(
-            _format_result(profile, None) + "\n\n⚠️ Результат сохранить не удалось. "
-            "Попробуйте снова позже.",
-            parse_mode="HTML",
-        )
+    # Попытка фиксируется до сетевого вызова. attempt_id создан на старте опроса; если FSM
+    # остался от версии без него — новый, ключ всё равно стабилен для всех повторов этой попытки.
+    attempt_id = data.get("attempt_id") or str(uuid.uuid4())
+    await state.set_state(None)
+    await state.update_data(pending_save={
+        "event_id": f"tg-diagnose:{attempt_id}",
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "account_id": account_id,
+        "profile": profile,
+        "cp_scores": scores,
+        "questions_count": q_count,
+    })
+    await _save_attempt(message, state, first_pass=True)
 
     # WP-406 Ф5: мост обратно в Онбордер Х3 (bridge path)
     from core.onboarder.x3 import check_x3_return_to_bridge
     await check_x3_return_to_bridge(message.bot, message.chat.id, profile)
+
+
+# Исходы записи самооценки через инструмент (РП-578 Ф21.4)
+SAVE_OK = "saved"
+SAVE_NO_EVENT = "saved_no_event"  # самооценка записана, событие в журнал активности — нет
+SAVE_AUTH = "auth"
+SAVE_IDENTITY = "identity"
+SAVE_UNKNOWN = "unknown"  # ответа нет или он не разобран: запись могла состояться
+
+_AUTH_ERRORS = frozenset({"not_authorized", "token_expired", "no_subscription"})
+
+_SAVE_NOTES = {
+    SAVE_NO_EVENT: (
+        "⚠️ Результат сохранён, но отметка в журнале активности не записана. "
+        "Нажмите «Повторить сохранение» — второй записи не будет."
+    ),
+    SAVE_AUTH: (
+        "⚠️ Результат не сохранён: нужно подключить аккаунт Aisystant "
+        "(Настройки → Подключения). После подключения нажмите «Повторить сохранение»."
+    ),
+    SAVE_IDENTITY: (
+        "⚠️ Результат не сохранён: не удалось подтвердить, что подключённый аккаунт — "
+        "ваш профиль. Переподключите аккаунт и нажмите «Повторить сохранение»."
+    ),
+    SAVE_UNKNOWN: (
+        "⚠️ Не удалось подтвердить сохранение. "
+        "Нажмите «Повторить сохранение» — запись не задвоится."
+    ),
+}
+
+
+def classify_save_result(result, last_error: str) -> str:
+    """Исход вызова инструмента: ответ с event_recorded — запись подтверждена сервисом."""
+    if isinstance(result, dict) and "event_recorded" in result:
+        return SAVE_OK if result["event_recorded"] else SAVE_NO_EVENT
+    if result is None and last_error in _AUTH_ERRORS:
+        return SAVE_AUTH
+    return SAVE_UNKNOWN
+
+
+async def _write_attempt(chat_id: int, pending: dict) -> str:
+    """Записать попытку через шлюз; не пишет, если владельца токена нельзя сверить с профилем."""
+    from clients.gateway_mcp import gateway_mcp
+
+    token_ory_id = await gateway_mcp.token_ory_id(chat_id)
+    if token_ory_id is None:
+        if not gateway_mcp.is_connected(chat_id):
+            return SAVE_AUTH
+        logger.warning("[diagnose] token has no ory_id, cannot verify identity (chat=%s)", chat_id)
+        return SAVE_IDENTITY
+    if str(token_ory_id).lower() != str(pending["account_id"]).lower():
+        logger.warning("[diagnose] token ory_id differs from profile account (chat=%s)", chat_id)
+        return SAVE_IDENTITY
+
+    result = await gateway_mcp.record_cp_assessment(
+        chat_id,
+        event_id=pending["event_id"],
+        profile=pending["profile"],
+        cp_scores=pending["cp_scores"],
+        questions_count=pending["questions_count"],
+        occurred_at=pending["occurred_at"],
+    )
+    outcome = classify_save_result(result, gateway_mcp.last_call_error)
+    if outcome != SAVE_OK:
+        logger.warning("[diagnose] save outcome=%s last_error=%s", outcome, gateway_mcp.last_call_error)
+    return outcome
+
+
+async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool) -> None:
+    """Записать сохранённую в FSM попытку и показать исход; FSM чистится только после полного успеха."""
+    data = await state.get_data()
+    pending = data.get("pending_save")
+    if not pending:
+        await message.answer("Нет несохранённой диагностики. Запустите заново: /diagnose")
+        return
+
+    profile = pending["profile"]
+    outcome = await _write_attempt(message.chat.id, pending)
+    recorded = outcome in (SAVE_OK, SAVE_NO_EVENT)
+
+    if first_pass:
+        valid_until = None
+        if recorded:
+            valid_until = (
+                datetime.fromisoformat(pending["occurred_at"]) + timedelta(days=CP_TTL_DAYS)
+            ).isoformat()
+        await message.answer(_format_result(profile, valid_until), parse_mode="HTML")
+
+    if outcome == SAVE_OK:
+        await state.clear()
+        if not first_pass:
+            await message.answer("✅ Результат сохранён.")
+    else:
+        retry_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔁 Повторить сохранение", callback_data=CB_RETRY_SAVE)
+        ]])
+        await message.answer(_SAVE_NOTES[outcome], reply_markup=retry_kb)
+
+    if recorded:
+        # WP-349 mini-sync: мгновенное обновление cp_stage в onboarding_state
+        try:
+            from db.queries.onboarding_journey import sync_cp_stage_to_onboarding_state
+            await sync_cp_stage_to_onboarding_state(pending["account_id"], profile["stage"])
+        except Exception as sync_e:
+            logger.warning("[diagnose] mini-sync cp_stage failed (non-fatal): %s", sync_e)
+    logger.info("[diagnose] outcome=%s stage=%s", outcome, profile["stage"])
+
+
+@diagnose_router.callback_query(F.data == CB_RETRY_SAVE)
+async def cb_retry_save(callback: CallbackQuery, state: FSMContext) -> None:
+    """Повторить запись той же попытки (тот же event_id) без нового опроса."""
+    await callback.answer()
+    await _save_attempt(callback.message, state, first_pass=False)
 
 
 async def _apply_bh_proxy(account_id: str | None, scores: dict) -> dict:
