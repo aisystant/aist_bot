@@ -56,8 +56,8 @@ class ImageServiceClient:
         })
         return body["job_id"]
 
-    async def wait(self, job_id: str) -> list[tuple[str, str | None]]:
-        """Ждёт завершения задания; возвращает пары (оригинал, лёгкая копия для показа или None)."""
+    async def wait(self, job_id: str) -> list[str]:
+        """Ждёт завершения задания; возвращает ссылки на готовые файлы."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + JOB_DEADLINE_SECONDS
         while loop.time() < deadline:
@@ -69,9 +69,7 @@ class ImageServiceClient:
                     continue  # кратковременный сбой сети не обрывает ожидание
                 raise
             if job.get("status") == "done":
-                urls = list(job.get("urls") or [])
-                previews = list(job.get("previews") or [])
-                return [(url, previews[i] if i < len(previews) else None) for i, url in enumerate(urls)]
+                return list(job.get("urls") or [])
             if job.get("status") != "running":
                 raise ImageServiceError(200, "job_failed")
         raise ImageServiceError(0, "deadline")

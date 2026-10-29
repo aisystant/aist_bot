@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.exceptions import TelegramBadRequest
 from aiohttp import web
 
 from clients import image_service as client_module
@@ -64,13 +65,9 @@ async def test_submit_refusal_carries_status_and_limit(service):
 
 
 async def test_wait_polls_until_done(service):
-    service.replies += [
-        (200, {"status": "running"}),
-        (200, {"status": "done", "urls": ["https://cdn/x.png", "https://cdn/y.png"], "previews": ["https://cdn/x_min.webp"]}),
-    ]
+    service.replies += [(200, {"status": "running"}), (200, {"status": "done", "urls": ["https://cdn/x.png"]})]
 
-    assert await service.client.wait("j1") == [("https://cdn/x.png", "https://cdn/x_min.webp"),
-                                               ("https://cdn/y.png", None)]
+    assert await service.client.wait("j1") == ["https://cdn/x.png"]
     assert [r[1] for r in service.requests] == ["/v1/jobs/j1", "/v1/jobs/j1"]
 
 
@@ -120,7 +117,7 @@ class FakeClient:
         return "j1"
 
     async def wait(self, job_id):
-        return [("https://cdn/robot.png", "https://cdn/robot_min.webp")]
+        return ["https://cdn/robot.png"]
 
 
 def _command(args):
@@ -132,12 +129,14 @@ async def _run_pending():
         await task
 
 
-async def test_image_shown_as_photo_from_preview_and_original_sent_as_file(monkeypatch):
+async def _png(url, max_bytes):
+    return b"PNG"
+
+
+async def test_image_shown_as_photo_and_original_sent_as_file(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(h, "_client", lambda: client)
-    async def fake_download(url, max_bytes):
-        return b"WEBP" if url.endswith(".webp") else b"PNG"
-    monkeypatch.setattr(h, "download", fake_download)
+    monkeypatch.setattr(h, "download", _png)
     message = FakeMessage()
 
     await h.cmd_image(message, _command(" красный робот "))
@@ -145,8 +144,38 @@ async def test_image_shown_as_photo_from_preview_and_original_sent_as_file(monke
 
     assert client.submitted == [("image", "красный робот", 7, "tserentserenov")]
     assert message.answers == ["Делаю картинку, это займёт около минуты."]
-    assert message.photos == [("robot_min.webp", b"WEBP")]
+    assert message.photos == [("robot.png", b"PNG")]
     assert message.documents == [("robot.png", b"PNG")]
+
+
+async def test_refused_photo_still_delivers_file(monkeypatch):
+    monkeypatch.setattr(h, "_client", lambda: FakeClient())
+    monkeypatch.setattr(h, "download", _png)
+    message = FakeMessage()
+    async def refuse(file):
+        raise TelegramBadRequest(method=None, message="IMAGE_PROCESS_FAILED")
+    message.answer_photo = refuse
+
+    await h.cmd_image(message, _command("робот"))
+    await _run_pending()
+
+    assert message.documents == [("robot.png", b"PNG")]
+    assert message.answers == ["Делаю картинку, это займёт около минуты."]
+
+
+async def test_refused_file_hands_over_link(monkeypatch):
+    monkeypatch.setattr(h, "_client", lambda: FakeClient())
+    monkeypatch.setattr(h, "download", _png)
+    message = FakeMessage()
+    async def refuse(file):
+        raise TelegramBadRequest(method=None, message="FILE_PARTS_INVALID")
+    message.answer_photo = refuse
+    message.answer_document = refuse
+
+    await h.cmd_image(message, _command("робот"))
+    await _run_pending()
+
+    assert message.answers[-1] == "Готово, но Telegram не принял файл. Ссылка: https://cdn/robot.png"
 
 
 async def test_file_too_big_for_telegram_is_sent_as_link(monkeypatch):
