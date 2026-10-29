@@ -608,21 +608,28 @@ class CountingBot(FakeBot):
 async def test_stale_active_status_after_restart_does_not_resume_forwarding_without_admin_rights(fake):
     """После рестарта _active/_suspended пусты; если бот больше не админ, а сервис
     всё ещё помнит active (unregister не прошёл до рестарта), сбор не должен
-    возобновиться — права подтверждаются в Telegram, не берутся из кэша сервиса."""
+    возобновиться — права подтверждаются в Telegram, не берутся из кэша сервиса.
+    Вторым сообщением проверяем именно то, что сломалось в первой версии фикса:
+    кэш "проверяли" не должен значить "можно пересылать" (найдено повторным
+    ревью, WP-612 Ф5 — после 1-го сообщения переслано 0, после 2-го уже 1)."""
     fake.state = "active"
     bot = CountingBot([], ChatMemberMember.model_construct())
 
+    await deliver_group_message(group_message(bot=bot))
     await deliver_group_message(group_message(bot=bot))
 
     assert not any(c[0] == "send_message" for c in fake.calls)
     assert ("unregister", CHAT) in fake.calls
     assert CHAT not in h._active
+    assert CHAT in h._suspended
 
 
 async def test_concurrent_messages_of_the_same_chat_check_membership_only_once(fake):
     """Два сообщения одного чата, доставленные почти одновременно сразу после
     рестарта, не должны дублировать get_chat_member/unregister (найдено ревью,
-    WP-612 Ф5)."""
+    WP-612 Ф5), и ни одно из них не должно быть переслано (наблюдаемый эффект,
+    не только счётчик вызовов — иначе тест не ловит дефект, из-за которого
+    кэш "проверяли" молча читался как "можно доверять active")."""
     fake.state = "active"
     bot = CountingBot([], ChatMemberMember.model_construct())
 
@@ -634,6 +641,7 @@ async def test_concurrent_messages_of_the_same_chat_check_membership_only_once(f
 
     assert bot.get_chat_member_calls == 1
     assert len([c for c in fake.calls if c[0] == "unregister"]) == 1
+    assert not any(c[0] == "send_message" for c in fake.calls)
 
 
 async def test_membership_is_verified_once_per_process_not_on_every_message(fake):
@@ -659,7 +667,24 @@ async def test_collect_stops_collection_when_the_already_active_chat_turned_publ
 
     assert ("unregister", CHAT) in fake.calls
     assert CHAT not in h._active
+    assert CHAT in h._suspended
     assert answers == ["Чат «Поток» стал публичным — сбор остановлен."]
+
+
+async def test_collect_on_public_chat_keeps_collection_off_even_when_unregister_fails(fake):
+    """Если unregister() не удался, сервис всё ещё говорит active -- без
+    _suspended следующее сообщение всё равно было бы переслано вопреки тексту
+    "сбор остановлен" (найдено повторным ревью, WP-612 Ф5)."""
+    fake.state = "active"
+    fake.fail["unregister"] = ChatAnalystError(503, "")
+    bot = CollectBot([], admin(), username="now_public")
+    message, _ = collect_command(f"/chat_collect {CHAT}", bot)
+    await h.cmd_chat_collect(message)
+    fake.calls.clear()
+
+    await deliver_group_message(group_message(bot=bot))
+
+    assert not any(c[0] == "send_message" for c in fake.calls)
 
 
 async def test_chat_analyst_router_is_registered_before_the_generic_command_handlers():
