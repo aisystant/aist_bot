@@ -36,6 +36,7 @@ SERVICE_DOWN_TEXT = "Служба генерации сейчас недосту
 FAILED_TEXT = "Не получилось сгенерировать. Попробуйте ещё раз или переформулируйте."
 LINK_TEXT = "Готово, но файл слишком большой для Telegram. Ссылка: {url}"
 UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024  # предел загрузки файла ботом в Telegram
+PHOTO_LIMIT_BYTES = 10 * 1024 * 1024  # предел фото; оригиналы Higgsfield (PNG ~8 МБ) Telegram фото не принимает
 
 # Фоновые ожидания держим ссылками, иначе asyncio может собрать задачу сборщиком мусора.
 _pending: set[asyncio.Task] = set()
@@ -47,28 +48,41 @@ def _client() -> ImageServiceClient | None:
     return ImageServiceClient(url, token) if url and token else None
 
 
-async def _send_result(message: Message, kind: str, url: str) -> None:
-    """Бот скачивает файл сам: по ссылке Telegram берёт фото только до 5 МБ, видео до 20 МБ.
-    Фото крупнее предела фото уходит документом; файл больше 50 МБ — ссылкой."""
+def _file_name(url: str) -> str:
+    return url.rsplit("/", 1)[-1] or "file"
+
+
+async def _send_image(message: Message, url: str, preview: str | None) -> None:
+    """Картинка видна сразу как фото из лёгкой копии; оригинал следом файлом для скачивания."""
+    shown = await download(preview, PHOTO_LIMIT_BYTES) if preview else None
+    if shown is not None:
+        await message.answer_photo(BufferedInputFile(shown, filename=_file_name(preview)))
+    original = await download(url, UPLOAD_LIMIT_BYTES)
+    if original is None:
+        await message.answer(LINK_TEXT.format(url=url), parse_mode=None)
+        return
+    await message.answer_document(BufferedInputFile(original, filename=_file_name(url)))
+
+
+async def _send_video(message: Message, url: str) -> None:
+    """Бот скачивает видео сам: по ссылке Telegram берёт только до 20 МБ; больше 50 МБ — ссылкой."""
     data = await download(url, UPLOAD_LIMIT_BYTES)
     if data is None:
         await message.answer(LINK_TEXT.format(url=url), parse_mode=None)
         return
-    name = url.rsplit("/", 1)[-1] or ("image.png" if kind == "image" else "video.mp4")
-    file = BufferedInputFile(data, filename=name)
     try:
-        if kind == "image":
-            await message.answer_photo(file)
-        else:
-            await message.answer_video(file)
+        await message.answer_video(BufferedInputFile(data, filename=_file_name(url)))
     except TelegramAPIError:
-        await message.answer_document(BufferedInputFile(data, filename=name))
+        await message.answer_document(BufferedInputFile(data, filename=_file_name(url)))
 
 
 async def _deliver(message: Message, client: ImageServiceClient, kind: str, job_id: str) -> None:
     try:
-        for url in await client.wait(job_id):
-            await _send_result(message, kind, url)
+        for url, preview in await client.wait(job_id):
+            if kind == "image":
+                await _send_image(message, url, preview)
+            else:
+                await _send_video(message, url)
     except (ImageServiceError, TelegramAPIError) as err:
         logger.warning("[image] job=%s delivery failed: %s", job_id, type(err).__name__)
         await message.answer(FAILED_TEXT, parse_mode=None)

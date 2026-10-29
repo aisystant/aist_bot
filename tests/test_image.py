@@ -64,9 +64,13 @@ async def test_submit_refusal_carries_status_and_limit(service):
 
 
 async def test_wait_polls_until_done(service):
-    service.replies += [(200, {"status": "running"}), (200, {"status": "done", "urls": ["https://cdn/x.png"]})]
+    service.replies += [
+        (200, {"status": "running"}),
+        (200, {"status": "done", "urls": ["https://cdn/x.png", "https://cdn/y.png"], "previews": ["https://cdn/x_min.webp"]}),
+    ]
 
-    assert await service.client.wait("j1") == ["https://cdn/x.png"]
+    assert await service.client.wait("j1") == [("https://cdn/x.png", "https://cdn/x_min.webp"),
+                                               ("https://cdn/y.png", None)]
     assert [r[1] for r in service.requests] == ["/v1/jobs/j1", "/v1/jobs/j1"]
 
 
@@ -91,13 +95,17 @@ class FakeMessage:
         self.chat = SimpleNamespace(type=chat_type)
         self.from_user = SimpleNamespace(id=7, username="tserentserenov")
         self.answers: list[str] = []
-        self.photos: list[str] = []
+        self.photos: list[tuple[str, bytes]] = []
+        self.documents: list[tuple[str, bytes]] = []
 
     async def answer(self, text, parse_mode=None):
         self.answers.append(text)
 
     async def answer_photo(self, file):
         self.photos.append((file.filename, file.data))
+
+    async def answer_document(self, file):
+        self.documents.append((file.filename, file.data))
 
 
 class FakeClient:
@@ -112,7 +120,7 @@ class FakeClient:
         return "j1"
 
     async def wait(self, job_id):
-        return ["https://cdn/robot.png"]
+        return [("https://cdn/robot.png", "https://cdn/robot_min.webp")]
 
 
 def _command(args):
@@ -124,11 +132,11 @@ async def _run_pending():
         await task
 
 
-async def test_image_command_submits_and_uploads_downloaded_photo(monkeypatch):
+async def test_image_shown_as_photo_from_preview_and_original_sent_as_file(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(h, "_client", lambda: client)
     async def fake_download(url, max_bytes):
-        return b"PNG"
+        return b"WEBP" if url.endswith(".webp") else b"PNG"
     monkeypatch.setattr(h, "download", fake_download)
     message = FakeMessage()
 
@@ -137,7 +145,8 @@ async def test_image_command_submits_and_uploads_downloaded_photo(monkeypatch):
 
     assert client.submitted == [("image", "красный робот", 7, "tserentserenov")]
     assert message.answers == ["Делаю картинку, это займёт около минуты."]
-    assert message.photos == [("robot.png", b"PNG")]
+    assert message.photos == [("robot_min.webp", b"WEBP")]
+    assert message.documents == [("robot.png", b"PNG")]
 
 
 async def test_file_too_big_for_telegram_is_sent_as_link(monkeypatch):
