@@ -35,8 +35,9 @@ SERVICE_DOWN_TEXT = "Служба генерации сейчас недосту
 # Higgsfield может взять плату и за неудачную попытку, поэтому тексты не обещают возврат лимита.
 FAILED_TEXT = "Не получилось сгенерировать. Попробуйте ещё раз или переформулируйте."
 LINK_TEXT = "Готово, но файл слишком большой для Telegram. Ссылка: {url}"
+REFUSED_FILE_TEXT = "Готово, но Telegram не принял файл. Ссылка: {url}"
 UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024  # предел загрузки файла ботом в Telegram
-PHOTO_LIMIT_BYTES = 10 * 1024 * 1024  # предел фото; оригиналы Higgsfield (PNG ~8 МБ) Telegram фото не принимает
+PHOTO_LIMIT_BYTES = 10 * 1024 * 1024  # предел загрузки фото; по ссылке Telegram берёт фото только до 5 МБ
 
 # Фоновые ожидания держим ссылками, иначе asyncio может собрать задачу сборщиком мусора.
 _pending: set[asyncio.Task] = set()
@@ -52,15 +53,18 @@ def _file_name(url: str) -> str:
     return url.rsplit("/", 1)[-1] or "file"
 
 
-async def _send_image(message: Message, url: str, preview: str | None) -> None:
-    """Картинка видна сразу как фото из лёгкой копии; оригинал следом файлом для скачивания."""
-    shown = await download(preview, PHOTO_LIMIT_BYTES) if preview else None
-    if shown is not None:
-        await message.answer_photo(BufferedInputFile(shown, filename=_file_name(preview)))
+async def _send_image(message: Message, url: str) -> None:
+    """Картинка видна сразу как фото (Telegram сам сжимает оригинал); оригинал следом файлом.
+    Лёгкую копию Higgsfield (WebP) Telegram как фото отвергает (29.10), поэтому фото — из оригинала."""
     original = await download(url, UPLOAD_LIMIT_BYTES)
     if original is None:
         await message.answer(LINK_TEXT.format(url=url), parse_mode=None)
         return
+    if len(original) <= PHOTO_LIMIT_BYTES:
+        try:
+            await message.answer_photo(BufferedInputFile(original, filename=_file_name(url)))
+        except TelegramAPIError as err:
+            logger.warning("[image] photo refused, sending file only: %s", err.message)
     await message.answer_document(BufferedInputFile(original, filename=_file_name(url)))
 
 
@@ -78,14 +82,21 @@ async def _send_video(message: Message, url: str) -> None:
 
 async def _deliver(message: Message, client: ImageServiceClient, kind: str, job_id: str) -> None:
     try:
-        for url, preview in await client.wait(job_id):
+        urls = await client.wait(job_id)
+    except ImageServiceError as err:
+        logger.warning("[image] job=%s failed: status=%s %s", job_id, err.status, err.detail)
+        await message.answer(FAILED_TEXT, parse_mode=None)
+        return
+    for url in urls:
+        try:
             if kind == "image":
-                await _send_image(message, url, preview)
+                await _send_image(message, url)
             else:
                 await _send_video(message, url)
-    except (ImageServiceError, TelegramAPIError) as err:
-        logger.warning("[image] job=%s delivery failed: %s", job_id, type(err).__name__)
-        await message.answer(FAILED_TEXT, parse_mode=None)
+        except TelegramAPIError as err:
+            # Generation succeeded and is paid for: hand over the link instead of a failure text.
+            logger.warning("[image] job=%s delivery refused by Telegram: %s", job_id, err.message)
+            await message.answer(REFUSED_FILE_TEXT.format(url=url), parse_mode=None)
 
 
 async def _generate(message: Message, command: CommandObject, kind: str) -> None:
