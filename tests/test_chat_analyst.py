@@ -146,10 +146,14 @@ class FakeClient:
 
 
 class FakeBot:
-    def __init__(self, order: list) -> None:
+    def __init__(self, order: list, *, member=None) -> None:
         self.order = order
         self.sent: list[tuple[int, str]] = []
         self.fail_pin = False
+        # По умолчанию бот — админ: большинству тестов членство в чате не важно,
+        # им нужно лишь, чтобы ленивая проверка прав (_verify_membership_once) не
+        # отказала молча из-за отсутствия этого метода у фейкового бота.
+        self._member = member if member is not None else ChatMemberAdministrator.model_construct(can_pin_messages=True)
 
     async def send_message(self, chat_id, text):
         self.order.append(("send", chat_id))
@@ -162,16 +166,22 @@ class FakeBot:
             from aiogram.exceptions import TelegramAPIError
             raise TelegramAPIError(method=None, message="no rights")
 
+    async def get_chat_member(self, chat_id, user_id):
+        return self._member
+
+    async def me(self):
+        return SimpleNamespace(id=777)
+
 
 @pytest.fixture
 def fake(monkeypatch):
     client = FakeClient()
     cfg = h.Config(client, frozenset({CHAT}), TERMS, OWNER)
     monkeypatch.setattr(h, "_config", lambda: cfg)
-    for state in (h._active, h._suspended, h._status_checked_at):
+    for state in (h._active, h._suspended, h._status_checked_at, h._membership_verified, h._membership_locks):
         state.clear()
     yield client
-    for state in (h._active, h._suspended, h._status_checked_at):
+    for state in (h._active, h._suspended, h._status_checked_at, h._membership_verified, h._membership_locks):
         state.clear()
 
 
@@ -195,11 +205,12 @@ def chat_steps(order):
     return [step for step in order if step[1] == CHAT]
 
 
-def group_message(text="привет", *, chat_id=CHAT, sender_id=42, is_bot=False, caption=None):
+def group_message(text="привет", *, chat_id=CHAT, sender_id=42, is_bot=False, caption=None, bot=None):
     return SimpleNamespace(
         chat=SimpleNamespace(id=chat_id, type="supergroup"),
         from_user=SimpleNamespace(id=sender_id, is_bot=is_bot),
         text=text, caption=caption, message_id=77, date=SENT,
+        bot=bot if bot is not None else FakeBot([]),
     )
 
 
@@ -579,7 +590,79 @@ async def test_collect_is_silent_for_non_owner(fake):
     assert answers == [] and fake.calls == []
 
 
-def test_chat_analyst_router_is_registered_before_the_generic_command_handlers():
+# --- рестарт процесса: pause-state и перепроверка прав (WP-612 Ф5) --------
+
+class CountingBot(FakeBot):
+    def __init__(self, order, member) -> None:
+        super().__init__(order, member=member)
+        self.get_chat_member_calls = 0
+
+    async def get_chat_member(self, chat_id, user_id):
+        self.get_chat_member_calls += 1
+        # Настоящая точка подвеса (как при реальном сетевом вызове к Telegram):
+        # без неё две задачи в тесте ниже не чередуются и лок ничего не доказывает.
+        await asyncio.sleep(0)
+        return self._member
+
+
+async def test_stale_active_status_after_restart_does_not_resume_forwarding_without_admin_rights(fake):
+    """После рестарта _active/_suspended пусты; если бот больше не админ, а сервис
+    всё ещё помнит active (unregister не прошёл до рестарта), сбор не должен
+    возобновиться — права подтверждаются в Telegram, не берутся из кэша сервиса."""
+    fake.state = "active"
+    bot = CountingBot([], ChatMemberMember.model_construct())
+
+    await deliver_group_message(group_message(bot=bot))
+
+    assert not any(c[0] == "send_message" for c in fake.calls)
+    assert ("unregister", CHAT) in fake.calls
+    assert CHAT not in h._active
+
+
+async def test_concurrent_messages_of_the_same_chat_check_membership_only_once(fake):
+    """Два сообщения одного чата, доставленные почти одновременно сразу после
+    рестарта, не должны дублировать get_chat_member/unregister (найдено ревью,
+    WP-612 Ф5)."""
+    fake.state = "active"
+    bot = CountingBot([], ChatMemberMember.model_construct())
+
+    with pytest.raises(SkipHandler):
+        await h.on_group_message(group_message(bot=bot))
+    with pytest.raises(SkipHandler):
+        await h.on_group_message(group_message(bot=bot))
+    await asyncio.gather(*h._background)
+
+    assert bot.get_chat_member_calls == 1
+    assert len([c for c in fake.calls if c[0] == "unregister"]) == 1
+
+
+async def test_membership_is_verified_once_per_process_not_on_every_message(fake):
+    fake.state = "active"
+    bot = CountingBot([], ChatMemberAdministrator.model_construct(can_pin_messages=True))
+
+    await deliver_group_message(group_message(bot=bot))
+    await deliver_group_message(group_message(bot=bot))
+
+    assert bot.get_chat_member_calls == 1
+    assert len([c for c in fake.calls if c[0] == "send_message"]) == 2
+
+
+# --- /chat_collect: перепроверка закрытости чата (WP-612 Ф5) ---------------
+
+async def test_collect_stops_collection_when_the_already_active_chat_turned_public(fake):
+    fake.state = "active"
+    order: list = []
+    bot = CollectBot(order, admin(), username="now_public")
+    message, answers = collect_command(f"/chat_collect {CHAT}", bot)
+
+    await h.cmd_chat_collect(message)
+
+    assert ("unregister", CHAT) in fake.calls
+    assert CHAT not in h._active
+    assert answers == ["Чат «Поток» стал публичным — сбор остановлен."]
+
+
+async def test_chat_analyst_router_is_registered_before_the_generic_command_handlers():
     """Иначе общий хендлер команд отвечает меню на /chat_collect и /chat_digest (найдено 27.10)."""
     from aiogram import Dispatcher as AiogramDispatcher
 
