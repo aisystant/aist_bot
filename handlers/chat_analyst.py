@@ -213,11 +213,16 @@ async def cmd_chat_collect(message: Message):
         return
     if state == "active":
         if chat.username:  # чат стал публичным после включения сбора (условие допуска 1)
+            # _suspended, не только _active.discard: если unregister не удастся,
+            # сервис останется active и следующее сообщение всё равно уйдёт бы в
+            # обход сказанного владельцу "сбор остановлен" (найдено повторным
+            # ревью, WP-612 Ф5) -- та же причина, что у фикса в _verify_membership_once.
+            _active.discard(chat_id)
+            _suspended.add(chat_id)
             try:
                 await cfg.client.unregister(chat_id)
             except ChatAnalystError as err:
                 logger.error("[chat_analyst] unregister failed for now-public chat=%s status=%s", chat_id, err.status)
-            _active.discard(chat_id)
             await message.answer(f"Чат «{chat.title}» стал публичным — сбор остановлен.", parse_mode=None)
             return
         _active.add(chat_id)
@@ -277,24 +282,32 @@ async def _verify_membership_once(cfg: Config, bot, chat_id: int) -> bool:
     _membership_verified)."""
     if chat_id in _membership_verified:
         return True
+    if chat_id in _suspended:
+        return False
     async with _membership_locks.setdefault(chat_id, asyncio.Lock()):
         if chat_id in _membership_verified:
             return True
+        if chat_id in _suspended:  # другая задача того же чата уже отработала под локом
+            return False
         try:
             member = await bot.get_chat_member(chat_id, (await bot.me()).id)
         except TelegramAPIError:
             return False  # не подтверждено — повторим на следующем сообщении этого чата
         if not _is_admin(member):
+            # _suspended, не _membership_verified: кэш "верифицировано" в виде
+            # множества не умеет хранить ИТОГ проверки (admin/не admin), только
+            # факт "проверяли" -- следующее сообщение читало бы это как "можно
+            # доверять active" и возобновляло пересылку (найдено повторным
+            # ревью, WP-612 Ф5). _suspended уже проверяется в _is_collecting
+            # первым, поэтому он и кэширует отказ, и не даёт повторных
+            # Telegram-вызовов на каждое сообщение.
             _active.discard(chat_id)
+            _suspended.add(chat_id)
             try:
                 await cfg.client.unregister(chat_id)
             except ChatAnalystError as err:
                 if err.status != 404:  # уже не зарегистрирован — ожидаемо, не ошибка
                     logger.error("[chat_analyst] post-restart unregister failed chat=%s status=%s", chat_id, err.status)
-            # Права в Telegram подтверждены (бот не админ) независимо от исхода
-            # unregister — повторять get_chat_member на каждом следующем сообщении
-            # того же чата незачем, статус администратора сам по себе не "мигает".
-            _membership_verified.add(chat_id)
             return False
         _membership_verified.add(chat_id)
         return True
