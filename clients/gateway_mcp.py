@@ -56,6 +56,7 @@ class GatewayMCPClient:
     DEFAULT_TIMEOUT = GATEWAY_MCP_TIMEOUT
     RETRY_TIMEOUT = GATEWAY_MCP_TIMEOUT
     MAX_RETRIES = 1
+    RECORD_CP_TIMEOUT = 15  # секунд; запись самооценки, см. record_cp_assessment
 
     FAILURE_THRESHOLD = 2
     RECOVERY_TIME = 60
@@ -907,7 +908,12 @@ class GatewayMCPClient:
             "written_by": written_by,
             "occurred_at": occurred_at,
         }
-        result = await self._call("learning_ctx_record_cp_assessment", args, telegram_user_id=telegram_user_id)
+        # Запись идёт в базу через сервис: 3 с по умолчанию не хватило после обновления токена
+        # (пилот 29.10, РП-578 Ф21.4). Повтор безопасен - ключ event_id идемпотентен.
+        result = await self._call(
+            "learning_ctx_record_cp_assessment", args,
+            telegram_user_id=telegram_user_id, timeout=self.RECORD_CP_TIMEOUT,
+        )
         return self._parse_text_content(result)
 
     async def request_equipment_upgrade(

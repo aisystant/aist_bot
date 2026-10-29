@@ -300,3 +300,21 @@ class TestStartPhase:
         with patch.object(diagnose, "send_diagnostic_question", AsyncMock()):
             await diagnose._start_phase1(message, state, ACCOUNT)
         assert state.data["attempt_id"] != first
+
+
+class TestRecordTimeout:
+    async def test_record_call_uses_long_timeout(self):
+        from clients.gateway_mcp import GatewayMCPClient
+
+        client = GatewayMCPClient("https://gateway.test/mcp")
+        client._call = AsyncMock(return_value={"content": [{"type": "text", "text": '{"event_recorded": true}'}]})
+        profile = {"stage": 3, "bottleneck_slot": "cp.rhy", "recommended_stream": "S3", "skip_to_stage": 3}
+        result = await client.record_cp_assessment(
+            CHAT_ID, event_id="tg-diagnose:a", profile=profile, cp_scores={"cp.rhy": 3},
+            questions_count=5, occurred_at="2026-10-29T10:00:00+00:00",
+        )
+        assert result == {"event_recorded": True}
+        call = client._call.await_args
+        assert call.args[0] == "learning_ctx_record_cp_assessment"
+        assert call.kwargs["timeout"] == 15
+        assert call.args[1]["bottleneck_slot"] == "cp.rhy" and call.args[1]["written_by"] == "tg"
