@@ -77,10 +77,13 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .external_session import external_session_router
     from .hermes import hermes_router
     from .byok import byok_router
+    from .image import image_router
 
     # chat_analyst_router первым: иначе общий хендлер команд (settings) отвечает на /chat_collect
     # и /chat_digest раньше. Хендлеры модуля отдают событие дальше (SkipHandler), если оно не его.
     dp.include_router(chat_analyst_router)
+    # image_router сразу за ним по той же причине (/image, /video); без настроек отдаёт команду дальше.
+    dp.include_router(image_router)
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
     dp.include_router(showcase_router)
