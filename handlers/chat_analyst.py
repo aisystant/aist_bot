@@ -86,6 +86,13 @@ _active: set[int] = set()
 _suspended: set[int] = set()  # бота разжаловали, а снять регистрацию не удалось: сервис ещё говорит active
 _status_checked_at: dict[int, float] = {}
 _background: set[asyncio.Task] = set()
+# После рестарта неизвестно, успел ли прошлый процесс отработать unregister() при
+# разжаловании (WP-612 Ф5, замечание независимой проверки 28.10): сервис может
+# по-прежнему говорить "active" для чата, где бот уже не админ. Подтверждаем права
+# в Telegram один раз на чат за время жизни процесса — лениво, на первом сообщении
+# после рестарта, не перечислением всех чатов при старте (нет такого API, и это
+# была бы пачка getChatMember сразу при каждом рестарте).
+_membership_verified: set[int] = set()
 
 
 def _is_admin(member) -> bool:
@@ -205,6 +212,14 @@ async def cmd_chat_collect(message: Message):
         await message.answer("Бот не администратор этой группы: сбор не включён.", parse_mode=None)
         return
     if state == "active":
+        if chat.username:  # чат стал публичным после включения сбора (условие допуска 1)
+            try:
+                await cfg.client.unregister(chat_id)
+            except ChatAnalystError as err:
+                logger.error("[chat_analyst] unregister failed for now-public chat=%s status=%s", chat_id, err.status)
+            _active.discard(chat_id)
+            await message.answer(f"Чат «{chat.title}» стал публичным — сбор остановлен.", parse_mode=None)
+            return
         _active.add(chat_id)
         await message.answer("Сбор по этому чату уже идёт.", parse_mode=None)
         return
@@ -224,7 +239,9 @@ async def on_group_message(message: Message):
             and text and not text.startswith("/")
         ):
             task = asyncio.create_task(
-                _forward(cfg, message.chat.id, message.message_id, sender.id, text, message.date.timestamp())
+                _forward(
+                    cfg, message.bot, message.chat.id, message.message_id, sender.id, text, message.date.timestamp()
+                )
             )
             _background.add(task)
             task.add_done_callback(_background.discard)
@@ -233,20 +250,60 @@ async def on_group_message(message: Message):
     raise SkipHandler
 
 
-async def _forward(cfg: Config, chat_id: int, message_id: int, sender_id: int, text: str, sent_at: float) -> None:
-    if not await _is_collecting(cfg, chat_id):
-        return
+async def _forward(cfg: Config, bot, chat_id: int, message_id: int, sender_id: int, text: str, sent_at: float) -> None:
     try:
+        if not await _is_collecting(cfg, bot, chat_id):
+            return
         await cfg.client.send_message(chat_id, message_id, sender_id, text, sent_at)
     except ChatAnalystError as err:
         if err.status == 404 or (err.status == 409 and err.detail == "ChatFrozen"):
             _active.discard(chat_id)
         elif err.status != 409:  # 409: сообщение раньше границы сбора, дубль — ожидаемо
             logger.warning("[chat_analyst] message dropped chat=%s status=%s", chat_id, err.status)
+    except Exception:  # noqa: BLE001 - fire-and-forget task, иначе исключение тонет в asyncio
+        logger.exception("[chat_analyst] forward failed chat=%s", chat_id)
 
 
-async def _is_collecting(cfg: Config, chat_id: int) -> bool:
+# Сериализует _verify_membership_once по чату: без этого два сообщения одного
+# чата, пришедшие почти одновременно сразу после рестарта, обе проходят проверку
+# `chat_id in _membership_verified` (обе False) и дублируют get_chat_member +
+# unregister (найдено ревью, WP-612 Ф5).
+_membership_locks: dict[int, asyncio.Lock] = {}
+
+
+async def _verify_membership_once(cfg: Config, bot, chat_id: int) -> bool:
+    """Подтвердить права бота в Telegram один раз за время жизни процесса, прежде
+    чем довериться статусу "active" со стороны сервиса (см. комментарий у
+    _membership_verified)."""
+    if chat_id in _membership_verified:
+        return True
+    async with _membership_locks.setdefault(chat_id, asyncio.Lock()):
+        if chat_id in _membership_verified:
+            return True
+        try:
+            member = await bot.get_chat_member(chat_id, (await bot.me()).id)
+        except TelegramAPIError:
+            return False  # не подтверждено — повторим на следующем сообщении этого чата
+        if not _is_admin(member):
+            _active.discard(chat_id)
+            try:
+                await cfg.client.unregister(chat_id)
+            except ChatAnalystError as err:
+                if err.status != 404:  # уже не зарегистрирован — ожидаемо, не ошибка
+                    logger.error("[chat_analyst] post-restart unregister failed chat=%s status=%s", chat_id, err.status)
+            # Права в Telegram подтверждены (бот не админ) независимо от исхода
+            # unregister — повторять get_chat_member на каждом следующем сообщении
+            # того же чата незачем, статус администратора сам по себе не "мигает".
+            _membership_verified.add(chat_id)
+            return False
+        _membership_verified.add(chat_id)
+        return True
+
+
+async def _is_collecting(cfg: Config, bot, chat_id: int) -> bool:
     if chat_id in _suspended:
+        return False
+    if not await _verify_membership_once(cfg, bot, chat_id):
         return False
     if chat_id in _active:
         return True
