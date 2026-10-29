@@ -56,6 +56,7 @@ class GatewayMCPClient:
     DEFAULT_TIMEOUT = GATEWAY_MCP_TIMEOUT
     RETRY_TIMEOUT = GATEWAY_MCP_TIMEOUT
     MAX_RETRIES = 1
+    RECORD_CP_TIMEOUT = 15  # секунд; запись самооценки, см. record_cp_assessment
 
     FAILURE_THRESHOLD = 2
     RECOVERY_TIME = 60
@@ -856,6 +857,63 @@ class GatewayMCPClient:
         if scopes is not None:
             args["scopes"] = scopes
         result = await self._call("grant_consent", args, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    @property
+    def last_call_error(self) -> str:
+        """Причина последнего неуспешного вызова (см. _last_call_error)."""
+        return self._last_call_error
+
+    async def token_ory_id(self, telegram_user_id: int) -> Optional[str]:
+        """Ory-идентичность, которой принадлежит токен пользователя; None — токена нет или ory_id не записан.
+
+        При промахе кэша подгружает токен из БД так же, как _do_call, — чтобы проверка
+        идентичности перед записью не отказывала из-за рестарта процесса.
+        """
+        if telegram_user_id not in self._tokens:
+            await self._refresh_single_token(telegram_user_id)
+        return (self._tokens.get(telegram_user_id) or {}).get("ory_id")
+
+    async def record_cp_assessment(
+        self,
+        telegram_user_id: int,
+        *,
+        event_id: str,
+        profile: dict,
+        cp_scores: dict,
+        questions_count: int,
+        occurred_at: str,
+        rcs_version: str = "v5.0",
+        source: str = "dialogue",
+        written_by: str = "tg",
+    ) -> Optional[dict]:
+        """Записать самооценку (РП-578 Ф21.4) через инструмент сервиса учебного контекста.
+
+        Идемпотентно по event_id: повтор тем же ключом не создаёт вторую запись.
+
+        Returns:
+            dict {status, event_id, duplicate, event_recorded} или None при ошибке
+            (причина — last_call_error; исход при timeout/http_error неизвестен).
+        """
+        args = {
+            "event_id": event_id,
+            "stage": profile["stage"],
+            "cp_scores": cp_scores,
+            "bottleneck_slot": profile["bottleneck_slot"],
+            "recommended_stream": profile["recommended_stream"],
+            "skip_to_stage": profile["skip_to_stage"],
+            "questions_count": questions_count,
+            "rcs_version": rcs_version,
+            "source": source,
+            "written_by": written_by,
+            "occurred_at": occurred_at,
+        }
+        # Запись идёт в базу через сервис: 3 с по умолчанию не хватило после обновления токена
+        # (пилот 29.10, РП-578 Ф21.4). Повтор безопасен - ключ event_id идемпотентен.
+        result = await self._call(
+            "learning_ctx_record_cp_assessment", args,
+            telegram_user_id=telegram_user_id, timeout=self.RECORD_CP_TIMEOUT,
+        )
         return self._parse_text_content(result)
 
     async def request_equipment_upgrade(
