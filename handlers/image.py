@@ -36,6 +36,7 @@ SERVICE_DOWN_TEXT = "Служба генерации сейчас недосту
 FAILED_TEXT = "Не получилось сгенерировать. Попробуйте ещё раз или переформулируйте."
 LINK_TEXT = "Готово, но файл слишком большой для Telegram. Ссылка: {url}"
 REFUSED_FILE_TEXT = "Готово, но Telegram не принял файл. Ссылка: {url}"
+SOURCE_CAPTION = "Оригинал у Higgsfield: {url}"
 UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024  # предел загрузки файла ботом в Telegram
 PHOTO_LIMIT_BYTES = 10 * 1024 * 1024  # предел загрузки фото; по ссылке Telegram берёт фото только до 5 МБ
 
@@ -65,7 +66,8 @@ async def _send_image(message: Message, url: str) -> None:
             await message.answer_photo(BufferedInputFile(original, filename=_file_name(url)))
         except TelegramAPIError as err:
             logger.warning("[image] photo refused, sending file only: %s", err.message)
-    await message.answer_document(BufferedInputFile(original, filename=_file_name(url)))
+    await message.answer_document(BufferedInputFile(original, filename=_file_name(url)),
+                                  caption=SOURCE_CAPTION.format(url=url), parse_mode=None)
 
 
 async def _send_video(message: Message, url: str) -> None:
@@ -75,9 +77,11 @@ async def _send_video(message: Message, url: str) -> None:
         await message.answer(LINK_TEXT.format(url=url), parse_mode=None)
         return
     try:
-        await message.answer_video(BufferedInputFile(data, filename=_file_name(url)))
+        await message.answer_video(BufferedInputFile(data, filename=_file_name(url)),
+                                   caption=SOURCE_CAPTION.format(url=url), parse_mode=None)
     except TelegramAPIError:
-        await message.answer_document(BufferedInputFile(data, filename=_file_name(url)))
+        await message.answer_document(BufferedInputFile(data, filename=_file_name(url)),
+                                      caption=SOURCE_CAPTION.format(url=url), parse_mode=None)
 
 
 async def _deliver(message: Message, client: ImageServiceClient, kind: str, job_id: str) -> None:

@@ -94,6 +94,7 @@ class FakeMessage:
         self.answers: list[str] = []
         self.photos: list[tuple[str, bytes]] = []
         self.documents: list[tuple[str, bytes]] = []
+        self.captions: list[str | None] = []
 
     async def answer(self, text, parse_mode=None):
         self.answers.append(text)
@@ -101,8 +102,9 @@ class FakeMessage:
     async def answer_photo(self, file):
         self.photos.append((file.filename, file.data))
 
-    async def answer_document(self, file):
+    async def answer_document(self, file, caption=None, parse_mode=None):
         self.documents.append((file.filename, file.data))
+        self.captions.append(caption)
 
 
 class FakeClient:
@@ -146,6 +148,7 @@ async def test_image_shown_as_photo_and_original_sent_as_file(monkeypatch):
     assert message.answers == ["Делаю картинку, это займёт около минуты."]
     assert message.photos == [("robot.png", b"PNG")]
     assert message.documents == [("robot.png", b"PNG")]
+    assert message.captions == ["Оригинал у Higgsfield: https://cdn/robot.png"]
 
 
 async def test_refused_photo_still_delivers_file(monkeypatch):
@@ -167,7 +170,7 @@ async def test_refused_file_hands_over_link(monkeypatch):
     monkeypatch.setattr(h, "_client", lambda: FakeClient())
     monkeypatch.setattr(h, "download", _png)
     message = FakeMessage()
-    async def refuse(file):
+    async def refuse(file, **kwargs):
         raise TelegramBadRequest(method=None, message="FILE_PARTS_INVALID")
     message.answer_photo = refuse
     message.answer_document = refuse
