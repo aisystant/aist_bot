@@ -192,6 +192,32 @@ async def test_file_too_big_for_telegram_is_sent_as_link(monkeypatch):
     assert message.photos == []
 
 
+async def test_download_reads_whole_streamed_body():
+    """Regression 29.10: the bot kept only the first network chunk of a 9 MB PNG."""
+    payload = bytes(range(256)) * 16 * 1024  # 4 MB, sent in many small writes
+
+    async def streamed(request):
+        resp = web.StreamResponse()
+        await resp.prepare(request)
+        for start in range(0, len(payload), 8192):
+            await resp.write(payload[start:start + 8192])
+        await resp.write_eof()
+        return resp
+
+    app = web.Application()
+    app.router.add_get("/big", streamed)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    try:
+        assert await client_module.download(f"http://127.0.0.1:{port}/big", 10 * 1024 * 1024) == payload
+        assert await client_module.download(f"http://127.0.0.1:{port}/big", 1024 * 1024) is None
+    finally:
+        await runner.cleanup()
+
+
 async def test_download_respects_size_cap():
     async def big(request):
         return web.Response(body=b"x" * 100)

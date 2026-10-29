@@ -83,8 +83,14 @@ async def download(url: str, max_bytes: int) -> bytes | None:
             async with session.get(url, headers={"User-Agent": USER_AGENT}) as resp:
                 if resp.status != 200 or (resp.content_length or 0) > max_bytes:
                     return None
-                data = await resp.content.read(max_bytes + 1)
-                return data if len(data) <= max_bytes else None
+                # content.read(n) returns only what has arrived so far (29.10: 15 KB of a 9 MB PNG),
+                # so the body is collected chunk by chunk until the stream ends.
+                data = bytearray()
+                async for chunk in resp.content.iter_chunked(64 * 1024):
+                    data.extend(chunk)
+                    if len(data) > max_bytes:
+                        return None
+                return bytes(data)
     except (aiohttp.ClientError, asyncio.TimeoutError) as err:
         logger.warning("[image] download failed: %s", type(err).__name__)
         return None
