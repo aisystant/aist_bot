@@ -1,0 +1,29 @@
+name: Release Control Import Guard
+
+on:
+  push:
+    branches: [new-architecture]
+  pull_request:
+    branches: [new-architecture]
+
+permissions:
+  contents: read
+
+jobs:
+  release-control-import-guard:
+    name: release-control-import-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+
+      - name: Refuse unenforced release-control files on the built branch
+        run: python3 scripts/release_control_import_guard.py --branch new-architecture
