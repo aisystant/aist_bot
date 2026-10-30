@@ -188,7 +188,11 @@ async def _start_heartbeat_poller(
                             "[]",
                         )
                 except Exception as _trace_exc:
-                    logger.debug("[heartbeat] trace write skipped: %s", _trace_exc)
+                    # Exception type only: DB error details may echo chat_id.
+                    logger.warning(
+                        "[heartbeat] trace write failed for %s: %s",
+                        session_id, type(_trace_exc).__name__,
+                    )
                 return
 
             if ev_type == "session.turn_failed":
