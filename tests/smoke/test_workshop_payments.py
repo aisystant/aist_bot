@@ -289,3 +289,43 @@ async def test_direct_card_pay_button_shows_charged_amount(
     assert pay_button.url == "https://pay.example/1"
     shown = [int(n) for n in re.findall(r"\d+", pay_button.text)]
     assert shown == [charged]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "apply_burn,reserve_ok,expected",
+    [
+        (False, True, 5000),  # no points: full price
+        (True, True, 3500),   # points applied: discounted price
+        (True, False, 5000),  # reserve lost the race: payment recreated at full price
+    ],
+)
+async def test_seminar_card_pay_button_shows_charged_amount(
+    workshop, callback, monkeypatch, apply_burn, reserve_ok, expected
+):
+    """The Seminar card button shows the sum of the payment it links to.
+
+    With a points discount it used to say 5000₽ while the payment was created
+    for the discounted payable_rub.
+    """
+    import re
+
+    burn = {"payable_rub": 3500, "available_pts": 150, "account_id": "acc-1", "discount_rub": 1500}
+    monkeypatch.setattr(workshop, "prepare_burn_offer", AsyncMock(return_value=burn))
+    monkeypatch.setattr(
+        workshop, "reserve_for_yookassa", AsyncMock(return_value=(reserve_ok, 150))
+    )
+    provider = SimpleNamespace(
+        create_payment=AsyncMock(
+            return_value={"id": "pay-1", "confirmation_url": "https://pay.example/1"}
+        )
+    )
+    monkeypatch.setattr(workshop, "_get_yookassa", lambda: provider)
+
+    await workshop._pay_yookassa_workshop(callback, 101, "ru", apply_burn=apply_burn)
+
+    charged = provider.create_payment.await_args.kwargs["amount"]
+    assert charged == expected
+    keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
+    pay_button = keyboard.inline_keyboard[0][0]
+    assert [int(n) for n in re.findall(r"\d+", pay_button.text)] == [charged]
