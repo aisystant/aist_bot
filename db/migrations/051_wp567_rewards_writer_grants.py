@@ -113,6 +113,9 @@ def _sql_list(items) -> str:
     return ", ".join(f"'{item}'" for item in items)
 
 
+# nosec B608 — все подстановки в MIGRATION_SQL берутся из констант этого файла (ROLE, GRANTS,
+# TABLES); внешнего или пользовательского ввода в строке нет. Имена ролей, таблиц и колонок
+# нельзя передать параметрами ($1) в GRANT/DO-блоках, поэтому строка собирается f-строкой.
 MIGRATION_SQL = f"""
 BEGIN;
 
@@ -265,7 +268,7 @@ $postflight$;
 RESET ROLE;
 
 COMMIT;
-"""
+"""  # nosec B608 — см. комментарий над MIGRATION_SQL
 
 
 def _grant_rows() -> tuple[list[str], list[str], list[str | None]]:
