@@ -30,6 +30,10 @@ discount_rub > 0 ?
    └─ да  → показать UI: «У вас N бонусов = X₽ скидки. Доплата Y₽. Применить?»
               ├─ «Применить»  → callback *_burn  → reserve_burn + create_payment(payable_rub)
               └─ «Без скидки» → callback *_full  → create_payment(full_amount)
+   ↓
+кнопка «💳 Оплатить картой ({amount}₽)» со ссылкой ЮКассы (workshop.btn_pay_rub_amount):
+amount = сумма созданного платежа (payable_rub со скидкой, полная цена без неё или
+после перевыпуска при race). Тест: test_seminar_card_pay_button_shows_charged_amount.
 ```
 
 > **Терминология (DP.ECON.001 §1.1, DP.D.050):**
