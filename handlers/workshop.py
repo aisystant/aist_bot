@@ -227,7 +227,7 @@ async def callback_direct_masterskaya_pay_rub(callback: CallbackQuery):
         logger.info(f"[Payment] direct yookassa payment created: tg={chat_id}, payment_id={result['id']}")
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('workshop.btn_pay_rub', lang), url=confirmation_url)],
+            [InlineKeyboardButton(text=t('workshop.btn_pay_rub_direct', lang), url=confirmation_url)],
             [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang), callback_data="seminar_iwe_check")],
         ])
         await callback.message.answer(t('workshop.pay_redirect', lang), reply_markup=keyboard)

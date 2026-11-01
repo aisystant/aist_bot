@@ -29,7 +29,9 @@ related_sc: null
        [💳 Оплатить картой]   callback: direct_masterskaya_pay_rub
        [⭐ Оплатить звёздами]  callback: direct_masterskaya_pay_stars
      │
-     ├─ картой → ЮКасса create_payment (metadata.purpose=WORKSHOP_DIRECT)
+     ├─ картой → ЮКасса create_payment (metadata.purpose=WORKSHOP_DIRECT, 8000₽)
+     │            → [💳 Оплатить картой (8000₽)] ссылка ЮКассы (workshop.btn_pay_rub_direct;
+     │              сумма на кнопке = сумма платежа, тест в test_workshop_payments.py)
      │            ИЛИ Aisystant-лендинг → webhook purpose=WORKSHOP_DIRECT
      │
      └─ звёздами → create_invoice_link (payload workshop_direct_{chat_id})
