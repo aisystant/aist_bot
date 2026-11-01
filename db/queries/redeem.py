@@ -23,7 +23,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Optional
 
 import asyncpg
@@ -148,10 +148,41 @@ FALLBACK_MULTIPLIER = Decimal("1.0")
 ENABLE_HISTORIC_CAP = os.getenv("ENABLE_HISTORIC_CAP", "true").lower() == "true"
 
 
+def compute_discount(
+    balance_minus_reserved: Decimal,
+    ceiling_pts: Optional[Decimal],
+    requested_amount_rub: Decimal,
+    rate: Decimal,
+    min_payable_rub: Decimal = Decimal("0"),
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Return (available_pts, discount_rub, payable_rub) for one purchase.
+
+    ceiling_pts=None means no per-transaction cap (skip_ceiling). min_payable_rub
+    keeps that much of the price for the card payment: YooKassa refuses a payment
+    of 0, so a discount that covered the whole price used to end in a payment
+    error. When the floor is set, points and roubles are rounded down so that
+    rounding can never take payable_rub below it.
+    """
+    max_by_request = max(requested_amount_rub - min_payable_rub, Decimal("0")) / rate
+    bounds = [balance_minus_reserved, max_by_request]
+    if ceiling_pts is not None:
+        bounds.append(ceiling_pts)
+    available_pts = min(bounds)
+    if min_payable_rub > 0:
+        available_pts = available_pts.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        discount_rub = (available_pts * rate).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+    else:
+        available_pts = available_pts.quantize(Decimal("0.01"))
+        discount_rub = (available_pts * rate).quantize(Decimal("0.01"))
+    payable_rub = (requested_amount_rub - discount_rub).quantize(Decimal("0.01"))
+    return available_pts, discount_rub, payable_rub
+
+
 async def available_discount(
     account_id: str,
     requested_amount_rub: Decimal,
     skip_ceiling: bool = False,
+    min_payable_rub: Decimal = Decimal("0"),
 ) -> dict:
     """Сколько скидки доступно пилоту для покупки на requested_amount_rub.
 
@@ -162,6 +193,9 @@ async def available_discount(
             and purchase-amount bounds. Used for subscription cashback where the user
             pays full price by card and bonuses are deducted afterwards (no per-transaction
             daily cap makes sense in that model).
+        min_payable_rub: сколько рублей цены всегда остаётся на оплату картой. Для
+            покупок, где скидка уменьшает сам платёж ЮКассы (семинары, витрина), —
+            1 ₽: нулевой платёж ЮКасса не принимает.
 
     Returns:
         {
@@ -272,18 +306,17 @@ async def available_discount(
 
         # 5. Effective available = min(balance_minus_reserved, ceiling, requested/rate)
         rate = await _get_rate()
-        max_by_request = requested_amount_rub / rate
+        # Cashback model (e.g. subscription) uses skip_ceiling: the user pays full price
+        # by card, so no per-transaction daily cap applies — only balance and purchase value.
+        available_pts, discount_rub, payable_rub = compute_discount(
+            balance_minus_reserved,
+            None if skip_ceiling else ceiling_pts,
+            requested_amount_rub,
+            rate,
+            Decimal(str(min_payable_rub)),
+        )
         if skip_ceiling:
-            # Cashback model (e.g. subscription): user pays full price by card, so no
-            # per-transaction daily cap applies — only available balance and purchase value.
-            available_pts = min(balance_minus_reserved, max_by_request)
             ceiling_pts = balance_minus_reserved  # reflected in return dict for UI
-        else:
-            available_pts = min(balance_minus_reserved, ceiling_pts, max_by_request)
-        available_pts = available_pts.quantize(Decimal("0.01"))
-
-        discount_rub = (available_pts * rate).quantize(Decimal("0.01"))
-        payable_rub = (requested_amount_rub - discount_rub).quantize(Decimal("0.01"))
 
     logger.info(
         f"[Redeem] available_discount: account={account_id[:8]}, requested={requested_amount_rub}, "

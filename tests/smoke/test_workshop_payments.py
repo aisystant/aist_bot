@@ -329,3 +329,26 @@ async def test_seminar_card_pay_button_shows_charged_amount(
     keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
     pay_button = keyboard.inline_keyboard[0][0]
     assert [int(n) for n in re.findall(r"\d+", pay_button.text)] == [charged]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply_burn", [True])
+async def test_seminar_card_discount_keeps_minimum_card_payment(
+    workshop, callback, monkeypatch, apply_burn
+):
+    """The Seminar card flow asks for a discount that leaves at least 1 ₽ to pay."""
+    from helpers.redeem_helpers import CARD_MIN_PAYABLE_RUB
+
+    prepare = AsyncMock(return_value=None)
+    monkeypatch.setattr(workshop, "prepare_burn_offer", prepare)
+    provider = SimpleNamespace(
+        create_payment=AsyncMock(
+            return_value={"id": "pay-1", "confirmation_url": "https://pay.example/1"}
+        )
+    )
+    monkeypatch.setattr(workshop, "_get_yookassa", lambda: provider)
+
+    await workshop._pay_yookassa_workshop(callback, 101, "ru", apply_burn=apply_burn)
+
+    assert CARD_MIN_PAYABLE_RUB >= 1
+    assert prepare.await_args.kwargs["min_payable_rub"] == CARD_MIN_PAYABLE_RUB
