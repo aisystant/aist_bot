@@ -1,7 +1,7 @@
 # Release Drift Manifest: pilot → new-architecture, кандидат от 01.11.2026
 
 > Журнал классификации дельт по P-18 §5 (`docs/processes/process-18-release-contract.md`) и план миграций к выпуску (шаги 2–3 плана сверки РП-562).
-> Ревизия 1 · 01.11.2026 · автор классификации: Claude Code (роль редактора по §5). Подтверждающий и решение пилота не заполнены — их ставят критик и пилот.
+> Ревизия 2 · 01.11.2026 · автор классификации: Claude Code (роль редактора по §5). Ревизия 2: записаны результаты проверок 4.1 и 4.2 (выполнены на стороне пилота, раздел 8); классификация не менялась. Подтверждающий и решение пилота не заполнены — их ставят критик и пилот.
 > Подготовлено без подключения к живым базам: всё, что зависит от фактического состояния баз, вынесено в проверки «только чтение» для владельца (раздел 4).
 
 ## 1. Шапка выпуска
@@ -31,10 +31,10 @@
 | # | Группа | Файлы | Риск (§5) | Предусловие выпуска | Статус |
 |---|---|---|---|---|---|
 | D1 | Контур выпусков РП-562: скрипты и тесты контроля выпуска, P-18, задания CI, цели сборки образа | `scripts/release*`, `scripts/*release*`, `scripts/check_*`, `scripts/railway_*`, `scripts/run_release_smoke.py`, `release_manifest.py`, `.github/release-*`, `.github/workflows/{pilot-prod-sync,release-control-dry-run,release-candidate-build,smoke-tests,security}.yml`, `Dockerfile`, `.dockerignore`, `docs/processes/process-18-release-contract.md`, `tests/test_release*`, `tests/test_branch_auto_deploy.py`, `tests/test_railway_*`, `tests/smoke/test_behavior_scenarios.py` | инфраструктура CI/сборки | см. примечание D1 | real-delta, к выпуску |
-| D2 | Оплаты Мастерской (WP-572): прямая покупка, проверка схемы при старте, оплата проходит мимо лимита сообщений и режима обслуживания | `handlers/workshop.py`, `handlers/showcase.py`, `db/connection.py`, `db/models.py`, `db/migrations/046_workshop_payments_product.py` (`IF NOT EXISTS`), `core/middleware.py`, `docs/processes/process-12-payment-events.md`, сценарий 03-35, `tests/smoke/test_workshop_*`, `tests/smoke/test_showcase_payment_routing.py`, `tests/smoke/test_middleware.py` | **billing** — нужно подтверждение пилота | **колонка `workshop_payments.product` в основной базе прода** (проверка 4.1) | real-delta, к выпуску |
+| D2 | Оплаты Мастерской (WP-572): прямая покупка, проверка схемы при старте, оплата проходит мимо лимита сообщений и режима обслуживания | `handlers/workshop.py`, `handlers/showcase.py`, `db/connection.py`, `db/models.py`, `db/migrations/046_workshop_payments_product.py` (`IF NOT EXISTS`), `core/middleware.py`, `docs/processes/process-12-payment-events.md`, сценарий 03-35, `tests/smoke/test_workshop_*`, `tests/smoke/test_showcase_payment_routing.py`, `tests/smoke/test_middleware.py` | **billing** — нужно подтверждение пилота | колонка `workshop_payments.product` в основной базе прода (проверка 4.1) — **есть, 01.11** | real-delta, к выпуску |
 | D3 | Баллы РП-567: миграции 050 и 051 и их тесты | `db/migrations/050_*`, `db/migrations/051_*`, `tests/smoke/test_wp567_*` | **billing** — нужно подтверждение пилота | нет: бот их не выполняет (раздел 5) | real-delta, к выпуску |
 | D4 | Привязка аккаунта Ory: решение о привязке до записи, понятный ответ 409, источник регистрации FPF | `db/queries/identity.py`, `oauth_server.py`, `handlers/onboarding.py`, `core/onboarder/__init__.py`, сценарии 02-01 и 02-11, `tests/test_ory_account_already_linked.py`, `tests/smoke/test_wp406_f16_entry_source.py` | **auth** — нужно подтверждение пилота | — | real-delta, к выпуску |
-| D5 | Зеркало профиля в persona.bot_profile (WP-253 Ф12.6-A), за флагом, по умолчанию выключено | `db/queries/bot_profile.py`, `db/queries/users.py`, `db/queries/dev_stats.py`, `config/settings.py`, `config/__init__.py`, часть `oauth_server.py`, `tests/test_bot_profile_mirror.py`, `tests/smoke/test_wp330_onboarding_correctness.py` | **GDPR** (копия полей профиля в другую базу) — нужно подтверждение пилота | `BOT_PROFILE_DUAL_WRITE_ENABLED` в проде не задан или `false` (проверка 4.2) | real-delta, к выпуску |
+| D5 | Зеркало профиля в persona.bot_profile (WP-253 Ф12.6-A), за флагом, по умолчанию выключено | `db/queries/bot_profile.py`, `db/queries/users.py`, `db/queries/dev_stats.py`, `config/settings.py`, `config/__init__.py`, часть `oauth_server.py`, `tests/test_bot_profile_mirror.py`, `tests/smoke/test_wp330_onboarding_correctness.py` | **GDPR** (копия полей профиля в другую базу) — нужно подтверждение пилота | `BOT_PROFILE_DUAL_WRITE_ENABLED` в проде не задан или `false` (проверка 4.2) — **не задан, 01.11** | real-delta, к выпуску |
 | D6 | Уведомления (WP-117): арбитр противоречивых уведомлений, «низкая активность» по живым событиям, полярность milestone C3 | `core/claims.py`, `core/activity_sources.py`, `core/engagement_analyzer.py`, `core/nudge_producer.py`, `core/scheduler.py`, `db/queries/{conversion,nudges,notifications}.py`, `tests/test_cross_pipeline_claims.py`, `tests/test_activity_source_registry.py`, `tests/test_engagement_analyzer.py` | поведение для пользователей | — | real-delta, к выпуску |
 | D7 | Прочее: фиксации только при наличии источника записи (App или OAuth в льготный период), событие `lesson_closed` (WP-522), поля отчёта сессий (F121), подсказка `/mentor_card`, владелец резервной ссылки self-knowledge, тест резервного пути подписки | `core/evaluator.py`, `core/lesson/*`, `handlers/external_session.py`, `handlers/mentorship.py`, `core/self_knowledge.py`, `docs/data/tables.md`, сценарий 03-38, `tests/test_{fixation_note_app_only,lesson_events,f121_report_fields,has_active_subscription}.py` | низкий | — | real-delta, к выпуску |
 | D8 | Тесты оповещения `installation_orphaned` (РП-559) | `tests/smoke/test_internal_orphan_notify.py` | низкий (только тесты) | — | **устранён по поведению**: код обработчика в обеих ветках одинаковый, тесты и раздел P-06 вернулись в pilot (aisystant/aist_bot#351). Файл тестов отличается от прода только способом вызова обработчика и уйдёт с выпуском |
@@ -49,7 +49,7 @@
 
 ## 4. Проверки «только чтение» перед выпуском (выполняет владелец базы или окружения)
 
-### 4.1. Колонка `product` в основной базе прода — **блокирует выпуск**
+### 4.1. Колонка `product` в основной базе прода — блокирует выпуск · **выполнено 01.11: колонка есть, миграция 046 не нужна**
 
 Код pilot при старте вызывает `verify_money_tables()`. Если колонки нет, бот падает с `RuntimeError` и в прод не выходит. В проде `SKIP_DB_MIGRATIONS=true`, поэтому сам он колонку не создаст.
 
@@ -63,7 +63,7 @@ SELECT EXISTS (
 - `true` → предусловие выполнено. Скорее всего, так и есть: код прода уже пишет `product` при каждой оплате Мастерской (`db/queries/workshop.py`).
 - `false` → до слияния владелец основной базы прода выполняет миграцию 046 (`python -m db.migrations.046_workshop_payments_product`); после этого повторить запрос.
 
-### 4.2. Флаг зеркала профиля в окружении прода
+### 4.2. Флаг зеркала профиля в окружении прода · **выполнено 01.11: переменная в проде не задана (по умолчанию выключено)**
 
 В переменных Railway для прода `BOT_PROFILE_DUAL_WRITE_ENABLED` не задан или `false`. Pilot и prod делят одну базу persona; включение — отдельное решение по WP-253, не часть этого выпуска.
 
@@ -108,7 +108,7 @@ SELECT has_table_privilege('projection_writer_rewards', 'public.point_balances',
 ## 6. Порядок выпуска (для решения пилота)
 
 1. Подтверждение пилота по дельтам категорий billing (D2, D3), auth (D4), GDPR (D5) — §5 п.5. Подтверждающий-критик по классификации (§5 п.3).
-2. Проверки 4.1 и 4.2; при `false` в 4.1 — сначала миграция 046 владельцем.
+2. ~~Проверки 4.1 и 4.2~~ — выполнены 01.11, оба предусловия выполнены (раздел 8).
 3. Живая проверка на пилотном боте затронутых сценариев: прямая покупка Мастерской (D2), привязка аккаунта Ory, включая случай «уже привязан» (D4), онбординг с источником FPF (D4), запись фиксации (D7), `/mentor_card` без reply (D7).
 4. Слияние `pilot` → `new-architecture` обычным слиянием (перемотка невозможна из-за N1), push с `FORCE_PROD=1`.
 5. После деплоя: в журнале старта прода — `✅ REQUIRED_FOR_MONEY schema present: ...; public.workshop_payments.product`. Затем включить наблюдателя (P-18 §9): ручной запуск `pilot-prod-sync.yml` с `bootstrap=true`, проверить отчёт, задать `RELEASE_DRIFT_ENABLED=true`.
@@ -123,3 +123,12 @@ SELECT has_table_privilege('projection_writer_rewards', 'public.point_balances',
 | Автор классификации (редактор) | Claude Code | классификация выше | 01.11.2026 |
 | Критик | — | — | — |
 | Пилот (billing/auth/GDPR, выпуск) | — | — | — |
+
+## 8. Журнал ревизий и проверок
+
+| Ревизия / проверка | Кто | Результат | Источник | Время |
+|---|---|---|---|---|
+| Ревизия 1 | Claude Code | классификация D1–D9, план миграций | этот файл | 01.11.2026 |
+| Проверка 4.1 | пилот (запрос к основной базе прода) | `workshop_payments.product` есть | сообщение пилота в сессии РП-562 | 01.11.2026 |
+| Проверка 4.2 | пилот (переменные Railway прода) | `BOT_PROFILE_DUAL_WRITE_ENABLED` не задан | скриншот переменных, сообщение пилота | 01.11.2026 |
+| Ревизия 2 | Claude Code | внесены результаты 4.1 и 4.2 | этот файл | 01.11.2026 |
