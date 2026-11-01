@@ -1,7 +1,7 @@
 # Release Drift Manifest: pilot → new-architecture, кандидат от 01.11.2026
 
 > Журнал классификации дельт по P-18 §5 (`docs/processes/process-18-release-contract.md`) и план миграций к выпуску (шаги 2–3 плана сверки РП-562).
-> Ревизия 3 · 01.11.2026 · автор классификации: Claude Code (роль редактора по §5). Ревизия 2: результаты проверок 4.1 и 4.2. Ревизия 3: снят D9 (раздел 3). История — раздел 8. Подтверждающий и решение пилота не заполнены — их ставят критик и пилот.
+> Ревизия 5 · 01.11.2026 · автор классификации: Claude Code (роль редактора по §5). Ревизия 2: результаты проверок 4.1 и 4.2. Ревизия 3: снят D9 (раздел 3). Ревизия 4: контур выпусков (D1) не выпускается до включения контроля, выпуск собирается переносом без него (раздел 6). Ревизия 5: решения пилота, исправление цены D10, выпуск выполнен (раздел 9). История — раздел 8.
 > Подготовлено без подключения к живым базам: всё, что зависит от фактического состояния баз, вынесено в проверки «только чтение» для владельца (раздел 4).
 
 ## 1. Шапка выпуска
@@ -10,9 +10,9 @@
 |---|---|
 | Release ID | не присвоен — назначает release owner |
 | Артефакт | `git_commit_sha_surrogate` (§0): кандидат по образу не собирался |
-| Pilot SHA | `a9a83d15e485c468b59d684f508bb94ac792d1ee` (дерево `f4c96fe95d144c84fab5a2c5e7dc2ad4494ece93`) |
+| Pilot SHA | ревизии 1–3: `a9a83d15`; ревизия 4: `c188fdee0707c447122804a5eff0b76e39111cc1` (код бота между ними не менялся, только этот документ) |
 | Production SHA | `66e03747cf26cfc5bb37000127f3c3728df3a194` |
-| Объём | 100 файлов отличаются; пробное слияние `git merge-tree` без конфликтов, итоговое дерево = дерево pilot |
+| Объём | 101 файл отличается (вместе с этим документом). Выпуск переносит 62 из них; 33 файла контура, 2 задания CI и 4 скрипта/теста Railway остаются только в pilot (раздел 6) |
 | CI на pilot SHA | Smoke Tests (L1+L2), Release Control Contract, Security (bandit + pip-audit) — зелёные |
 | Решение пилота | — |
 
@@ -30,7 +30,7 @@
 
 | # | Группа | Файлы | Риск (§5) | Предусловие выпуска | Статус |
 |---|---|---|---|---|---|
-| D1 | Контур выпусков РП-562: скрипты и тесты контроля выпуска, P-18, задания CI, цели сборки образа | `scripts/release*`, `scripts/*release*`, `scripts/check_*`, `scripts/railway_*`, `scripts/run_release_smoke.py`, `release_manifest.py`, `.github/release-*`, `.github/workflows/{pilot-prod-sync,release-control-dry-run,release-candidate-build,smoke-tests,security}.yml`, `Dockerfile`, `.dockerignore`, `docs/processes/process-18-release-contract.md`, `tests/test_release*`, `tests/test_branch_auto_deploy.py`, `tests/test_railway_*`, `tests/smoke/test_behavior_scenarios.py` | инфраструктура CI/сборки | см. примечание D1 | real-delta, к выпуску |
+| D1 | Контур выпусков РП-562: скрипты и тесты контроля выпуска, P-18, задания CI, цели сборки образа | `scripts/release*`, `scripts/*release*`, `scripts/check_*`, `scripts/railway_*`, `scripts/run_release_smoke.py`, `release_manifest.py`, `.github/release-*`, `.github/workflows/{pilot-prod-sync,release-control-dry-run,release-candidate-build,smoke-tests,security}.yml`, `Dockerfile`, `.dockerignore`, `docs/processes/process-18-release-contract.md`, `tests/test_release*`, `tests/test_branch_auto_deploy.py`, `tests/test_railway_*`, `tests/smoke/test_behavior_scenarios.py` | инфраструктура CI/сборки | см. примечание D1 | real-delta, **не выпускается до включения контроля** (ревизия 4): pilot-only по замыслу РП-562 |
 | D2 | Оплаты Мастерской (WP-572): прямая покупка, проверка схемы при старте, оплата проходит мимо лимита сообщений и режима обслуживания | `handlers/workshop.py`, `handlers/showcase.py`, `db/connection.py`, `db/models.py`, `db/migrations/046_workshop_payments_product.py` (`IF NOT EXISTS`), `core/middleware.py`, `docs/processes/process-12-payment-events.md`, сценарий 03-35, `tests/smoke/test_workshop_*`, `tests/smoke/test_showcase_payment_routing.py`, `tests/smoke/test_middleware.py` | **billing** — нужно подтверждение пилота | колонка `workshop_payments.product` в основной базе прода (проверка 4.1) — **есть, 01.11** | real-delta, к выпуску |
 | D3 | Баллы РП-567: миграции 050 и 051 и их тесты | `db/migrations/050_*`, `db/migrations/051_*`, `tests/smoke/test_wp567_*` | **billing** — нужно подтверждение пилота | нет: бот их не выполняет (раздел 5) | real-delta, к выпуску |
 | D4 | Привязка аккаунта Ory: решение о привязке до записи, понятный ответ 409, источник регистрации FPF | `db/queries/identity.py`, `oauth_server.py`, `handlers/onboarding.py`, `core/onboarder/__init__.py`, сценарии 02-01 и 02-11, `tests/test_ory_account_already_linked.py`, `tests/smoke/test_wp406_f16_entry_source.py` | **auth** — нужно подтверждение пилота | — | real-delta, к выпуску |
@@ -39,7 +39,9 @@
 | D7 | Прочее: фиксации только при наличии источника записи (App или OAuth в льготный период), событие `lesson_closed` (WP-522), поля отчёта сессий (F121), подсказка `/mentor_card`, владелец резервной ссылки self-knowledge, тест резервного пути подписки | `core/evaluator.py`, `core/lesson/*`, `handlers/external_session.py`, `handlers/mentorship.py`, `core/self_knowledge.py`, `docs/data/tables.md`, сценарий 03-38, `tests/test_{fixation_note_app_only,lesson_events,f121_report_fields,has_active_subscription}.py` | низкий | — | real-delta, к выпуску |
 | D8 | Тесты оповещения `installation_orphaned` (РП-559) | `tests/smoke/test_internal_orphan_notify.py` | низкий (только тесты) | — | **устранён по поведению**: код обработчика в обеих ветках одинаковый, тесты и раздел P-06 вернулись в pilot (aisystant/aist_bot#351). Файл тестов отличается от прода только способом вызова обработчика и уйдёт с выпуском |
 
-**Примечание D1 — что меняется в проде после слияния:**
+**Примечание D1, ревизия 4.** Защита `release-control-import-guard` (`scripts/release_control_import_guard.py`) не пускает в `new-architecture` 33 пути из `.github/release-control-contour.json`, пока для этой ветки не включён контроль выпусков (`.github/release-control-enforcement.json` отсутствует, `cutover.enabled=false`). Ревизии 1–3 ошибочно относили весь D1 к выпуску; это всплыло на проверке запроса aisystant/aist_bot#354. Кроме 33 путей, в pilot остаются: `.github/workflows/smoke-tests.yml` и `.github/workflows/release-candidate-build.yml` (в проде остаются их текущие версии, новые вызывают скрипты контура), `scripts/railway_release_provider.py` (импортирует `scripts/release_control.py`; в список контура не внесён), `scripts/railway_graphql_mutation_candidate.py` и тесты обоих (та же фаза Ф3.3). Из D1 в выпуск идут только: `Dockerfile`, `.dockerignore`, `.github/workflows/security.yml`, `.github/release-metadata.json`, `scripts/release-drift-detector.py`, `docs/processes/process-18-release-contract.md` — все вне списка контура. Ниже — что из этого меняется в проде.
+
+**Что меняется в проде (ревизии 1–3; пункты про `release-candidate-build.yml`, `smoke-tests.yml` и `pilot-prod-sync.yml` ревизией 4 сняты):**
 - Сборка Railway не меняется: в `Dockerfile` без явной цели собирается последняя стадия `development`, а это та же стадия `application`, что и сейчас. `.dockerignore` пропускает ровно те каталоги, которые `Dockerfile` копирует.
 - `release-candidate-build.yml` перестаёт публиковать образ `ghcr.io/aisystant/aist_bot-prod` при push в `new-architecture`; публикуется только образ pilot. В репозитории его упоминают только тесты (`tests/test_railway_graphql_mutation_candidate.py`), а Railway деплоит прод из Git (`railway.json` без образа), так что деплой это не затрагивает.
 - `smoke-tests.yml` на `new-architecture` начнёт запускать проверки через `scripts/run_release_smoke.py`, без `paths-ignore` (проверки идут и на правки документации).
@@ -110,19 +112,19 @@ SELECT has_table_privilege('projection_writer_rewards', 'public.point_balances',
 1. Подтверждение пилота по дельтам категорий billing (D2, D3), auth (D4), GDPR (D5) — §5 п.5. Подтверждающий-критик по классификации (§5 п.3).
 2. ~~Проверки 4.1 и 4.2~~ — выполнены 01.11, оба предусловия выполнены (раздел 8).
 3. Живая проверка на пилотном боте затронутых сценариев: прямая покупка Мастерской (D2), привязка аккаунта Ory, включая случай «уже привязан» (D4), онбординг с источником FPF (D4), запись фиксации (D7), `/mentor_card` без reply (D7).
-4. Слияние `pilot` → `new-architecture` обычным слиянием (перемотка невозможна из-за N1), push с `FORCE_PROD=1`.
-5. После деплоя: в журнале старта прода — `✅ REQUIRED_FOR_MONEY schema present: ...; public.workshop_payments.product`. Затем включить наблюдателя (P-18 §9): ручной запуск `pilot-prod-sync.yml` с `bootstrap=true`, проверить отчёт, задать `RELEASE_DRIFT_ENABLED=true`.
+4. ~~Слияние `pilot` → `new-architecture`~~ (ревизия 4). Выпуск собирается переносом: от `new-architecture` берутся 62 файла из pilot, без файлов контура, без двух заданий CI и без скриптов Railway. Перенос, а не слияние: если слить pilot и удалить контур, при будущем включении контроля слияние не вернёт удалённые файлы. Проверено на собранном дереве: защита контура — OK; быстрые проверки командой из `smoke-tests.yml` прода — 629 прошли; bandit — замечаний нет; полный `tests/` без smoke — те же 13 падений, что на текущем проде и на pilot (новых нет). Запрос — черновик из `claude/happy-fermat-upltdd` в `new-architecture`; при слиянии кнопкой GitHub хук `FORCE_PROD` не участвует.
+5. После деплоя: в журнале старта прода — `✅ REQUIRED_FOR_MONEY schema present: ...; public.workshop_payments.product`. ~~Затем включить наблюдателя~~ (ревизия 4): `pilot-prod-sync.yml` входит в контур и попадёт в прод только при включении контроля. До тех пор детектор, запущенный вручную, будет показывать разницу деревьев — это контур, по замыслу живущий только в pilot.
 6. ~~Отдельным запросом — D9~~ — снято (раздел 3, D9): после выпуска детектор покажет `status=clean` сам.
 
-**Откат выпуска:** вернуть `new-architecture` на `66e03747` новым коммитом-откатом слияния (`git revert -m 1 <merge>`), push с `FORCE_PROD=1`. Миграция 046 (если выполнялась) обратно совместима: колонка допускает NULL, старый код её уже использует.
+**Откат выпуска:** откатить коммит выпуска в `new-architecture` новым коммитом (`git revert <release commit>`; если запрос слит слиянием — `git revert -m 1 <merge>`), push с `FORCE_PROD=1`. Миграция 046 (если выполнялась) обратно совместима: колонка допускает NULL, старый код её уже использует.
 
 ## 7. Подтверждения
 
 | Роль | Кто | Решение | Время |
 |---|---|---|---|
 | Автор классификации (редактор) | Claude Code | классификация выше | 01.11.2026 |
-| Критик | — | — | — |
-| Пилот (billing/auth/GDPR, выпуск) | — | — | — |
+| Критик | проверяющий агент пилота («Цех») | независимо сверил утверждения документа, ревизии 2–4 и живые сценарии на пилотном боте; нашёл ошибку цены (D10) | 01.11.2026 |
+| Пилот (billing/auth/GDPR, выпуск) | пилот | группы D2, D3, D4, D5 подтверждены; живая проверка пройдена, включая 8000₽ на второй кнопке `/start masterskaya_direct`; выпуск разрешён («все проверено. доделывай») | 01.11.2026 |
 
 ## 8. Журнал ревизий и проверок
 
@@ -133,3 +135,16 @@ SELECT has_table_privilege('projection_writer_rewards', 'public.point_balances',
 | Проверка 4.2 | пилот (переменные Railway прода) | `BOT_PROFILE_DUAL_WRITE_ENABLED` в видимой части списка нет; по алфавиту он стоит до `CHATWOOT_URL`, то есть в видимой части. Не показан только участок от `CHATWOOT_URL` до `VOICE_MAX_DURATION_SEC`. Для полной уверенности — поиск `BOT_PROFILE` в переменных Railway | скриншоты переменных (часть списка), сообщение пилота | 01.11.2026 |
 | Ревизия 2 | Claude Code | внесены результаты 4.1 и 4.2 | этот файл | 01.11.2026 |
 | Ревизия 3 | Claude Code | D9 снят: правка детектора противоречила бы P-18 §9; моделирование выпуска даёт `status=clean` | этот файл | 01.11.2026 |
+| Ревизия 4 | Claude Code | D1 не выпускается до включения контроля; выпуск — перенос 62 файлов без контура; наблюдатель отложен | этот файл, aisystant/aist_bot#354 (проверка `release-control-import-guard`) | 01.11.2026 |
+| Ревизия 5 | Claude Code | решения пилота и критика (раздел 7), D10, итог выпуска (раздел 9) | этот файл | 01.11.2026 |
+
+## 9. Итог выпуска
+
+**D10 — исправление цены на кнопке прямой покупки Мастерской** (найдено при живой проверке, ошибка была и в проде): после «Оплатить картой (8000₽)» бот создавал платёж на 8000₽, а на кнопке оплаты писал «5000₽» (текст Семинара). Исправлено в aisystant/aist_bot#356 (pilot `d4492ac4`) и перенесено в выпуск. Риск — billing, подтверждено пилотом.
+
+**Выпуск:** aisystant/aist_bot#355 слит в `new-architecture` 01.11.2026, коммит слияния `18833b50072f77e30f77c53a90970653985f4d84`. Состав: перенос 62 файлов из pilot `c188fdee` без контура выпусков (`58893960`) + D10 (`de847e53`). Пилот `d4492ac4` и прод `18833b50` после выпуска отличаются только тем, что намеренно оставлено в pilot (раздел 6, п.4) и этим документом до слияния ревизии 5.
+
+**Осталось после выпуска:**
+- проверить в журнале старта прода строку `✅ REQUIRED_FOR_MONEY schema present: ...; public.workshop_payments.product` (пилот, Railway);
+- наблюдатель не включается до включения контроля выпусков для `new-architecture` (раздел 6, п.5);
+- кнопка оплаты Семинара со скидкой бонусами показывает 5000₽ при меньшем списании — отдельная правка по решению пилота.
