@@ -178,17 +178,14 @@ async def write_fixation_note(
 ) -> None:
     """Записывает фиксацию в fleeting-notes (fire-and-forget).
 
-    Условие: пользователь имеет GitHub-интеграцию.
-    При ошибке — логируем, не показываем пользователю.
+    Условие: у пользователя есть валидный источник записи (App-установка или
+    OAuth в льготном периоде) — это решает append_note. Нет источника — тихо
+    пропускаем. При прочих ошибках — логируем, не показываем пользователю.
     """
     from clients.github_api import github_notes
-    from clients.github_oauth import github_oauth
+    from clients.github_auth import GitHubAuthUnavailable
 
     try:
-        access_token = await github_oauth.get_access_token(telegram_user_id)
-        if not access_token:
-            return  # нет GitHub-интеграции — тихо пропускаем
-
         bl = max(1, min(bloom_level, 3))
         emoji = BLOOM_EMOJI[bl]
         bloom_name = BLOOM_NAMES[bl]
@@ -204,6 +201,13 @@ async def write_fixation_note(
             text=note_text,
         )
         logger.info(f"Fixation written for user {telegram_user_id}: {topic_title}")
+
+    except GitHubAuthUnavailable as e:
+        # Нет валидного источника записи (нет подключения либо истёк грейс OAuth).
+        # Источник выбирает append_note через resolve_auth_context: проверять
+        # здесь OAuth-токен нельзя — у пользователя только с GitHub App его нет,
+        # но писать заметки он может.
+        logger.debug(f"Fixation skipped for user {telegram_user_id}: {e}")
 
     except Exception as e:
         logger.warning(f"Fixation write failed for user {telegram_user_id}: {e}")

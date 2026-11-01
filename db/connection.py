@@ -676,41 +676,63 @@ def _required_for_money_tables():
     )
 
 
-async def _missing_money_tables() -> list[str]:
-    """Return REQUIRED_FOR_MONEY tables absent from their own pools."""
+async def _missing_money_schema() -> list[str]:
+    """Return payment tables and required columns absent from their own pools."""
     missing: list[str] = []
     for table, get_table_pool in _required_for_money_tables():
         pool = await get_table_pool()
         async with pool.acquire() as conn:
             if not await conn.fetchval("SELECT to_regclass($1)", table):
                 missing.append(f"{table}@{get_table_pool.__name__}")
+                continue
+            if table == "public.workshop_payments":
+                has_product = await conn.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_attribute
+                        WHERE attrelid = to_regclass($1)
+                          AND attname = $2
+                          AND attnum > 0
+                          AND NOT attisdropped
+                    )
+                    """,
+                    table,
+                    "product",
+                )
+                if not has_product:
+                    missing.append(f"{table}.product@{get_table_pool.__name__}")
     return missing
 
 
 async def verify_money_tables() -> None:
-    """Fail-fast guard for REQUIRED_FOR_MONEY tables. Call it AFTER the startup
+    """Fail-fast guard for REQUIRED_FOR_MONEY schema. Call it AFTER the startup
     migrations in bot.main(): an environment whose role can CREATE (pilot, dev)
     must get the chance to heal itself first. In prod the role cannot create
     tables (SKIP_DB_MIGRATIONS=true + "permission denied for schema public",
     startup log 2026-09-07), so a missing table is never self-healing there —
     the DB owner applies the DDL, and until then this revision must not serve
     traffic. РП-246 Ф2: workshop_payments was missing for four months and every
-    workshop webhook answered 500."""
+    workshop webhook answered 500. РП-572: an existing workshop_payments table
+    without product is also unusable; migration 046 must be applied by owner."""
     try:
-        missing = await _missing_money_tables()
+        missing = await _missing_money_schema()
     except Exception as exc:
         logger.critical(f"❌ REQUIRED_FOR_MONEY check failed (could not query, not 'missing'): {exc}")
         raise
     if missing:
         msg = (
-            f"REQUIRED_FOR_MONEY tables missing: {', '.join(missing)}. "
-            "Apply the owner DDL (РП-246, bug-2026-09-07-bot-workshop-payments-table-missing) "
+            f"REQUIRED_FOR_MONEY schema missing: {', '.join(missing)}. "
+            "Apply the owner DDL (including migration 046 for workshop_payments.product) "
             "before deploying this revision."
         )
         logger.critical(f"❌ {msg}")
         await _send_schema_alert(f"🚨 <b>REQUIRED_FOR_MONEY</b> (fatal, deploy stopped)\n<code>{msg}</code>")
         raise RuntimeError(msg)
-    logger.info("✅ REQUIRED_FOR_MONEY tables present: " + ", ".join(t for t, _ in _required_for_money_tables()))
+    logger.info(
+        "✅ REQUIRED_FOR_MONEY schema present: "
+        + ", ".join(t for t, _ in _required_for_money_tables())
+        + "; public.workshop_payments.product"
+    )
 
 
 async def init_db():

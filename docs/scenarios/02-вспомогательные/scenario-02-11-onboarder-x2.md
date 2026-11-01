@@ -81,14 +81,16 @@ Fail-open по конструкции: нет привязки, сервис н�
 
 ## 4. События воронки и дефолтная квалификация
 
-**Метка источника входа (WP-406 Ф16-B3, MVP).** События `onboarding_started` /
-`x2_completed` / `x3_completed` / `onboarding_completed` несут поле `source`:
-`site | stand | bot | guide-kit`, дефолт `bot`. Источник — deep-link
+**Метка источника входа (WP-406 Ф16-B3, MVP).** События `registration_completed` /
+`onboarding_started` / `x2_completed` / `x3_completed` / `onboarding_completed`
+несут поле `source`: `site`, `stand`, `bot`, `guide-kit`, `mcp-claude`,
+`mcp-chatgpt`, `mcp-other` или `web`; дефолт `bot`. Источник — deep-link
 `/start src_<value>` (например `/start src_site`; underscore-вариант
 `src_guide_kit` нормализуется в `guide-kit`), хранение —
 `current_context['onboarding']['entry_source']`. Работает по аналогии с
-`entry_type` (дефолт `direct`) и не заменяет его. В payload — только значения
-из фиксированного списка, никакого PII.
+`entry_type` (дефолт `direct`) и не заменяет его. Первый валидный источник
+сохраняется и не перезаписывается следующими `/start`. В payload — только
+значения из фиксированного списка, никакого PII.
 
 **Дефолтная квалификация (WP-406 Ф31, решение пилота 08.08).** В момент
 `onboarding_completed` (оба среза закрыты — `_finish_x2` либо `on_x3_confirm`)

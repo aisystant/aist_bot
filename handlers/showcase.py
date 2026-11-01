@@ -584,7 +584,10 @@ async def on_seminar_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await pre_checkout_query.answer(ok=True)
 
 
-@showcase_router.message(F.successful_payment)
+@showcase_router.message(
+    F.successful_payment,
+    F.successful_payment.invoice_payload.startswith("seminar_"),
+)
 async def on_seminar_payment(message: Message):
     """Успешная оплата семинара (Stars) → записать → выдать доступ. WP-327: confirm_burn если был резерв."""
     payment = message.successful_payment

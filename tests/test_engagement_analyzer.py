@@ -23,12 +23,13 @@ from core.engagement_analyzer import (
     check_marathon_stalled,
     check_diagnost_bottleneck,
     check_onboarder_gap,
+    check_low_engagement_7d,
 )
 
 
 def _meta(last_slot_date=None, last_active_date=None, streak=0, longest_streak=0,
           marathon_status=None, active_days_total=0, active_days_streak=0,
-          x2_done=None, x3_done=None, account_created_at=None):
+          x2_done=None, x3_done=None, account_created_at=None, events_7d_live=0):
     return {
         'last_slot_date': last_slot_date,
         'last_active_date': last_active_date,
@@ -39,6 +40,7 @@ def _meta(last_slot_date=None, last_active_date=None, streak=0, longest_streak=0
         'x2_done': x2_done,
         'x3_done': x3_done,
         'account_created_at': account_created_at,
+        'events_7d_live': events_7d_live,
     }
 
 
@@ -262,6 +264,39 @@ def test_analyze_mixed_list_allows_non_achievements():
     assert 'low_engagement_7d' in rule_ids
 
 
+# ─────────────────────────────────────────────────────────────
+# WP-117 Ф-cross-pipeline-contradiction: low_engagement_7d читает живой
+# источник (events_7d_live), не снимок цифрового двойника. Инцидент
+# 02-03.10.2026: milestone day_14 похвалил активность по живому счёту,
+# nudge_low_engagement на следующий день упрекнул в бездействии по
+# устаревшему твину — противоречие об одном и том же факте.
+# ─────────────────────────────────────────────────────────────
+
+def test_low_engagement_ignores_stale_twin_when_live_is_active():
+    """Твин показывает 0 (не синхронизирован), живой счёт — 19: правило молчит."""
+    engagement = {'2_4_time': {'events_last_7d': 0}}
+    meta = _meta(events_7d_live=19)
+    result = check_low_engagement_7d(engagement, meta)
+    assert result is None, f"Expected None with live=19 despite stale twin, got {result}"
+
+
+def test_low_engagement_fires_when_live_is_genuinely_low():
+    """Оба источника согласны на низкой активности — правило по-прежнему срабатывает."""
+    engagement = {'2_4_time': {'events_last_7d': 1}}
+    meta = _meta(events_7d_live=1)
+    result = check_low_engagement_7d(engagement, meta)
+    assert result == "nudge_low_engagement", f"Expected fire on genuinely low activity, got {result}"
+
+
+def test_low_engagement_ignores_twin_even_when_twin_is_high():
+    """Твин показывает высокую активность (чужая семантика/устаревшие данные),
+    живой счёт низкий — правило доверяет только живому счёту, не твину."""
+    engagement = {'2_4_time': {'events_last_7d': 19}}
+    meta = _meta(events_7d_live=1)
+    result = check_low_engagement_7d(engagement, meta)
+    assert result == "nudge_low_engagement", f"Expected live source to decide, got {result}"
+
+
 if __name__ == '__main__':
     tests = [
         test_slot_missing_3d_fires_after_3_days,
@@ -289,6 +324,9 @@ if __name__ == '__main__':
         test_analyze_suppresses_achievement_active_days,
         test_analyze_suppresses_stage_upgrade,
         test_analyze_preserves_agency_high,
+        test_low_engagement_ignores_stale_twin_when_live_is_active,
+        test_low_engagement_fires_when_live_is_genuinely_low,
+        test_low_engagement_ignores_twin_even_when_twin_is_high,
         test_analyze_mixed_list_allows_non_achievements,
     ]
     passed = failed = 0

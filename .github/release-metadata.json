@@ -2,6 +2,6 @@
   "schema_version": 1,
   "declaration_revision": 1,
   "migration_class": "none",
-  "schema_min": 47,
-  "schema_max": 47
+  "schema_min": 49,
+  "schema_max": 49
 }

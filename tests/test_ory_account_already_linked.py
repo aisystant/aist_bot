@@ -26,7 +26,7 @@ def _unique_violation(constraint: str) -> asyncpg.UniqueViolationError:
 
 def _pool_raising(exc: Exception):
     conn = MagicMock()
-    conn.execute = AsyncMock(side_effect=exc)
+    conn.fetchrow = AsyncMock(side_effect=exc)
     acquire = MagicMock()
     acquire.__aenter__ = AsyncMock(return_value=conn)
     acquire.__aexit__ = AsyncMock(return_value=False)
@@ -37,14 +37,16 @@ def _pool_raising(exc: Exception):
 
 async def test_link_ory_raises_dedicated_error_on_ory_id_conflict():
     pool = _pool_raising(_unique_violation("users_ory_id_key"))
-    with patch.object(identity, "get_pool", AsyncMock(return_value=pool)):
+    with patch.object(identity, "get_pool", AsyncMock(return_value=pool)), \
+            patch.object(identity.bot_profile, "mirror_enabled_for", return_value=False):
         with pytest.raises(identity.OryAccountAlreadyLinked):
             await identity.link_ory(111, "433fd7f9-d914-4c47-88b3-a37bbe964040", None)
 
 
 async def test_link_ory_keeps_other_unique_violations_untouched():
     pool = _pool_raising(_unique_violation("users_email_key"))
-    with patch.object(identity, "get_pool", AsyncMock(return_value=pool)):
+    with patch.object(identity, "get_pool", AsyncMock(return_value=pool)), \
+            patch.object(identity.bot_profile, "mirror_enabled_for", return_value=False):
         with pytest.raises(asyncpg.UniqueViolationError):
             await identity.link_ory(111, "433fd7f9-d914-4c47-88b3-a37bbe964040", None)
 
