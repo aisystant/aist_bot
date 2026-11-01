@@ -28,6 +28,10 @@ from db.queries.redeem import (
 )
 from helpers.dual_write import resolve_ory_id_from_chat
 
+# Roubles always left for the card payment when the discount reduces the YooKassa
+# payment itself (Seminar, showcase): YooKassa refuses a payment of 0.
+CARD_MIN_PAYABLE_RUB = 1
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,12 +39,15 @@ async def prepare_burn_offer(
     chat_id: int,
     full_amount_rub: int,
     skip_ceiling: bool = False,
+    min_payable_rub: int = 0,
 ) -> Optional[dict]:
     """Проверить применимость скидки баллами для пилота.
 
     Args:
         skip_ceiling: pass-through to available_discount — use for subscription cashback
             where no per-transaction daily cap applies (user pays full price by card).
+        min_payable_rub: keep this much of the price for the card payment
+            (CARD_MIN_PAYABLE_RUB where the discount reduces the YooKassa payment itself).
 
     Returns:
         dict с полями {copilka_pts, available_pts, discount_rub, payable_rub,
@@ -57,7 +64,12 @@ async def prepare_burn_offer(
         except Exception as cleanup_err:
             logger.warning(f"[Redeem] cleanup_expired_reserves_for_account failed, ignoring: {cleanup_err}")
 
-        info = await available_discount(account_id, Decimal(full_amount_rub), skip_ceiling=skip_ceiling)
+        info = await available_discount(
+            account_id,
+            Decimal(full_amount_rub),
+            skip_ceiling=skip_ceiling,
+            min_payable_rub=Decimal(min_payable_rub),
+        )
         if info["discount_rub"] <= 0:
             return None
 

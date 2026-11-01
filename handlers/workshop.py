@@ -46,6 +46,7 @@ from db.queries.workshop import (
 from clients.aisystant import aisystant
 from db.queries.redeem import confirm_burn
 from helpers.redeem_helpers import (
+    CARD_MIN_PAYABLE_RUB,
     prepare_burn_offer,
     format_burn_offer_text,
     build_burn_offer_keyboard,
@@ -343,7 +344,7 @@ async def callback_seminar_pay_rub(callback: CallbackQuery):
     await callback.answer()
 
     # WP-327: предложить скидку баллами если копилка > 0
-    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True)
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True, min_payable_rub=CARD_MIN_PAYABLE_RUB)
     if burn is not None:
         text = format_burn_offer_text(burn, item_title="семинара IWE")
         kb = build_burn_offer_keyboard(
@@ -391,7 +392,7 @@ async def _pay_yookassa_workshop(callback: CallbackQuery, chat_id: int, lang: st
         await callback.message.answer(t('workshop.pay_error', lang))
         return
 
-    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True) if apply_burn else None
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True, min_payable_rub=CARD_MIN_PAYABLE_RUB) if apply_burn else None
     payable_rub = int(burn["payable_rub"]) if burn else SEMINAR_AMOUNT
     metadata = {"telegram_id": str(chat_id), "purpose": "WORKSHOP"}
     if burn:
@@ -457,7 +458,7 @@ async def callback_seminar_pay(callback: CallbackQuery):
     logger.info(f"[Payment] pay_stars initiated: tg={chat_id}, amount={SEMINAR_STARS} XTR")
     await callback.answer()
 
-    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True)
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True, min_payable_rub=CARD_MIN_PAYABLE_RUB)
     if burn is not None:
         text = format_burn_offer_text(burn, item_title="оплаты Stars")
         kb = build_burn_offer_keyboard(
@@ -494,7 +495,7 @@ async def callback_seminar_pay_stars_burn(callback: CallbackQuery):
 
 async def _pay_stars_workshop(callback: CallbackQuery, chat_id: int, lang: str, apply_burn: bool):
     """Унифицированный flow Stars-оплаты семинара. apply_burn → резерв через provisional_id."""
-    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True) if apply_burn else None
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT, skip_ceiling=True, min_payable_rub=CARD_MIN_PAYABLE_RUB) if apply_burn else None
     provisional_id = None
     payable_stars = SEMINAR_STARS
     applied_discount_rub = 0
