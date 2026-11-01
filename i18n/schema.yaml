@@ -6415,6 +6415,10 @@ workshop:
     ru: "💳 Оплатить картой (8000₽)"
     en: "💳 Pay by card (8000₽)"
 
+  btn_pay_rub_amount:
+    ru: "💳 Оплатить картой ({amount}₽)"
+    en: "💳 Pay by card ({amount}₽)"
+
   btn_pay_stars_direct:
     ru: "⭐ Оплатить звёздами ({stars})"
     en: "⭐ Pay with stars ({stars})"
