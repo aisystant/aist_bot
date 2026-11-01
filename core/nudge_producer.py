@@ -38,7 +38,7 @@ _REACTIVATION_TYPE = "engagement_reactivation"
 _RECOGNITION_TYPE = "recognition_progress"
 
 
-def _canonical_type_safe(rule_id: str) -> str | None:
+def canonical_type_for_rule(rule_id: str) -> str | None:
     """canonical_type или None для незамапленного rule_id.
 
     Без защиты один незамапленный rule_id ронял бы KeyError'ом весь тик
@@ -61,7 +61,7 @@ def arbitrate_narrative(nudges: list[dict]) -> list[dict]:
     the suppression window without a second TTL.
     """
     has_reactivation = any(
-        _canonical_type_safe(n["rule_id"]) == _REACTIVATION_TYPE
+        canonical_type_for_rule(n["rule_id"]) == _REACTIVATION_TYPE
         for n in nudges
     )
     if not has_reactivation:
@@ -69,7 +69,7 @@ def arbitrate_narrative(nudges: list[dict]) -> list[dict]:
     return [
         n
         for n in nudges
-        if _canonical_type_safe(n["rule_id"]) != _RECOGNITION_TYPE
+        if canonical_type_for_rule(n["rule_id"]) != _RECOGNITION_TYPE
     ]
 
 

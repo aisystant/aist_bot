@@ -558,12 +558,15 @@ Aisystant означает лишь наличие связи и не перед
 
 ## 13. Deep-link источника входа (WP-406 Ф16-B3)
 
-`/start src_<value>` — метка канала привлечения: `site | stand | bot | guide-kit`
+`/start src_<value>` — метка канала привлечения: `site`, `stand`, `bot`,
+`guide-kit`, `mcp-claude`, `mcp-chatgpt`, `mcp-other` или `web`
 (дефолт `bot`; `src_guide_kit` нормализуется в `guide-kit`, неизвестное значение → `bot`).
 Не прерывает обычный `/start`: значение сохраняется в
 `current_context['onboarding']['entry_source']` и попадает полем `source` в payload
-событий воронки онбординга (`onboarding_started` / `x2_completed` / `x3_completed` /
-`onboarding_completed`). Не заменяет `entry_type`. Подробности — сценарий 02.11 §4.
+событий воронки онбординга (`registration_completed` / `onboarding_started` /
+`x2_completed` / `x3_completed` / `onboarding_completed`). Первый валидный источник
+сохраняется и не перезаписывается следующими `/start`. Не заменяет `entry_type`.
+Подробности — сценарий 02.11 §4.
 
 ---
 

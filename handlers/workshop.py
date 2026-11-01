@@ -16,6 +16,7 @@ Callbacks:
 - /community_report        — admin-отчёт по чатам
 """
 
+import asyncio
 import logging
 import os
 
@@ -166,14 +167,21 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 # ── Прямая покупка Мастерской (deep-link /start masterskaya_direct) ──
 
 
+async def _has_masterskaya_access(chat_id: int) -> bool:
+    return (
+        await has_direct_masterskaya_payment(chat_id)
+        or await get_workshop_payment_count(chat_id) >= 2
+    )
+
+
 async def show_direct_masterskaya_card(message: Message):
     """Карточка прямой оплаты Мастерской IWE, минуя Семинар (WP-181 Ф-direct)."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
-    if await has_direct_masterskaya_payment(chat_id) or await get_workshop_payment_count(chat_id) >= 2:
-        await message.answer(t('workshop.direct_already_have', lang))
+    if await _has_masterskaya_access(chat_id):
+        await _send_direct_masterskaya_invite(message.bot, chat_id, lang, message)
         return
 
     text = t('workshop.direct_offer', lang)
@@ -197,6 +205,10 @@ async def callback_direct_masterskaya_pay_rub(callback: CallbackQuery):
     intern = await get_intern(chat_id)
     lang = _lang(intern)
     await callback.answer()
+
+    if await _has_masterskaya_access(chat_id):
+        await _send_direct_masterskaya_invite(callback.bot, chat_id, lang, callback.message)
+        return
 
     yk = _get_yookassa()
     if not yk:
@@ -234,6 +246,10 @@ async def callback_direct_masterskaya_pay_stars(callback: CallbackQuery):
     logger.info(f"[Payment] direct pay_stars initiated: tg={chat_id}, amount={DIRECT_MASTERSKAYA_STARS} XTR")
     await callback.answer()
 
+    if await _has_masterskaya_access(chat_id):
+        await _send_direct_masterskaya_invite(callback.bot, chat_id, lang, callback.message)
+        return
+
     try:
         link = await callback.bot.create_invoice_link(
             title=t('workshop.direct_card_invoice_title', lang),
@@ -259,11 +275,9 @@ async def callback_direct_masterskaya_pay_stars(callback: CallbackQuery):
 
 async def _send_direct_masterskaya_invite(bot: Bot, chat_id: int, lang: str, message=None):
     """Invite сразу в Мастерскую — без учёта count, воронка Семинара не участвует."""
-    if not MASTERSKAYA_IWE_CHAT_ID:
-        logger.error("[Workshop] MASTERSKAYA_IWE_CHAT_ID not configured for direct purchase")
-        return
-
     try:
+        if not MASTERSKAYA_IWE_CHAT_ID:
+            raise RuntimeError("MASTERSKAYA_IWE_CHAT_ID not configured")
         invite = await bot.create_chat_invite_link(
             chat_id=MASTERSKAYA_IWE_CHAT_ID,
             creates_join_request=True,
@@ -529,6 +543,11 @@ async def callback_seminar_check(callback: CallbackQuery):
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
+    if await _has_masterskaya_access(chat_id):
+        await callback.answer()
+        await _send_direct_masterskaya_invite(callback.bot, chat_id, lang, callback.message)
+        return
+
     logger.info(f"[Payment] check initiated: tg={chat_id}")
     count = await get_workshop_payment_count(chat_id)
     logger.info(f"[Payment] check result: tg={chat_id}, count={count}")
@@ -552,11 +571,39 @@ async def on_workshop_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     amount = pre_checkout_query.total_amount
     payload = pre_checkout_query.invoice_payload
     logger.info(f"[Payment] pre_checkout: tg={chat_id}, currency={currency}, amount={amount}, payload={payload}")
+    if payload.startswith("workshop_direct_"):
+        if (
+            currency != "XTR"
+            or amount != DIRECT_MASTERSKAYA_STARS
+            or payload != f"workshop_direct_{chat_id}"
+        ):
+            await pre_checkout_query.answer(
+                ok=False, error_message=t('workshop.pay_error', 'ru'),
+            )
+            return
+        try:
+            # Telegram requires an answer within 10 seconds. Leave time for the reply.
+            async with asyncio.timeout(5):
+                already_paid = await _has_masterskaya_access(chat_id)
+        except Exception:
+            logger.exception("[Payment] direct pre-checkout access check failed")
+            await pre_checkout_query.answer(
+                ok=False, error_message=t('workshop.pay_error', 'ru'),
+            )
+            return
+        if already_paid:
+            await pre_checkout_query.answer(
+                ok=False, error_message=t('workshop.direct_already_have', 'ru'),
+            )
+            return
     await pre_checkout_query.answer(ok=True)
     logger.info(f"[Payment] pre_checkout answered ok: tg={chat_id}")
 
 
-@workshop_router.message(F.successful_payment)
+@workshop_router.message(
+    F.successful_payment,
+    F.successful_payment.invoice_payload.startswith(("workshop_seminar_", "workshop_direct_")),
+)
 async def on_workshop_payment(message: Message):
     """Успешная оплата семинара (Stars или карта) → записать в workshop_payments → выдать invite."""
     payment = message.successful_payment
@@ -578,13 +625,17 @@ async def on_workshop_payment(message: Message):
     product = "masterskaya_direct" if is_direct else None
 
     logger.info(f"[Payment] recording payment: tg={chat_id}, source={source}, amount={payment.total_amount}, charge_id={charge_id}, product={product}")
-    await create_and_confirm_payment(
+    row_id = await create_and_confirm_payment(
         telegram_id=chat_id,
         amount=payment.total_amount,
         source=source,
         payment_id=charge_id,
         product=product,
     )
+
+    if row_id == 0 and is_direct:
+        logger.info("[Payment] duplicate workshop charge already recorded: %s", charge_id)
+        return
 
     if is_direct:
         # Прямая покупка Мастерской: минуя count и воронку Семинара, но
@@ -603,6 +654,10 @@ async def on_workshop_payment(message: Message):
             logger.info(f"[Redeem] confirm_burn(provisional={provisional_id}) result={ok}, tg={chat_id}")
         except Exception as e:
             logger.error(f"[Redeem] confirm_burn exception: provisional={provisional_id}, tg={chat_id}, error={e}")
+
+    if row_id == 0:
+        logger.info("[Payment] duplicate seminar charge already recorded: %s", charge_id)
+        return
 
     count = await get_workshop_payment_count(chat_id)
     logger.info(f"[Payment] payment recorded: tg={chat_id}, source={source}, count_after={count}")

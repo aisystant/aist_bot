@@ -860,7 +860,10 @@ async def cmd_mentor_card_dm(message: Message) -> None:
     же резолвер, что у DM-версии /mentor_note (WP-578 Ф3)."""
     target_message = message.reply_to_message
     if target_message is None:
-        await message.reply("Перешли сюда сообщение от участника (или своё, отправленное ему), и ответь на него этой командой.")
+        await message.reply(
+            "Сейчас команда вызвана без ответа на сообщение — поэтому карточка не показана. "
+            "Перешли сюда сообщение от участника (или своё, отправленное ему) и ответь на него этой командой."
+        )
         return
 
     caller_account_id = await resolve_ory_id_from_chat(message.from_user.id)

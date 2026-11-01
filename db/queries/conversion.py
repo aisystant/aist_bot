@@ -33,7 +33,14 @@ async def log_conversion_event(
     milestone: str = None,
     action: str = "shown",
 ) -> None:
-    """Записать конверсионное событие."""
+    """Записать конверсионное событие.
+
+    `action` — свободный текст (ни один запрос в репозитории не фильтрует по
+    точному значению, проверено 03.10.2026 перед WP-117 Ф-cross-pipeline-
+    contradiction). Milestone C3 использует это поле для полярности
+    поздравления (`"shown:active"` / `"shown:inactive"`) — см.
+    fetch_recent_milestone_claims() ниже, читает core/claims.py.
+    """
     pool = await get_lead_pool()
     async with pool.acquire() as conn:
         await conn.execute(
@@ -42,6 +49,27 @@ async def log_conversion_event(
                VALUES ($1, $2, $3, $4)''',
             chat_id, trigger_type, milestone, action,
         )
+
+
+async def fetch_recent_milestone_claims(chat_id: int, hours: int = 72) -> list[dict]:
+    """Milestone C3-отправки этому пользователю за последние `hours`.
+
+    WP-117 Ф-cross-pipeline-contradiction (S3): вход для кросс-конвейерного
+    арбитра (core/claims.get_recent_claims). `action` может не нести
+    полярность (легаси-записи C7 и ранние C3 до этой фазы) — разбор
+    полярности на стороне claims.py, здесь только сырые строки.
+    """
+    pool = await get_lead_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT action, shown_at
+               FROM public.conversion_event
+               WHERE chat_id = $1
+                 AND trigger_type = 'C3'
+                 AND shown_at > NOW() - INTERVAL '1 hour' * $2''',
+            chat_id, hours,
+        )
+    return [{"action": r["action"], "observed_at": r["shown_at"]} for r in rows]
 
 
 async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = None) -> bool:

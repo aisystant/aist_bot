@@ -1,4 +1,9 @@
-"""Execute the real HTTP handler without importing unrelated bot startup services."""
+"""Execute the real HTTP handler without importing unrelated bot startup services.
+
+The handler is called directly with a minimal request object: the release smoke
+runner (scripts/run_release_smoke.py) forbids any socket, including 127.0.0.1,
+so the tests must not start a local aiohttp server.
+"""
 
 import ast
 import hashlib
@@ -11,7 +16,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import web
-from aiohttp.test_utils import TestClient, TestServer
 
 
 @pytest.fixture
@@ -28,19 +32,32 @@ async def notify(monkeypatch):
     bot = SimpleNamespace(send_message=AsyncMock())
     namespace = {"web": web, "logger": logging.getLogger(__name__), "_bot_instance": bot}
     exec(compile(ast.Module(body=[handler], type_ignores=[]), str(source), "exec"), namespace)
-    app = web.Application()
-    app.router.add_post("/internal/notify", namespace["internal_notify_handler"])
-    async with TestClient(TestServer(app)) as client:
-        yield client, bot, namespace
+    # Resolve the handler at call time so a test can swap `_bot_instance`.
+    async def client(request):
+        return await namespace["internal_notify_handler"](request)
+
+    yield client, bot, namespace
+
+
+class Reply:
+    """The parts of the handler's web.Response that the tests check."""
+
+    def __init__(self, response):
+        self.status = response.status
+        self._text = response.text
+
+    async def json(self):
+        return json.loads(self._text)
 
 
 async def post(client, body, signature=None):
     raw = json.dumps(body).encode()
     digest = hmac.new(b"synthetic-test-secret", raw, hashlib.sha256).hexdigest()
-    return await client.post(
-        "/internal/notify", data=raw,
+    request = SimpleNamespace(
+        read=AsyncMock(return_value=raw),
         headers={"X-Notify-Signature": signature or f"sha256={digest}"},
     )
+    return Reply(await client(request))
 
 
 @pytest.mark.asyncio

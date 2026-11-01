@@ -388,17 +388,45 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     try:
         from db.queries.dt_tokens import get_dt_user_id
         from db.connection import get_pool
+        from db.queries import bot_profile
         dt_uid = await get_dt_user_id(telegram_user_id)
         if dt_uid:
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                res = await conn.execute(
-                    '''UPDATE public.users SET ory_id = $2, updated_at = NOW()
-                       WHERE telegram_id = $1 AND ory_id IS NULL
-                         AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2)''',
-                    telegram_user_id, dt_uid,
-                )
-            if res != 'UPDATE 0':
+            # WP-253 Ф12.6 фаза A: второй, более редкий T0→T1 discovery-канал
+            # (первый — identity.link_ory). RETURNING даёт зеркалу закоммиченную
+            # строку в тот же момент, когда у пользователя впервые появляется
+            # ory_id (peer-session 2026-09-17-07). Тот же per-chat_id лок и
+            # серверный updated_at, что identity.link_ory — иначе конкурирует
+            # с ним и с update_intern за порядок записи в persona.bot_profile
+            # без сериализации (cold-review этой сессии).
+            # nosec B608 — колонки из хардкодного whitelist (bot_profile.PROFILE_MIRROR_FIELDS,
+            # провалидирован regex), значения параметризованы ($1, $2), тот же паттерн, что
+            # db/sql_helpers.py.
+            dt_link_returning = (
+                "UPDATE public.users SET ory_id = $2, updated_at = (NOW() AT TIME ZONE 'utc') "  # nosec B608
+                "WHERE telegram_id = $1 AND ory_id IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2) "
+                "RETURNING telegram_id AS chat_id, ory_id, updated_at, " +
+                ', '.join(bot_profile.PROFILE_MIRROR_FIELDS)
+            )
+
+            async def _dt_link_write():
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    return await conn.fetchrow(dt_link_returning, telegram_user_id, dt_uid)
+
+            dt_mirror_lock = await bot_profile.chat_lock(telegram_user_id) \
+                if bot_profile.mirror_enabled_for(telegram_user_id) else None
+            if dt_mirror_lock is not None:
+                async with dt_mirror_lock:
+                    returning_row = await _dt_link_write()
+                    if returning_row is not None:
+                        await bot_profile.mirror_profile_row(dict(returning_row))
+            else:
+                returning_row = await _dt_link_write()
+                if returning_row is not None:
+                    await bot_profile.mirror_profile_row(dict(returning_row))
+
+            if returning_row is not None:
                 logger.info(f"DT: synced ory_id={dt_uid} to users for {telegram_user_id}")
                 # WP-268 Phase 2 dual-write: dt_linked (сохранён после IDCOL1 Ф2 —
                 # downstream-дашборды могут опираться на этот event_type; account_id
@@ -1424,6 +1452,18 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     except Exception as e:
         logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
 
+    # ── WP-522 Ф18: писатель факта С3 чек-листа (event-gateway, не user_events) ──
+    if lesson_files and sender_type != "Bot":
+        lesson_dates = [
+            m.group(1) for f in lesson_files
+            if (m := re.match(r'^lesson/(\d{4}-\d{2}-\d{2})\.md$', f))
+        ]
+        try:
+            from core.lesson.events import emit_lesson_closed_batch
+            await emit_lesson_closed_batch(dt_user_id, lesson_dates)
+        except Exception as e:
+            logger.warning("[WorkbookWebhook] lesson_closed emit failed: %s", e)
+
     # ── On-demand пересчёт ЦД ────────────────────────────────────────────────
     asyncio.create_task(sync_one_user_to_dt(dt_user_id))
 
@@ -2025,6 +2065,11 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
             return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
 
     if notify_type == 'installation_orphaned':
+        # WP-559 (live case 13.09, Ivan K.): github-integration-service could not match a
+        # GitHub installation webhook to any user (no state-bearing install on file, no
+        # matching github_user_id) — the event sits in knowledge.orphaned_installation_events
+        # forever, nothing re-reads that table. Surface it the moment it happens instead of
+        # waiting for the user to complain.
         # WP-559: acknowledge orphan alerts only after Telegram accepts delivery.
         import html as _html
         ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')

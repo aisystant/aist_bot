@@ -176,6 +176,10 @@ from .settings import (
     BOT_USERNAME,
     ALLOWED_TESTERS,
 
+    # Bot profile mirror (WP-253 Ф12.6 фаза A dual-write)
+    BOT_PROFILE_DUAL_WRITE_ENABLED,
+    BOT_PROFILE_DUAL_WRITE_CHAT_IDS,
+
     # Event Gateway (WP-268 Phase 2 dual-write)
     EVENT_GATEWAY_URL,
     EVENT_GATEWAY_TIMEOUT,
@@ -310,6 +314,8 @@ __all__ = [
     'MAINTENANCE_REDIRECT_BOT',
     'BOT_USERNAME',
     'ALLOWED_TESTERS',
+    'BOT_PROFILE_DUAL_WRITE_ENABLED',
+    'BOT_PROFILE_DUAL_WRITE_CHAT_IDS',
     'ORY_BASE_URL',
     'ORY_CLIENT_ID',
     'ORY_CLIENT_SECRET',

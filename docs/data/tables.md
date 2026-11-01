@@ -929,7 +929,7 @@
 
 **Группировка:** `day + entry_type + lang` (эти ключи есть в payload started/x2/x3). `cohort_id` живёт только в started/completed — в группировку не входит, добавить когда x2/x3 тоже понесут cohort_id. Срез «за период» = SUM по строкам дней в диапазоне.
 
-**Поле `source` в payload (WP-406 Ф16-B3):** все четыре события несут `payload->>'source'` — источник входа `site | stand | bot | guide-kit` (дефолт `bot`, из deep-link `/start src_<value>`). В view пока не входит — добавить в группировку при следующем пересоздании, если нужен срез по каналам.
+**Поле `source` в payload (WP-406 Ф16-B3):** события `registration_completed`, `onboarding_started`, `x2_completed`, `x3_completed` и `onboarding_completed` несут `payload->>'source'` — first-touch источник входа `site | stand | bot | guide-kit | mcp-claude | mcp-chatgpt | mcp-other | web` (дефолт `bot`, из deep-link `/start src_<value>`). В view пока не входит — добавить в группировку при следующем пересоздании, если нужен срез по каналам.
 
 **Правило DROP + CREATE (§10.22):** view пересоздаётся, данные не теряются (stateless).
 
