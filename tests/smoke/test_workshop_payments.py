@@ -258,3 +258,34 @@ async def test_other_product_reaches_next_router(workshop):
     )
     downstream.assert_awaited_once()
     workshop.create_and_confirm_payment.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["ru", "en"])
+async def test_direct_card_pay_button_shows_charged_amount(
+    workshop, callback, monkeypatch, language
+):
+    """The card button after a direct purchase shows the sum actually charged.
+
+    It used to reuse the Seminar caption (5000₽) while the YooKassa payment was
+    created for DIRECT_MASTERSKAYA_AMOUNT (8000₽).
+    """
+    import re
+
+    workshop.get_intern.return_value = {"language": language}
+    provider = SimpleNamespace(
+        create_payment=AsyncMock(
+            return_value={"id": "pay-1", "confirmation_url": "https://pay.example/1"}
+        )
+    )
+    monkeypatch.setattr(workshop, "_get_yookassa", lambda: provider)
+
+    await workshop.callback_direct_masterskaya_pay_rub(callback)
+
+    charged = provider.create_payment.await_args.kwargs["amount"]
+    assert charged == workshop.DIRECT_MASTERSKAYA_AMOUNT
+    keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
+    pay_button = keyboard.inline_keyboard[0][0]
+    assert pay_button.url == "https://pay.example/1"
+    shown = [int(n) for n in re.findall(r"\d+", pay_button.text)]
+    assert shown == [charged]
