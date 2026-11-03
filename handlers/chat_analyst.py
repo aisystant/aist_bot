@@ -7,6 +7,8 @@
                     чат; бота убрали или сняли права: снять регистрацию
 - сообщения групп — передача в сервис, только пока сервис подтверждает, что сбор включён
 - /chat_digest    — admin-команда (только CHAT_ANALYST_OWNER_ID, ответ только в личку)
+- /erase_me       — любой человек удаляет свои данные (только в личке, после кнопки
+                    «Удалить»; номер — только from_user.id); в группе бот её молча гасит
 
 Хендлеры по окончании всегда отдают событие дальше (SkipHandler): после них работает
 детекция упоминаний каналов (SC.118), она ловит любое групповое сообщение.
@@ -25,7 +27,15 @@ from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
-from aiogram.types import ChatMemberAdministrator, ChatMemberOwner, ChatMemberUpdated, Message
+from aiogram.types import (
+    CallbackQuery,
+    ChatMemberAdministrator,
+    ChatMemberOwner,
+    ChatMemberUpdated,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from clients.chat_analyst import ChatAnalystClient, ChatAnalystError
 from config import get_logger
@@ -236,6 +246,83 @@ async def cmd_chat_collect(message: Message):
         await message.answer("Сбор по этому чату уже идёт.", parse_mode=None)
         return
     await _begin_collection(cfg, bot, chat, member, time.time())
+
+
+# --- /erase_me ------------------------------------------------------------
+
+ERASE_CONFIRM = "chat_analyst:erase:confirm"
+ERASE_CANCEL = "chat_analyst:erase:cancel"
+ERASE_PROMPT_TEXT = (
+    "Удалить ваши данные из Аналитика чата?\n\n"
+    "Удалятся все ваши сообщения из архива во всех закрытых чатах, где работает Аналитик, "
+    "и сбор ваших сообщений отключится. Возобновить сбор сейчас нельзя.\n\n"
+    "Не удаляются копии сводок, которые наставники уже получили в Telegram, и сводка, "
+    "которая составлялась в момент удаления.\n\n"
+    "Условия: {terms_url}"
+)
+ERASED_TEXT = "Данные удалены, сбор ваших сообщений отключён."
+# Не «не удалено»: после таймаута сервис мог удалить, а ответ потеряться.
+ERASE_UNCONFIRMED_TEXT = (
+    "Не удалось подтвердить удаление: сервис не ответил. "
+    "Повторите /erase_me позже — повтор безопасен."
+)
+ERASE_CANCELLED_TEXT = "Удаление отменено, ничего не изменилось."
+ERASE_UNAVAILABLE_TEXT = "Удаление данных Аналитика чата сейчас недоступно."
+
+
+def _erase_keyboard() -> InlineKeyboardMarkup:
+    # Номера человека в кнопке нет: удаляется тот, кто нажал (callback.from_user.id).
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Удалить", callback_data=ERASE_CONFIRM),
+        InlineKeyboardButton(text="Отмена", callback_data=ERASE_CANCEL),
+    ]])
+
+
+@chat_analyst_router.message(Command("erase_me"))
+async def cmd_erase_me(message: Message):
+    if message.chat.type != "private":
+        return  # в группе бот молчит; событие не отдаём дальше, чтобы никто не ответил в чат
+    cfg = _config()
+    if cfg is None:
+        await message.answer(ERASE_UNAVAILABLE_TEXT, parse_mode=None)
+        return
+    await message.answer(
+        ERASE_PROMPT_TEXT.format(terms_url=cfg.terms_url), reply_markup=_erase_keyboard(), parse_mode=None
+    )
+
+
+@chat_analyst_router.callback_query(F.data.in_({ERASE_CONFIRM, ERASE_CANCEL}))
+async def cb_erase_me(callback: CallbackQuery):
+    # До HTTP-запроса: повторы сервиса могут занять ~30 с, а кнопка ждёт ответа. Опоздавшее
+    # нажатие (после рестарта) Telegram уже не подтверждает — удаление от этого не зависит.
+    try:
+        await callback.answer()
+    except TelegramAPIError as err:
+        logger.warning("[chat_analyst] erase callback not acknowledged error=%s", type(err).__name__)
+    chat = callback.message.chat if callback.message else None
+    if chat is None or chat.type != "private":
+        return
+    bot = callback.bot
+    try:
+        await bot.edit_message_reply_markup(chat_id=chat.id, message_id=callback.message.message_id)
+    except TelegramAPIError as err:
+        # Кнопки убираем от двойного нажатия, но удаление на этом не держится: повтор безопасен.
+        logger.warning("[chat_analyst] erase keyboard not removed error=%s", type(err).__name__)
+    if callback.data == ERASE_CANCEL:
+        await bot.send_message(chat.id, ERASE_CANCELLED_TEXT, parse_mode=None)
+        return
+    cfg = _config()
+    if cfg is None:
+        await bot.send_message(chat.id, ERASE_UNAVAILABLE_TEXT, parse_mode=None)
+        return
+    try:
+        await cfg.client.erase_participant(callback.from_user.id)
+    except ChatAnalystError as err:
+        logger.warning("[chat_analyst] erase unconfirmed status=%s", err.status)
+        await bot.send_message(chat.id, ERASE_UNCONFIRMED_TEXT, parse_mode=None)
+        return
+    logger.info("[chat_analyst] participant data erased")
+    await bot.send_message(chat.id, ERASED_TEXT, parse_mode=None)
 
 
 # --- сообщения групп ------------------------------------------------------
