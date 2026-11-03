@@ -928,6 +928,15 @@ async def test_resume_me_in_private_asks_for_confirmation_and_calls_nothing(fake
     assert fake.calls == []
 
 
+async def test_resume_me_without_config_names_resume_not_erase(monkeypatch):
+    monkeypatch.setattr(h, "_config", lambda: None)
+    message, answers = erase_command()
+
+    await h.cmd_resume_me(message)
+
+    assert answers == [(h.RESUME_UNAVAILABLE_TEXT, None)]
+
+
 async def test_resume_me_in_group_is_swallowed_silently(fake):
     message, answers = erase_command(chat_type="supergroup")
 
