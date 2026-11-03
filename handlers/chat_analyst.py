@@ -287,6 +287,7 @@ RESUME_UNCONFIRMED_TEXT = (
 )
 CANCELLED_TEXT = "Отменено, ничего не изменилось."
 ERASE_UNAVAILABLE_TEXT = "Удаление данных Аналитика чата сейчас недоступно."
+RESUME_UNAVAILABLE_TEXT = "Включение сбора в Аналитике чата сейчас недоступно."
 
 
 @dataclass(frozen=True)
@@ -299,15 +300,18 @@ class SelfAction:
     call: Callable[[ChatAnalystClient, int], Awaitable[None]]
     done: str
     unconfirmed: str
+    unavailable: str
 
 
 ERASE = SelfAction(
     "erase", ERASE_PROMPT_TEXT, "Удалить", ERASE_CONFIRM, ERASE_CANCEL,
     lambda client, user_id: client.erase_participant(user_id), ERASED_TEXT, ERASE_UNCONFIRMED_TEXT,
+    ERASE_UNAVAILABLE_TEXT,
 )
 RESUME = SelfAction(
     "resume", RESUME_PROMPT_TEXT, "Включить сбор", RESUME_CONFIRM, RESUME_CANCEL,
     lambda client, user_id: client.resume_participant(user_id), RESUMED_TEXT, RESUME_UNCONFIRMED_TEXT,
+    RESUME_UNAVAILABLE_TEXT,
 )
 
 
@@ -323,7 +327,7 @@ async def _ask(message: Message, action: SelfAction) -> None:
         return  # в группе бот молчит; событие не отдаём дальше, чтобы никто не ответил в чат
     cfg = _config()
     if cfg is None:
-        await message.answer(ERASE_UNAVAILABLE_TEXT, parse_mode=None)
+        await message.answer(action.unavailable, parse_mode=None)
         return
     await message.answer(
         action.prompt.format(terms_url=cfg.terms_url), reply_markup=_keyboard(action), parse_mode=None
@@ -351,7 +355,7 @@ async def _run_self_action(callback: CallbackQuery, action: SelfAction) -> None:
         return
     cfg = _config()
     if cfg is None:
-        await bot.send_message(chat.id, ERASE_UNAVAILABLE_TEXT, parse_mode=None)
+        await bot.send_message(chat.id, action.unavailable, parse_mode=None)
         return
     try:
         await action.call(cfg.client, callback.from_user.id)
