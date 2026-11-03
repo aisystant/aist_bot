@@ -147,6 +147,9 @@ class FakeClient:
     async def erase_participant(self, sender_id):
         await self._do("erase_participant", sender_id)
 
+    async def resume_participant(self, sender_id):
+        await self._do("resume_participant", sender_id)
+
 
 class FakeBot:
     def __init__(self, order: list, *, member=None) -> None:
@@ -800,7 +803,7 @@ async def test_erase_me_in_private_asks_for_confirmation_and_calls_nothing(fake)
     await h.cmd_erase_me(message)
 
     [(text, keyboard)] = answers
-    assert TERMS in text and "Возобновить сбор сейчас нельзя" in text
+    assert TERMS in text and "/resume_me" in text
     buttons = keyboard.inline_keyboard[0]
     assert [(b.text, b.callback_data) for b in buttons] == [("Удалить", h.ERASE_CONFIRM), ("Отмена", h.ERASE_CANCEL)]
     assert fake.calls == []
@@ -849,7 +852,7 @@ async def test_router_filter_accepts_exactly_the_keyboard_buttons(fake):
     [handler] = [
         obj for obj in h.chat_analyst_router.callback_query.handlers if obj.callback is h.cb_erase_me
     ]
-    for button in h._erase_keyboard().inline_keyboard[0]:
+    for button in h._keyboard(h.ERASE).inline_keyboard[0]:
         accepted, _ = await handler.check(SimpleNamespace(data=button.callback_data))
         assert accepted, button.callback_data
     rejected, _ = await handler.check(SimpleNamespace(data="chat_analyst:erase:other"))
@@ -862,7 +865,7 @@ async def test_cancel_erases_nothing(fake):
     await h.cb_erase_me(callback)
 
     assert fake.calls == []
-    assert callback.bot.sent == [(555, h.ERASE_CANCELLED_TEXT)]
+    assert callback.bot.sent == [(555, h.CANCELLED_TEXT)]
 
 
 @pytest.mark.parametrize("status", [0, 503])
@@ -899,3 +902,75 @@ async def test_confirm_from_a_group_message_erases_nothing(fake):
     await h.cb_erase_me(callback)
 
     assert answered == [True] and fake.calls == [] and callback.bot.sent == []
+
+
+# --- /resume_me -----------------------------------------------------------
+
+async def test_client_resume_posts_participant_path(service):
+    service.replies = [(200, {"status": "collecting"})]
+
+    await service.client.resume_participant(555)
+
+    assert [r[:2] for r in service.requests] == [("POST", "/participants/555/resume")]
+
+
+async def test_resume_me_in_private_asks_for_confirmation_and_calls_nothing(fake):
+    message, answers = erase_command()
+
+    await h.cmd_resume_me(message)
+
+    [(text, keyboard)] = answers
+    assert TERMS in text and "не вернутся" in text
+    buttons = keyboard.inline_keyboard[0]
+    assert [(b.text, b.callback_data) for b in buttons] == [
+        ("Включить сбор", h.RESUME_CONFIRM), ("Отмена", h.RESUME_CANCEL)
+    ]
+    assert fake.calls == []
+
+
+async def test_resume_me_in_group_is_swallowed_silently(fake):
+    message, answers = erase_command(chat_type="supergroup")
+
+    await h.cmd_resume_me(message)
+
+    assert answers == [] and fake.calls == []
+
+
+async def test_confirm_resumes_the_person_who_pressed(fake):
+    callback, _ = erase_callback(h.RESUME_CONFIRM, user_id=555, chat_id=777)
+
+    await h.cb_resume_me(callback)
+
+    assert fake.calls == [("resume_participant", 555)]
+    assert callback.bot.sent == [(777, h.RESUMED_TEXT)]
+
+
+async def test_cancel_resumes_nothing(fake):
+    callback, _ = erase_callback(h.RESUME_CANCEL)
+
+    await h.cb_resume_me(callback)
+
+    assert fake.calls == [] and callback.bot.sent == [(555, h.CANCELLED_TEXT)]
+
+
+async def test_unconfirmed_resume_says_to_repeat(fake):
+    fake.fail["resume_participant"] = ChatAnalystError(0, "")
+    callback, _ = erase_callback(h.RESUME_CONFIRM)
+
+    await h.cb_resume_me(callback)
+
+    assert callback.bot.sent == [(555, h.RESUME_UNCONFIRMED_TEXT)]
+
+
+async def test_each_router_filter_accepts_only_its_own_buttons(fake):
+    by_callback = {obj.callback: obj for obj in h.chat_analyst_router.callback_query.handlers}
+    for callback_fn, own, other in [
+        (h.cb_erase_me, h.ERASE, h.RESUME), (h.cb_resume_me, h.RESUME, h.ERASE)
+    ]:
+        handler = by_callback[callback_fn]
+        for data in (own.confirm, own.cancel):
+            accepted, _ = await handler.check(SimpleNamespace(data=data))
+            assert accepted, data
+        for data in (other.confirm, other.cancel):
+            rejected, _ = await handler.check(SimpleNamespace(data=data))
+            assert not rejected, data
