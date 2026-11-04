@@ -170,8 +170,12 @@ async def _check_contract_subscription(chat_id: int) -> bool:
 
     try:
         import asyncpg
-        conn = await asyncpg.connect(db_url)
+        from db.connection import db_server_settings, verify_connection_identity
+        conn = await asyncpg.connect(db_url, server_settings=db_server_settings())
         try:
+            # WP-544 F16: a wrong database or role is refused before the query;
+            # the except below logs it and the user is treated as unsubscribed.
+            await verify_connection_identity(conn, "SUBSCRIPTION")
             return bool(await conn.fetchval(
                 """
                 SELECT EXISTS(
