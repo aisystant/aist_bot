@@ -85,6 +85,81 @@ _reference_pool: Optional[asyncpg.Pool] = None     # product, training_setting, 
 _bot_data_pool: Optional[asyncpg.Pool] = None      # products, finance_payments (Railway /bot_data)
 
 
+# WP-544 F16: every domain URL must reach exactly this Neon database. The
+# settings fall back to DATABASE_URL when a domain URL is unset; the identity
+# check below turns that silent substitution into a hard failure.
+DOMAIN_DATABASES = {
+    "COMMUNITY": "community",
+    "HEALTH": "health",
+    "INDICATORS": "indicators",
+    "JOURNAL": "journal",
+    "LEAD": "lead",
+    "PERSONA": "persona",
+    "PUBLICATION": "publication",
+    "REFERENCE": "reference",
+    "SECRETS": "secrets",
+    "SUBSCRIPTION": "subscription",
+}
+DEFAULT_DB_APPLICATION_NAME = "aist_bot"
+_unverified_role_warned: set[str] = set()
+
+
+def db_server_settings() -> dict[str, str]:
+    """Session settings for domain connections: application_name tells the
+    pilot bot's connections from prod's in pg_stat_activity."""
+    return {
+        "application_name": os.getenv("DB_APPLICATION_NAME") or DEFAULT_DB_APPLICATION_NAME
+    }
+
+
+async def verify_connection_identity(conn: asyncpg.Connection, domain: str) -> None:
+    """Fail closed unless conn is attached to the database of this domain.
+
+    The role is checked against EXPECTED_DB_ROLE_<domain> when it is set; without
+    it only a warning is logged once per domain. Error texts carry database and
+    role names only, never the DSN.
+    """
+    expected_database = DOMAIN_DATABASES[domain]
+    row = await conn.fetchrow(
+        "SELECT current_database()::text AS database, "
+        "current_user::text AS current_user, session_user::text AS session_user"
+    )
+    database = row["database"] if row else None
+    if database != expected_database:
+        raise RuntimeError(
+            f"{domain} connection must use database {expected_database!r}; "
+            f"got {database!r}"
+        )
+
+    role_variable = f"EXPECTED_DB_ROLE_{domain}"
+    expected_role = os.getenv(role_variable)
+    if not expected_role:
+        if domain not in _unverified_role_warned:
+            logger.warning(
+                "%s is not set: the database role of the %s connection is not verified",
+                role_variable,
+                domain,
+            )
+            _unverified_role_warned.add(domain)
+        return
+
+    current_user, session_user = row["current_user"], row["session_user"]
+    if current_user != expected_role or session_user != expected_role:
+        raise RuntimeError(
+            f"{domain} connection must authenticate as {expected_role!r}; "
+            f"got session_user={session_user!r}, current_user={current_user!r}"
+        )
+
+
+def _domain_pool_options(domain: str) -> dict:
+    """create_pool keyword arguments shared by the ten domain pools."""
+
+    async def _init(conn: asyncpg.Connection) -> None:
+        await verify_connection_identity(conn, domain)
+
+    return {"init": _init, "server_settings": db_server_settings()}
+
+
 class BurnApplyMode(str, Enum):
     """Which process initiates the protected confirmed-burn apply."""
 
@@ -143,6 +218,7 @@ async def get_persona_pool() -> asyncpg.Pool:
             max_size=10,
             command_timeout=30,
             max_inactive_connection_lifetime=300,  # WP-330: было 60 → реконнект на каждой nav-команде
+            **_domain_pool_options("PERSONA"),
         )
         logger.info("✅ Persona пул соединений создан")
     return _persona_pool
@@ -159,6 +235,7 @@ async def get_subscription_pool() -> asyncpg.Pool:
             max_size=5,
             command_timeout=30,
             max_inactive_connection_lifetime=60,
+            **_domain_pool_options("SUBSCRIPTION"),
         )
         logger.info("✅ Subscription пул соединений создан")
     return _subscription_pool
@@ -175,6 +252,7 @@ async def get_indicators_pool() -> asyncpg.Pool:
             max_size=5,
             command_timeout=30,
             max_inactive_connection_lifetime=60,
+            **_domain_pool_options("INDICATORS"),
         )
         logger.info("✅ Indicators пул соединений создан")
     return _indicators_pool
@@ -367,6 +445,7 @@ async def get_journal_pool() -> asyncpg.Pool:
             max_size=10,
             command_timeout=30,
             max_inactive_connection_lifetime=60,
+            **_domain_pool_options("JOURNAL"),
         )
         logger.info("✅ Journal пул соединений создан (min=1, max=10)")
     return _journal_pool
@@ -386,6 +465,7 @@ async def get_health_pool() -> asyncpg.Pool:
             max_size=10,
             command_timeout=30,
             max_inactive_connection_lifetime=300,  # WP-330: было 60 → reconnect on every nav burst
+            **_domain_pool_options("HEALTH"),
         )
         logger.info("✅ Health пул соединений создан (min=1, max=10)")
     return _health_pool
@@ -406,6 +486,7 @@ async def get_secrets_pool() -> asyncpg.Pool:
             max_size=5,
             command_timeout=30,
             max_inactive_connection_lifetime=60,
+            **_domain_pool_options("SECRETS"),
         )
         logger.info("✅ Secrets пул соединений создан (min=1, max=5)")
     return _secrets_pool
@@ -417,6 +498,7 @@ async def get_publication_pool() -> asyncpg.Pool:
     if _publication_pool is None:
         _publication_pool = await asyncpg.create_pool(
             PUBLICATION_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
+            **_domain_pool_options("PUBLICATION"),
         )
         logger.info("✅ Publication пул соединений создан")
     return _publication_pool
@@ -428,6 +510,7 @@ async def get_community_pool() -> asyncpg.Pool:
     if _community_pool is None:
         _community_pool = await asyncpg.create_pool(
             COMMUNITY_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
+            **_domain_pool_options("COMMUNITY"),
         )
         logger.info("✅ Community пул соединений создан")
     return _community_pool
@@ -439,6 +522,7 @@ async def get_lead_pool() -> asyncpg.Pool:
     if _lead_pool is None:
         _lead_pool = await asyncpg.create_pool(
             LEAD_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
+            **_domain_pool_options("LEAD"),
         )
         logger.info("✅ Lead пул соединений создан")
     return _lead_pool
@@ -452,6 +536,7 @@ async def get_reference_pool() -> asyncpg.Pool:
             REFERENCE_URL,
             statement_cache_size=0,  # Neon pooled endpoint: prepared stmt cache вызывает UndefinedTableError (search_path сбрасывается на переиспользуемых pgbouncer-соединениях)
             min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
+            **_domain_pool_options("REFERENCE"),
         )
         logger.info("✅ Reference пул соединений создан")
     return _reference_pool
