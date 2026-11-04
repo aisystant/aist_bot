@@ -451,7 +451,9 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 ind_pool,
                 str(twin_user_id),
                 lambda conn: conn.execute(
-                    'DELETE FROM public.digital_twins WHERE user_id = $1::uuid',
+                    # digital_twins.user_id is text: comparing it with a uuid parameter
+                    # raises "operator does not exist" and the delete never ran.
+                    'DELETE FROM public.digital_twins WHERE user_id = $1',
                     str(twin_user_id),
                 ),
             )

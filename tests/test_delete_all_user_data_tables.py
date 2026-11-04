@@ -1051,7 +1051,7 @@ def test_indicators_deletes_set_their_own_rls_context(monkeypatch):
         (1, set_config, (account_id,)),
         (1, "DELETE FROM public.calculated_profile WHERE account_id = $1::uuid", (account_id,)),
         (2, set_config, (dt_user_id,)),
-        (2, "DELETE FROM public.digital_twins WHERE user_id = $1::uuid", (dt_user_id,)),
+        (2, "DELETE FROM public.digital_twins WHERE user_id = $1", (dt_user_id,)),
     ]
     assert result["indicators_calculated_profile"] == 1
     assert result["indicators_digital_twins"] == 1
