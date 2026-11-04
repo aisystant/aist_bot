@@ -1,26 +1,24 @@
 """
-RLS context wrapper — WP-212 B4.24
+RLS account context wrapper — WP-212 B4.24, rewritten in WP-544 F16.
 
-Устанавливает SET LOCAL app.user_id внутри транзакции.
-RLS-политики (migration 006, aist_bot migrations) читают current_user_id() = current_setting('app.user_id', true).
+Row-level policies on the Neon indicators tables (digital_twins,
+calculated_profile) read the caller's account through app.require_account_id(),
+which takes app.account_id first and raises when no context setting is present.
+The bot used to pass those policies only because the owner role bypassed RLS;
+its own roles do not.
 
-Использование:
+Usage:
     from db.rls import with_user_context
 
-    result = await with_user_context(pool, ory_id, async def(conn):
-        return await conn.fetch("SELECT * FROM digital_twins WHERE ...")
+    rows = await with_user_context(pool, str(account_id), lambda conn:
+        conn.fetch("SELECT ... FROM public.calculated_profile WHERE account_id = $1::uuid",
+                   str(account_id))
     )
 
-    # Или через get_pool():
-    pool = await get_pool()
-    rows = await with_user_context(pool, user.ory_id, lambda conn:
-        conn.fetch("SELECT * FROM public.users WHERE id = $1", user.id)
-    )
-
-Гарантии:
-  - SET LOCAL действует только до конца транзакции (COMMIT/ROLLBACK сбрасывает)
-  - Соединение возвращается в пул с чистым состоянием
-  - Если ory_id = None/empty — SET LOCAL не вызывается → RLS блокирует личные строки (fail safe)
+Guarantees:
+  - set_config(..., is_local => true) lasts until the end of the transaction,
+    so the pooled connection goes back without the context.
+  - The context and fn share one connection and one explicit transaction.
 """
 
 from __future__ import annotations
@@ -31,24 +29,30 @@ import asyncpg
 
 T = TypeVar("T")
 
+# SET LOCAL takes no bind parameters; set_config does.
+_SET_ACCOUNT_CONTEXT = "SELECT set_config('app.account_id', $1, true)"
+
 
 async def with_user_context(
     pool: asyncpg.Pool,
-    ory_id: str | None,
+    account_id: str | None,
     fn: Callable[[asyncpg.Connection], Awaitable[T]],
 ) -> T:
-    """Выполнить fn внутри транзакции с установленным app.user_id.
+    """Run fn in a transaction whose app.account_id is account_id.
 
     Args:
-        pool: asyncpg Pool (из get_pool())
-        ory_id: Ory user UUID. None/empty → SET LOCAL не вызывается (платформенный запрос)
-        fn: async-функция, получающая asyncpg.Connection
+        pool: asyncpg pool of the database whose policies read app.account_id.
+        account_id: the value the policy compares rows with (Ory account id or
+            twin user id, as a string). None/empty sets no context, as before
+            the rewrite: policies built on app.require_account_id() then fail
+            inside the database instead of reading someone else's rows.
+        fn: async function receiving the connection holding the context.
 
     Returns:
-        Результат fn
+        The result of fn.
     """
     async with pool.acquire() as conn:
         async with conn.transaction():
-            if ory_id:
-                await conn.execute("SET LOCAL app.user_id = $1", ory_id)
+            if account_id:
+                await conn.execute(_SET_ACCOUNT_CONTEXT, account_id)
             return await fn(conn)
