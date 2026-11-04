@@ -1005,3 +1005,53 @@ def test_f12_tables_with_a_foreign_key_to_users_are_deleted_before_the_users_row
     for table in ("user_milestone_offers", "user_milestones"):
         table_at = next(i for i, sql in enumerate(main) if f"DELETE FROM public.{table} " in sql)
         assert table_at < users_at, table
+
+
+class _RlsRecordingConn(_DeleteConn):
+    """Indicators double that records statements with the open transaction."""
+
+    def __init__(self):
+        super().__init__()
+        self.statements = []
+        self.transactions = 0
+
+    def transaction(self):
+        self.transactions += 1
+        return super().transaction()
+
+    async def execute(self, sql, *args):
+        self.statements.append((self.transactions, sql, args))
+        return "DELETE 1"
+
+
+def test_indicators_deletes_set_their_own_rls_context(monkeypatch):
+    """WP-544 F16: without the owner role RLS applies. calculated_profile is keyed
+    by the Ory account id, digital_twins by dt_user_id; each DELETE must run in its
+    own transaction after setting app.account_id to the key of that table."""
+    account_id = "00000000-0000-0000-0000-00000000000a"
+    dt_user_id = "00000000-0000-0000-0000-00000000000b"
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=_DeleteConn(fetchval_result=account_id)),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+        secrets_pool=_DeletePool(conn=_DeleteConn(fetchrow_result={"dt_user_id": dt_user_id})),
+    )
+    indicators_conn = _RlsRecordingConn()
+    indicators_pool = _DeletePool(conn=indicators_conn)
+
+    async def indicators_getter():
+        return indicators_pool
+
+    monkeypatch.setattr(db_connection, "get_indicators_pool", indicators_getter)
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    set_config = "SELECT set_config('app.account_id', $1, true)"
+    assert indicators_conn.statements == [
+        (1, set_config, (account_id,)),
+        (1, "DELETE FROM public.calculated_profile WHERE account_id = $1::uuid", (account_id,)),
+        (2, set_config, (dt_user_id,)),
+        (2, "DELETE FROM public.digital_twins WHERE user_id = $1", (dt_user_id,)),
+    ]
+    assert result["indicators_calculated_profile"] == 1
+    assert result["indicators_digital_twins"] == 1

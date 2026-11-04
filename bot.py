@@ -273,17 +273,9 @@ async def main():
     from db.connection import verify_money_tables
     await verify_money_tables()
 
-    # Миграция 037: scheduled_post — дедупликация + atomic publish lock (WP-167).
-    # Индекс + статус 'publishing' защищают от дублей при публикации в клуб.
-    try:
-        _m037 = _il.import_module("db.migrations.037_scheduled_post_dedup_lock")
-        from db.connection import get_publication_pool as _get_publication_pool
-        if await _m037.migrate_if_needed(await _get_publication_pool()):
-            logger.info("✅ Migration 037: scheduled_post dedup lock applied")
-        else:
-            logger.info("✅ Migration 037: scheduled_post dedup lock already applied")
-    except Exception as _e:
-        logger.warning(f"⚠️ Migration 037 (scheduled_post dedup lock) skipped: {_e}", exc_info=True)
+    # Migration 037 (scheduled_post dedup lock, WP-167) is no longer run at startup:
+    # its objects exist in the publication database and the bot's own roles have no
+    # DDL rights (WP-544 F16). The file stays as a manual history script.
 
     # Миграция 039: development.daily_activity_marker — атомарный гейт счётчика
     # активных дней (WP-7 Ф48). create_tables пропущена в проде (SKIP_DB_MIGRATIONS),
@@ -311,13 +303,8 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ GitHub App identity verification skipped: {_e}", exc_info=True)
 
-    # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
-    from config.settings import HEALTH_URL
-    if HEALTH_URL != DATABASE_URL:
-        from db.models import create_tables_health
-        from db.connection import get_health_pool
-        health_pool = await get_health_pool()
-        await create_tables_health(health_pool)
+    # Health database tables are owned by the database owner, not created at startup:
+    # the bot's own roles have no DDL rights (WP-544 F16).
 
     # Параллельный прогрев всех Neon-пулов при старте (perf fix: устраняет lazy-init
     # внутри первого запроса пользователя, который добавлял 5-8 сек латентности).

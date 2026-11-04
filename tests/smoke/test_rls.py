@@ -1,14 +1,14 @@
 """
-Smoke-тесты для db/rls.py — RLS context wrapper (WP-212 B4.24).
+Smoke-тесты для db/rls.py — RLS account context wrapper (WP-212 B4.24, WP-544 F16).
 
 Проверяет:
 1. Импорт без ошибок
-2. SET LOCAL app.user_id выполняется при ory_id
-3. SET LOCAL НЕ выполняется при ory_id = None/empty
+2. set_config('app.account_id', $1, true) выполняется при account_id — параметром,
+   is_local=true, внутри транзакции на том же соединении, что и fn
+3. Контекст НЕ ставится при account_id = None/empty
 4. ROLLBACK при ошибке в fn
 5. Соединение возвращается в пул после ошибки
 6. Результат fn возвращается корректно
-7. Работает с None ory_id (платформенный запрос)
 """
 
 import sys
@@ -58,25 +58,71 @@ def test_import():
 
 
 @pytest.mark.asyncio
-async def test_set_local_called_with_ory_id():
-    """SET LOCAL app.user_id вызывается когда ory_id передан."""
+async def test_set_config_called_with_account_id():
+    """set_config('app.account_id', $1, true): значение — параметром, is_local=true."""
     from db.rls import with_user_context
 
     conn_mock = _make_conn_mock()
     pool_mock = _make_pool_mock(conn_mock)
 
-    result = await with_user_context(pool_mock, "test-ory-id-123", lambda conn: conn.execute("SELECT 1"))
+    await with_user_context(pool_mock, "acc-123", lambda conn: conn.execute("SELECT 1"))
 
-    # Проверяем что SET LOCAL был вызван с правильным ory_id
-    calls = conn_mock.execute.call_args_list
-    set_local_call = calls[0]
-    assert "SET LOCAL app.user_id" in set_local_call.args[0]
-    assert set_local_call.args[1] == "test-ory-id-123"
+    set_config_call = conn_mock.execute.call_args_list[0]
+    assert set_config_call.args == (
+        "SELECT set_config('app.account_id', $1, true)",
+        "acc-123",
+    )
+    assert "acc-123" not in set_config_call.args[0]
 
 
 @pytest.mark.asyncio
-async def test_no_set_local_when_ory_id_none():
-    """SET LOCAL НЕ вызывается при ory_id = None."""
+async def test_one_connection_in_transaction():
+    """Контекст и fn — на одном соединении, оба внутри открытой транзакции."""
+    from db.rls import with_user_context
+
+    events = []
+    conn_mock = MagicMock()
+    tx_cm = MagicMock()
+
+    async def tx_enter():
+        events.append("begin")
+
+    async def tx_exit(*exc):
+        events.append("commit")
+        return False
+
+    tx_cm.__aenter__ = AsyncMock(side_effect=tx_enter)
+    tx_cm.__aexit__ = AsyncMock(side_effect=tx_exit)
+    conn_mock.transaction = MagicMock(return_value=tx_cm)
+
+    async def mock_execute(query, *args):
+        events.append(("execute", query, args))
+
+    conn_mock.execute = mock_execute
+    pool_mock = _make_pool_mock(conn_mock)
+    seen = []
+
+    async def fn(conn):
+        seen.append(conn)
+        events.append("fn")
+        return "ok"
+
+    result = await with_user_context(pool_mock, "acc-1", fn)
+
+    assert result == "ok"
+    assert seen == [conn_mock]
+    pool_mock.acquire.assert_called_once()
+    assert events == [
+        "begin",
+        ("execute", "SELECT set_config('app.account_id', $1, true)", ("acc-1",)),
+        "fn",
+        "commit",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_no_context_when_account_id_none():
+    """Контекст НЕ ставится при account_id = None."""
     from db.rls import with_user_context
 
     conn_mock = _make_conn_mock()
@@ -84,14 +130,14 @@ async def test_no_set_local_when_ory_id_none():
 
     await with_user_context(pool_mock, None, lambda conn: conn.execute("SELECT 1"))
 
-    # execute вызван только один раз — для SELECT 1, не для SET LOCAL
+    # execute вызван только один раз — для SELECT 1, не для set_config
     assert conn_mock.execute.call_count == 1
-    assert "SET LOCAL" not in conn_mock.execute.call_args.args[0]
+    assert conn_mock.execute.call_args.args == ("SELECT 1",)
 
 
 @pytest.mark.asyncio
-async def test_no_set_local_when_ory_id_empty():
-    """SET LOCAL НЕ вызывается при ory_id = '' (пустая строка)."""
+async def test_no_context_when_account_id_empty():
+    """Контекст НЕ ставится при account_id = '' (пустая строка)."""
     from db.rls import with_user_context
 
     conn_mock = _make_conn_mock()
@@ -100,7 +146,7 @@ async def test_no_set_local_when_ory_id_empty():
     await with_user_context(pool_mock, "", lambda conn: conn.execute("SELECT 1"))
 
     assert conn_mock.execute.call_count == 1
-    assert "SET LOCAL" not in conn_mock.execute.call_args.args[0]
+    assert conn_mock.execute.call_args.args == ("SELECT 1",)
 
 
 @pytest.mark.asyncio
@@ -114,7 +160,7 @@ async def test_fn_result_returned():
     async def fn(conn):
         return [{"id": 42, "name": "test"}]
 
-    result = await with_user_context(pool_mock, "ory-id", fn)
+    result = await with_user_context(pool_mock, "account-id", fn)
     assert result == [{"id": 42, "name": "test"}]
 
 
@@ -126,7 +172,7 @@ async def test_transaction_context_manager_used():
     conn_mock = _make_conn_mock()
     pool_mock = _make_pool_mock(conn_mock)
 
-    await with_user_context(pool_mock, "ory-id", lambda conn: conn.execute("SELECT 1"))
+    await with_user_context(pool_mock, "account-id", lambda conn: conn.execute("SELECT 1"))
 
     conn_mock.transaction.assert_called_once()
     conn_mock.transaction.return_value.__aenter__.assert_called_once()
@@ -152,15 +198,15 @@ async def test_exception_propagates_and_connection_released():
         raise ValueError("db error")
 
     with pytest.raises(ValueError, match="db error"):
-        await with_user_context(pool_mock, "ory-id", failing_fn)
+        await with_user_context(pool_mock, "account-id", failing_fn)
 
     # Соединение возвращено в пул (acquire().__aexit__ вызван)
     acquire_cm.__aexit__.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_set_local_before_fn_call():
-    """SET LOCAL вызывается ДО fn, не после."""
+async def test_set_config_before_fn_call():
+    """set_config вызывается ДО fn, не после."""
     from db.rls import with_user_context
 
     call_order = []
@@ -168,8 +214,8 @@ async def test_set_local_before_fn_call():
     conn_mock = MagicMock()
 
     async def mock_execute(query, *args):
-        if "SET LOCAL" in query:
-            call_order.append("set_local")
+        if "set_config" in query:
+            call_order.append("set_config")
         else:
             call_order.append("user_query")
 
@@ -182,6 +228,6 @@ async def test_set_local_before_fn_call():
 
     pool_mock = _make_pool_mock(conn_mock)
 
-    await with_user_context(pool_mock, "ory-id", lambda conn: conn.execute("SELECT 1"))
+    await with_user_context(pool_mock, "account-id", lambda conn: conn.execute("SELECT 1"))
 
-    assert call_order == ["set_local", "user_query"]
+    assert call_order == ["set_config", "user_query"]

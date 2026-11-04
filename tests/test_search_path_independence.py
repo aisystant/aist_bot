@@ -28,7 +28,6 @@ RUNTIME_MIGRATIONS = {
     "032_notification_queue.py",
     "033_homework_content.py",
     "036_fix_stuck_marathon_progress.py",
-    "037_scheduled_post_dedup_lock.py",
     "migrate_products.py",
 }
 SQL_CALL_METHODS = {"execute", "executemany", "fetch", "fetchrow", "fetchval"}
