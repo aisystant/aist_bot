@@ -795,43 +795,59 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
 
         # Merge 2_6/2_7 и 3_derived из indicators.digital_twins (WP-269: новая БД)
         if account_id:
+            # WP-544 F16: both tables are under RLS keyed on app.account_id, so
+            # the three reads run in one transaction holding that context.
+            current_table = "digital_twins"
+
+            async def _read_indicators(ind_conn):
+                nonlocal current_table
+                existing = await ind_conn.fetchval(
+                    "SELECT data->'2_collected' FROM public.digital_twins WHERE user_id = $1",
+                    str(account_id),
+                )
+                if existing:
+                    existing_c = json.loads(existing) if isinstance(existing, str) else existing
+                    for key in ('2_6_coding', '2_7_iwe'):
+                        if key in existing_c and key not in collected:
+                            collected[key] = existing_c[key]
+
+                # F1: предпочитаем calculated_profile.indicators->'3_derived'
+                # (F2 dual-write заполняет с 4 мая; fallback на digital_twins)
+                current_table = "calculated_profile"
+                cp_indicators = await ind_conn.fetchval(
+                    "SELECT indicators FROM public.calculated_profile WHERE account_id = $1::uuid",
+                    str(account_id),
+                )
+                if cp_indicators:
+                    cp_data = json.loads(cp_indicators) if isinstance(cp_indicators, str) else cp_indicators
+                    derived = cp_data.get('3_derived')
+                    if derived:
+                        collected['_derived'] = derived
+
+                # Fallback: legacy digital_twins (пока calculated_profile не заполнен)
+                if '_derived' not in collected:
+                    current_table = "digital_twins"
+                    existing_derived = await ind_conn.fetchval(
+                        "SELECT data->'3_derived' FROM public.digital_twins WHERE user_id = $1",
+                        str(account_id),
+                    )
+                    if existing_derived:
+                        derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
+                        collected['_derived'] = derived
+
             try:
                 from db.connection import get_indicators_pool
+                from db.rls import with_user_context
                 ind_pool = await get_indicators_pool()
-                async with ind_pool.acquire() as ind_conn:
-                    existing = await ind_conn.fetchval(
-                        "SELECT data->'2_collected' FROM public.digital_twins WHERE user_id = $1",
-                        str(account_id),
-                    )
-                    if existing:
-                        existing_c = json.loads(existing) if isinstance(existing, str) else existing
-                        for key in ('2_6_coding', '2_7_iwe'):
-                            if key in existing_c and key not in collected:
-                                collected[key] = existing_c[key]
-
-                    # F1: предпочитаем calculated_profile.indicators->'3_derived'
-                    # (F2 dual-write заполняет с 4 мая; fallback на digital_twins)
-                    cp_indicators = await ind_conn.fetchval(
-                        "SELECT indicators FROM public.calculated_profile WHERE account_id = $1::uuid",
-                        str(account_id),
-                    )
-                    if cp_indicators:
-                        cp_data = json.loads(cp_indicators) if isinstance(cp_indicators, str) else cp_indicators
-                        derived = cp_data.get('3_derived')
-                        if derived:
-                            collected['_derived'] = derived
-
-                    # Fallback: legacy digital_twins (пока calculated_profile не заполнен)
-                    if '_derived' not in collected:
-                        existing_derived = await ind_conn.fetchval(
-                            "SELECT data->'3_derived' FROM public.digital_twins WHERE user_id = $1",
-                            str(account_id),
-                        )
-                        if existing_derived:
-                            derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
-                            collected['_derived'] = derived
+                await with_user_context(ind_pool, str(account_id), _read_indicators)
             except Exception as dt_e:
-                logger.warning(f"[/me] Fallback digital_twins read failed: {dt_e}")
+                # Error class and SQLSTATE only: the message may echo row values.
+                logger.warning(
+                    "[/me] indicators read failed: table=public.%s error=%s sqlstate=%s",
+                    current_table,
+                    type(dt_e).__name__,
+                    getattr(dt_e, "sqlstate", None),
+                )
 
         return collected
     except Exception as e:

@@ -433,18 +433,29 @@ async def delete_all_user_data(chat_id: int) -> dict:
     if twin_user_id:
         try:
             from db.connection import get_indicators_pool
+            from db.rls import with_user_context
             ind_pool = await get_indicators_pool()
-            async with ind_pool.acquire() as indconn:
-                deleted = await indconn.execute(
+            # WP-544 F16: RLS compares each table's key with app.account_id, and
+            # the two keys differ, so each DELETE runs in its own transaction
+            # with its own context value.
+            deleted = await with_user_context(
+                ind_pool,
+                str(account_id),
+                lambda conn: conn.execute(
                     'DELETE FROM public.calculated_profile WHERE account_id = $1::uuid',
-                    str(account_id)
-                )
-                result['indicators_calculated_profile'] = _parse_delete_count(deleted)
-                deleted = await indconn.execute(
+                    str(account_id),
+                ),
+            )
+            result['indicators_calculated_profile'] = _parse_delete_count(deleted)
+            deleted = await with_user_context(
+                ind_pool,
+                str(twin_user_id),
+                lambda conn: conn.execute(
                     'DELETE FROM public.digital_twins WHERE user_id = $1::uuid',
-                    str(twin_user_id)
-                )
-                result['indicators_digital_twins'] = _parse_delete_count(deleted)
+                    str(twin_user_id),
+                ),
+            )
+            result['indicators_digital_twins'] = _parse_delete_count(deleted)
         except Exception as e:
             _record_required_cleanup_failure(failures, "indicators", e)
             result['indicators_calculated_profile'] = 0
