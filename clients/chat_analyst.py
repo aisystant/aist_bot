@@ -74,6 +74,15 @@ class ChatAnalystClient:
     async def unregister(self, chat_id: int) -> None:
         await self._control("POST", f"/chats/{chat_id}/unregister")
 
+    async def erase_participant(self, sender_id: int) -> None:
+        """Удалить данные участника во всех чатах и записать отказ от сбора. Повтор безопасен,
+        поэтому те же повторы, что у register: 503 «storage unavailable» значит «ничего не удалено»."""
+        await self._control("POST", f"/participants/{sender_id}/erase")
+
+    async def resume_participant(self, sender_id: int) -> None:
+        """Снять отказ участника от сбора (удалённые сообщения не возвращаются). Повтор безопасен."""
+        await self._control("POST", f"/participants/{sender_id}/resume")
+
     async def status(self, chat_id: int) -> dict:
         return await self._request(
             "GET", f"/chats/{chat_id}/status", json=None, timeout=CONTROL_TIMEOUT_SECONDS

@@ -7,6 +7,9 @@
                     чат; бота убрали или сняли права: снять регистрацию
 - сообщения групп — передача в сервис, только пока сервис подтверждает, что сбор включён
 - /chat_digest    — admin-команда (только CHAT_ANALYST_OWNER_ID, ответ только в личку)
+- /erase_me       — любой человек удаляет свои данные (только в личке, после кнопки
+                    «Удалить»; номер — только from_user.id); в группе бот её молча гасит
+- /resume_me      — то же для возврата сбора: снять свой отказ (удалённое не возвращается)
 
 Хендлеры по окончании всегда отдают событие дальше (SkipHandler): после них работает
 детекция упоминаний каналов (SC.118), она ловит любое групповое сообщение.
@@ -19,13 +22,22 @@ CHAT_ANALYST_CHATS (id разрешённых чатов через запяту
 import asyncio
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
-from aiogram.types import ChatMemberAdministrator, ChatMemberOwner, ChatMemberUpdated, Message
+from aiogram.types import (
+    CallbackQuery,
+    ChatMemberAdministrator,
+    ChatMemberOwner,
+    ChatMemberUpdated,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from clients.chat_analyst import ChatAnalystClient, ChatAnalystError
 from config import get_logger
@@ -236,6 +248,143 @@ async def cmd_chat_collect(message: Message):
         await message.answer("Сбор по этому чату уже идёт.", parse_mode=None)
         return
     await _begin_collection(cfg, bot, chat, member, time.time())
+
+
+# --- /erase_me и /resume_me ---------------------------------------------
+#
+# Обе команды меняют только данные того, кто их вызвал: номер берётся из нажатия
+# кнопки (callback.from_user.id), не из текста. Только личка, подтверждение кнопкой.
+
+ERASE_CONFIRM = "chat_analyst:erase:confirm"
+ERASE_CANCEL = "chat_analyst:erase:cancel"
+RESUME_CONFIRM = "chat_analyst:resume:confirm"
+RESUME_CANCEL = "chat_analyst:resume:cancel"
+ERASE_PROMPT_TEXT = (
+    "Удалить ваши данные из Аналитика чата?\n\n"
+    "Удалятся все ваши сообщения из архива во всех закрытых чатах, где работает Аналитик, "
+    "и сбор ваших сообщений отключится. Вернуть сбор можно командой /resume_me, "
+    "удалённые сообщения не вернутся.\n\n"
+    "Не удаляются копии сводок, которые наставники уже получили в Telegram, и сводка, "
+    "которая составлялась в момент удаления.\n\n"
+    "Условия: {terms_url}"
+)
+RESUME_PROMPT_TEXT = (
+    "Снова включить сбор ваших сообщений в Аналитике чата?\n\n"
+    "Сообщения, которые вы отправите после этого в закрытых чатах, где работает Аналитик, "
+    "снова будут попадать в архив и в сводки наставников. Удалённые раньше сообщения не вернутся.\n\n"
+    "Условия: {terms_url}"
+)
+ERASED_TEXT = "Данные удалены, сбор ваших сообщений отключён."
+RESUMED_TEXT = "Сбор ваших сообщений снова включён."
+# Не «не удалено»: после таймаута сервис мог выполнить запрос, а ответ потеряться.
+ERASE_UNCONFIRMED_TEXT = (
+    "Не удалось подтвердить удаление: сервис не ответил. "
+    "Повторите /erase_me позже — повтор безопасен."
+)
+RESUME_UNCONFIRMED_TEXT = (
+    "Не удалось подтвердить, что сбор включён: сервис не ответил. "
+    "Повторите /resume_me позже — повтор безопасен."
+)
+CANCELLED_TEXT = "Отменено, ничего не изменилось."
+ERASE_UNAVAILABLE_TEXT = "Удаление данных Аналитика чата сейчас недоступно."
+RESUME_UNAVAILABLE_TEXT = "Включение сбора в Аналитике чата сейчас недоступно."
+
+
+@dataclass(frozen=True)
+class SelfAction:
+    name: str  # для журнала
+    prompt: str
+    confirm_label: str
+    confirm: str
+    cancel: str
+    call: Callable[[ChatAnalystClient, int], Awaitable[None]]
+    done: str
+    unconfirmed: str
+    unavailable: str
+
+
+ERASE = SelfAction(
+    "erase", ERASE_PROMPT_TEXT, "Удалить", ERASE_CONFIRM, ERASE_CANCEL,
+    lambda client, user_id: client.erase_participant(user_id), ERASED_TEXT, ERASE_UNCONFIRMED_TEXT,
+    ERASE_UNAVAILABLE_TEXT,
+)
+RESUME = SelfAction(
+    "resume", RESUME_PROMPT_TEXT, "Включить сбор", RESUME_CONFIRM, RESUME_CANCEL,
+    lambda client, user_id: client.resume_participant(user_id), RESUMED_TEXT, RESUME_UNCONFIRMED_TEXT,
+    RESUME_UNAVAILABLE_TEXT,
+)
+
+
+def _keyboard(action: SelfAction) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=action.confirm_label, callback_data=action.confirm),
+        InlineKeyboardButton(text="Отмена", callback_data=action.cancel),
+    ]])
+
+
+async def _ask(message: Message, action: SelfAction) -> None:
+    if message.chat.type != "private":
+        return  # в группе бот молчит; событие не отдаём дальше, чтобы никто не ответил в чат
+    cfg = _config()
+    if cfg is None:
+        await message.answer(action.unavailable, parse_mode=None)
+        return
+    await message.answer(
+        action.prompt.format(terms_url=cfg.terms_url), reply_markup=_keyboard(action), parse_mode=None
+    )
+
+
+async def _run_self_action(callback: CallbackQuery, action: SelfAction) -> None:
+    # До HTTP-запроса: повторы сервиса могут занять ~30 с, а кнопка ждёт ответа. Опоздавшее
+    # нажатие (после рестарта) Telegram уже не подтверждает — действие от этого не зависит.
+    try:
+        await callback.answer()
+    except TelegramAPIError as err:
+        logger.warning("[chat_analyst] %s callback not acknowledged error=%s", action.name, type(err).__name__)
+    chat = callback.message.chat if callback.message else None
+    if chat is None or chat.type != "private":
+        return
+    bot = callback.bot
+    try:
+        await bot.edit_message_reply_markup(chat_id=chat.id, message_id=callback.message.message_id)
+    except TelegramAPIError as err:
+        # Кнопки убираем от двойного нажатия, но действие на этом не держится: повтор безопасен.
+        logger.warning("[chat_analyst] %s keyboard not removed error=%s", action.name, type(err).__name__)
+    if callback.data == action.cancel:
+        await bot.send_message(chat.id, CANCELLED_TEXT, parse_mode=None)
+        return
+    cfg = _config()
+    if cfg is None:
+        await bot.send_message(chat.id, action.unavailable, parse_mode=None)
+        return
+    try:
+        await action.call(cfg.client, callback.from_user.id)
+    except ChatAnalystError as err:
+        logger.warning("[chat_analyst] %s unconfirmed status=%s", action.name, err.status)
+        await bot.send_message(chat.id, action.unconfirmed, parse_mode=None)
+        return
+    logger.info("[chat_analyst] participant %s done", action.name)
+    await bot.send_message(chat.id, action.done, parse_mode=None)
+
+
+@chat_analyst_router.message(Command("erase_me"))
+async def cmd_erase_me(message: Message):
+    await _ask(message, ERASE)
+
+
+@chat_analyst_router.message(Command("resume_me"))
+async def cmd_resume_me(message: Message):
+    await _ask(message, RESUME)
+
+
+@chat_analyst_router.callback_query(F.data.in_({ERASE_CONFIRM, ERASE_CANCEL}))
+async def cb_erase_me(callback: CallbackQuery):
+    await _run_self_action(callback, ERASE)
+
+
+@chat_analyst_router.callback_query(F.data.in_({RESUME_CONFIRM, RESUME_CANCEL}))
+async def cb_resume_me(callback: CallbackQuery):
+    await _run_self_action(callback, RESUME)
 
 
 # --- сообщения групп ------------------------------------------------------

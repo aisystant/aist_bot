@@ -144,6 +144,12 @@ class FakeClient:
         await self._do("digest", chat_id, admin_id, participant_id)
         return self.digest_text
 
+    async def erase_participant(self, sender_id):
+        await self._do("erase_participant", sender_id)
+
+    async def resume_participant(self, sender_id):
+        await self._do("resume_participant", sender_id)
+
 
 class FakeBot:
     def __init__(self, order: list, *, member=None) -> None:
@@ -720,3 +726,260 @@ async def test_chat_analyst_router_is_registered_before_the_generic_command_hand
 
     names = [router.name for router in dp.sub_routers]
     assert names[0] == "chat_analyst"
+
+
+# --- /erase_me ------------------------------------------------------------
+
+async def test_client_erase_posts_participant_path_and_retries_storage_unavailable(service, monkeypatch):
+    monkeypatch.setattr(client_module, "CONTROL_RETRY_DELAY_SECONDS", 0)
+    service.replies = [(503, {"detail": "storage unavailable"}), (200, {"status": "erased", "messages_deleted": 3})]
+
+    await service.client.erase_participant(555)
+
+    assert [r[:2] for r in service.requests] == [("POST", "/participants/555/erase")] * 2
+
+
+async def test_client_erase_raises_after_retries_are_exhausted(service, monkeypatch):
+    monkeypatch.setattr(client_module, "CONTROL_RETRY_DELAY_SECONDS", 0)
+    service.replies = [(503, {"detail": "storage unavailable"})] * client_module.CONTROL_ATTEMPTS
+
+    with pytest.raises(ChatAnalystError) as caught:
+        await service.client.erase_participant(555)
+
+    assert caught.value.status == 503
+    assert len(service.requests) == client_module.CONTROL_ATTEMPTS
+
+
+def erase_command(chat_type="private"):
+    answers: list[tuple[str, object]] = []
+
+    async def answer(reply, reply_markup=None, parse_mode=None):
+        answers.append((reply, reply_markup))
+
+    message = SimpleNamespace(
+        text="/erase_me 999", chat=SimpleNamespace(type=chat_type), from_user=SimpleNamespace(id=555), answer=answer
+    )
+    return message, answers
+
+
+class EraseBot:
+    def __init__(self, *, fail_edit: bool = False) -> None:
+        self.sent: list[tuple[int, str]] = []
+        self.edited: list[int] = []
+        self.fail_edit = fail_edit
+
+    async def edit_message_reply_markup(self, chat_id, message_id):
+        if self.fail_edit:
+            from aiogram.exceptions import TelegramAPIError
+            raise TelegramAPIError(method=None, message="message is not modified")
+        self.edited.append(message_id)
+
+    async def send_message(self, chat_id, text, parse_mode=None):
+        self.sent.append((chat_id, text))
+
+
+def erase_callback(data, *, user_id=555, chat_type="private", bot=None, chat_id=None, answer_error=False):
+    answered: list[bool] = []
+
+    async def answer():
+        if answer_error:
+            from aiogram.exceptions import TelegramAPIError
+            raise TelegramAPIError(method=None, message="query is too old")
+        answered.append(True)
+
+    callback = SimpleNamespace(
+        data=data,
+        from_user=SimpleNamespace(id=user_id),
+        message=SimpleNamespace(chat=SimpleNamespace(id=user_id if chat_id is None else chat_id, type=chat_type), message_id=31),
+        bot=bot or EraseBot(),
+        answer=answer,
+    )
+    return callback, answered
+
+
+async def test_erase_me_in_private_asks_for_confirmation_and_calls_nothing(fake):
+    message, answers = erase_command()
+
+    await h.cmd_erase_me(message)
+
+    [(text, keyboard)] = answers
+    assert TERMS in text and "/resume_me" in text
+    buttons = keyboard.inline_keyboard[0]
+    assert [(b.text, b.callback_data) for b in buttons] == [("Удалить", h.ERASE_CONFIRM), ("Отмена", h.ERASE_CANCEL)]
+    assert fake.calls == []
+
+
+async def test_erase_me_in_group_is_swallowed_silently(fake):
+    message, answers = erase_command(chat_type="supergroup")
+
+    await h.cmd_erase_me(message)  # no SkipHandler: no later router may answer in the chat
+
+    assert answers == [] and fake.calls == []
+
+
+async def test_erase_me_without_config_says_unavailable(monkeypatch):
+    monkeypatch.setattr(h, "_config", lambda: None)
+    message, answers = erase_command()
+
+    await h.cmd_erase_me(message)
+
+    assert answers == [(h.ERASE_UNAVAILABLE_TEXT, None)]
+
+
+async def test_confirm_erases_the_person_who_pressed_not_a_number_from_text(fake):
+    # Номер чата отличен от номера нажавшего: удаляется именно from_user.id.
+    callback, answered = erase_callback(h.ERASE_CONFIRM, user_id=555, chat_id=777)
+
+    await h.cb_erase_me(callback)
+
+    assert answered == [True]
+    assert fake.calls == [("erase_participant", 555)]
+    assert callback.bot.edited == [31]
+    assert callback.bot.sent == [(777, h.ERASED_TEXT)]
+
+
+async def test_stale_press_still_erases(fake):
+    callback, _ = erase_callback(h.ERASE_CONFIRM, answer_error=True)
+
+    await h.cb_erase_me(callback)
+
+    assert fake.calls == [("erase_participant", 555)]
+    assert callback.bot.sent == [(555, h.ERASED_TEXT)]
+
+
+async def test_router_filter_accepts_exactly_the_keyboard_buttons(fake):
+    """Опечатка в callback_data кнопки или в фильтре роутера иначе прошла бы все тесты."""
+    [handler] = [
+        obj for obj in h.chat_analyst_router.callback_query.handlers if obj.callback is h.cb_erase_me
+    ]
+    for button in h._keyboard(h.ERASE).inline_keyboard[0]:
+        accepted, _ = await handler.check(SimpleNamespace(data=button.callback_data))
+        assert accepted, button.callback_data
+    rejected, _ = await handler.check(SimpleNamespace(data="chat_analyst:erase:other"))
+    assert not rejected
+
+
+async def test_cancel_erases_nothing(fake):
+    callback, _ = erase_callback(h.ERASE_CANCEL)
+
+    await h.cb_erase_me(callback)
+
+    assert fake.calls == []
+    assert callback.bot.sent == [(555, h.CANCELLED_TEXT)]
+
+
+@pytest.mark.parametrize("status", [0, 503])
+async def test_unconfirmed_erase_never_claims_nothing_was_deleted(fake, status):
+    fake.fail["erase_participant"] = ChatAnalystError(status, "")
+    callback, _ = erase_callback(h.ERASE_CONFIRM)
+
+    await h.cb_erase_me(callback)
+
+    assert callback.bot.sent == [(555, h.ERASE_UNCONFIRMED_TEXT)]
+    assert "повтор безопасен" in h.ERASE_UNCONFIRMED_TEXT
+
+
+async def test_failed_keyboard_removal_does_not_stop_the_erase(fake):
+    callback, _ = erase_callback(h.ERASE_CONFIRM, bot=EraseBot(fail_edit=True))
+
+    await h.cb_erase_me(callback)
+
+    assert fake.calls == [("erase_participant", 555)]
+    assert callback.bot.sent == [(555, h.ERASED_TEXT)]
+
+
+async def test_repeated_confirm_calls_the_service_again_safely(fake):
+    for _ in range(2):
+        callback, _ = erase_callback(h.ERASE_CONFIRM)
+        await h.cb_erase_me(callback)
+
+    assert fake.calls == [("erase_participant", 555)] * 2
+
+
+async def test_confirm_from_a_group_message_erases_nothing(fake):
+    callback, answered = erase_callback(h.ERASE_CONFIRM, chat_type="supergroup")
+
+    await h.cb_erase_me(callback)
+
+    assert answered == [True] and fake.calls == [] and callback.bot.sent == []
+
+
+# --- /resume_me -----------------------------------------------------------
+
+async def test_client_resume_posts_participant_path(service):
+    service.replies = [(200, {"status": "collecting"})]
+
+    await service.client.resume_participant(555)
+
+    assert [r[:2] for r in service.requests] == [("POST", "/participants/555/resume")]
+
+
+async def test_resume_me_in_private_asks_for_confirmation_and_calls_nothing(fake):
+    message, answers = erase_command()
+
+    await h.cmd_resume_me(message)
+
+    [(text, keyboard)] = answers
+    assert TERMS in text and "не вернутся" in text
+    buttons = keyboard.inline_keyboard[0]
+    assert [(b.text, b.callback_data) for b in buttons] == [
+        ("Включить сбор", h.RESUME_CONFIRM), ("Отмена", h.RESUME_CANCEL)
+    ]
+    assert fake.calls == []
+
+
+async def test_resume_me_without_config_names_resume_not_erase(monkeypatch):
+    monkeypatch.setattr(h, "_config", lambda: None)
+    message, answers = erase_command()
+
+    await h.cmd_resume_me(message)
+
+    assert answers == [(h.RESUME_UNAVAILABLE_TEXT, None)]
+
+
+async def test_resume_me_in_group_is_swallowed_silently(fake):
+    message, answers = erase_command(chat_type="supergroup")
+
+    await h.cmd_resume_me(message)
+
+    assert answers == [] and fake.calls == []
+
+
+async def test_confirm_resumes_the_person_who_pressed(fake):
+    callback, _ = erase_callback(h.RESUME_CONFIRM, user_id=555, chat_id=777)
+
+    await h.cb_resume_me(callback)
+
+    assert fake.calls == [("resume_participant", 555)]
+    assert callback.bot.sent == [(777, h.RESUMED_TEXT)]
+
+
+async def test_cancel_resumes_nothing(fake):
+    callback, _ = erase_callback(h.RESUME_CANCEL)
+
+    await h.cb_resume_me(callback)
+
+    assert fake.calls == [] and callback.bot.sent == [(555, h.CANCELLED_TEXT)]
+
+
+async def test_unconfirmed_resume_says_to_repeat(fake):
+    fake.fail["resume_participant"] = ChatAnalystError(0, "")
+    callback, _ = erase_callback(h.RESUME_CONFIRM)
+
+    await h.cb_resume_me(callback)
+
+    assert callback.bot.sent == [(555, h.RESUME_UNCONFIRMED_TEXT)]
+
+
+async def test_each_router_filter_accepts_only_its_own_buttons(fake):
+    by_callback = {obj.callback: obj for obj in h.chat_analyst_router.callback_query.handlers}
+    for callback_fn, own, other in [
+        (h.cb_erase_me, h.ERASE, h.RESUME), (h.cb_resume_me, h.RESUME, h.ERASE)
+    ]:
+        handler = by_callback[callback_fn]
+        for data in (own.confirm, own.cancel):
+            accepted, _ = await handler.check(SimpleNamespace(data=data))
+            assert accepted, data
+        for data in (other.confirm, other.cancel):
+            rejected, _ = await handler.check(SimpleNamespace(data=data))
+            assert not rejected, data
