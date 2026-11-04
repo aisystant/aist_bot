@@ -10,14 +10,13 @@ Scope 'read_stats' даёт доступ к статистике времени.
     from clients.wakatime_oauth import wakatime_oauth
 
     # Получить URL для авторизации
-    auth_url, state = wakatime_oauth.get_authorization_url(telegram_user_id=123456)
+    auth_url, state = await wakatime_oauth.get_authorization_url(telegram_user_id=123456)
 
     # После callback обменять code на токены
-    tokens = await wakatime_oauth.exchange_code(code, state, telegram_user_id)
+    tokens = await wakatime_oauth.exchange_code(code, telegram_user_id)
 """
 
 import secrets
-import time
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -54,22 +53,16 @@ class WakaTimeOAuthClient:
         self.client_secret = WAKATIME_CLIENT_SECRET
         self.redirect_uri = WAKATIME_REDIRECT_URI
 
-        # state -> telegram_user_id (TTL 10 мин)
-        self._pending_states: Dict[str, Dict[str, Any]] = {}
-
-    def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
+    async def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
         """Генерирует URL для OAuth авторизации."""
         if not self.client_id:
             raise ValueError("WAKATIME_CLIENT_ID not configured")
 
         state = secrets.token_urlsafe(32)
 
-        self._pending_states[state] = {
-            "telegram_user_id": telegram_user_id,
-            "created_at": time.time(),
-        }
+        from db.queries.oauth_states import save_oauth_state
 
-        self._cleanup_old_states()
+        await save_oauth_state(state, "wakatime", telegram_user_id)
 
         params = {
             "client_id": self.client_id,
@@ -84,42 +77,22 @@ class WakaTimeOAuthClient:
 
         return auth_url, state
 
-    def _cleanup_old_states(self):
-        """Удаляет просроченные states (>10 мин)."""
-        now = time.time()
-        expired = [
-            state
-            for state, data in self._pending_states.items()
-            if now - data["created_at"] > 600
-        ]
-        for state in expired:
-            del self._pending_states[state]
+    async def validate_state(self, state: str) -> Optional[int]:
+        """Однократно проверяет state в БД и возвращает telegram_user_id."""
+        from db.queries.oauth_states import validate_oauth_state
 
-    def validate_state(self, state: str) -> Optional[int]:
-        """Проверяет state и возвращает telegram_user_id."""
-        data = self._pending_states.get(state)
-        if not data:
-            logger.warning(f"Invalid or expired WakaTime state: {state[:10]}...")
-            return None
+        telegram_user_id = await validate_oauth_state(state)
+        if telegram_user_id is None:
+            logger.warning("Invalid or expired WakaTime state")
+        return telegram_user_id
 
-        if time.time() - data["created_at"] > 600:
-            del self._pending_states[state]
-            logger.warning(f"Expired WakaTime state: {state[:10]}...")
-            return None
-
-        return data["telegram_user_id"]
-
-    async def exchange_code(self, code: str, state: str, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+    async def exchange_code(self, code: str, telegram_user_id: int) -> Optional[Dict[str, Any]]:
         """Обменивает authorization code на access token и сохраняет в user_integrations.
 
         Args:
             code: Authorization code из OAuth callback.
-            state: OAuth state (используется для cleanup pending_states).
             telegram_user_id: ID пользователя (уже проверен через validate_state в callback handler).
         """
-        # Cleanup state (validate_state не удаляет из dict, только проверяет)
-        self._pending_states.pop(state, None)
-
         payload = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,

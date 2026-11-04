@@ -26,10 +26,15 @@
 
 ## 2. OAuth flow
 
-1. `cmd_wakatime` → `clients/wakatime_oauth.get_authorization_url()`
-2. `oauth_pending_states` INSERT (`provider='wakatime'`)
+1. `/wakatime` или настройки → `await wakatime_oauth.get_authorization_url()`
+2. Сохранение state в `public.oauth_pending_state` (`provider='wakatime'`, БД secrets).
+   Ссылка действует 10 минут и переживает перезапуск бота.
 3. Redirect на WakaTime consent
-4. Callback сохраняет `api_key` / токен
+4. Callback однократно проверяет и удаляет state через `await validate_state()`.
+   Неизвестный, просроченный или уже использованный state отклоняется до обмена кода.
+5. Callback обменивает код и сохраняет токены в `persona.user_integrations`.
+
+После сообщения «Сессия авторизации истекла» нужно запросить новую ссылку в боте.
 
 ## 3. Ключевые файлы
 
