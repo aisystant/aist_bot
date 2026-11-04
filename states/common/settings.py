@@ -1523,7 +1523,7 @@ class SettingsState(BaseState):
             buttons = []
             try:
                 from clients.wakatime_oauth import wakatime_oauth
-                auth_url, state = wakatime_oauth.get_authorization_url(chat_id)
+                auth_url, state = await wakatime_oauth.get_authorization_url(chat_id)
                 buttons.append([InlineKeyboardButton(text="Подключить WakaTime", url=auth_url)])
                 text += (
                     "\n\nНужен аккаунт на wakatime.com (бесплатная регистрация).\n\n"

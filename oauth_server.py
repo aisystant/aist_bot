@@ -887,7 +887,7 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    telegram_user_id = wakatime_oauth.validate_state(state)
+    telegram_user_id = await wakatime_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
             text="""
@@ -903,7 +903,7 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    tokens = await wakatime_oauth.exchange_code(code, state, telegram_user_id)
+    tokens = await wakatime_oauth.exchange_code(code, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
