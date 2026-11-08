@@ -9,6 +9,7 @@
 - get_personalization_prompt: промпт для персонализации контента
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 import yaml
@@ -210,3 +211,14 @@ def _get_assessment_adaptation(intern: dict) -> str:
         return ""
     adaptation = _ASSESSMENT_ADAPTATIONS[state]
     return f"\nСОСТОЯНИЕ СТАЖЕРА (по тесту систематичности): {adaptation['label']}\n{adaptation['style']}\n"
+
+
+def format_pub_slot_msk(dt) -> str:
+    """Печать слота публикации (ожидается время по МСК).
+
+    WP-568: для дальнего слота год обязателен — «Thu 13 May, 10:00»
+    без года читалось как ближайший четверг, а был май 2027.
+    Год печатается только когда он отличается от текущего.
+    """
+    fmt = '%a %d %b %Y, %H:%M' if dt.year != datetime.now().year else '%a %d %b, %H:%M'
+    return dt.strftime(fmt)
