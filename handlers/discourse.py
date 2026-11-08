@@ -32,6 +32,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config.settings import WEBHOOK_URL
+from core.helpers import format_pub_slot_msk
 from db.queries import get_intern
 from db.queries.discourse import (
     get_discourse_account,
@@ -292,7 +293,7 @@ async def cmd_club(message: Message, state: FSMContext):
             return
         lines = [f"Перепланировано {len(result)} постов (удалено дублей: {dupes}):\n"]
         for title, slot in result:
-            lines.append(f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}")  # UTC→MSK
+            lines.append(f"  • «{title}» — {format_pub_slot_msk(slot + timedelta(hours=3))}")  # UTC→MSK
         await message.answer("\n".join(lines))
         return
 
@@ -806,7 +807,7 @@ async def _show_schedule(message_or_cb, chat_id: int):
     buttons = []
     for i, pub in enumerate(schedule, 1):
         t = pub["schedule_time"] + timedelta(hours=3)  # UTC→MSK
-        time_str = t.strftime("%a %d %b, %H:%M") if hasattr(t, "strftime") else str(t)
+        time_str = format_pub_slot_msk(t) if hasattr(t, "strftime") else str(t)
         lines.append(f"{i}. «{pub['title']}» — {time_str}")
         buttons.append([
             InlineKeyboardButton(
@@ -986,7 +987,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         if reschedule_result:
             lines.append(f"\n📅 Перепланировано {len(reschedule_result)} постов:")
             for title, slot in reschedule_result[:5]:
-                lines.append(f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}")  # UTC→MSK
+                lines.append(f"  • «{title}» — {format_pub_slot_msk(slot + timedelta(hours=3))}")  # UTC→MSK
             if len(reschedule_result) > 5:
                 lines.append(f"  ... и ещё {len(reschedule_result) - 5}")
 
@@ -1018,7 +1019,7 @@ async def on_club_reschedule(callback: CallbackQuery):
         return
     lines = [f"Перепланировано {len(result)} постов (удалено дублей: {dupes}):\n"]
     for title, slot in result:
-        lines.append(f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}")  # UTC→MSK
+        lines.append(f"  • «{title}» — {format_pub_slot_msk(slot + timedelta(hours=3))}")  # UTC→MSK
     await callback.message.answer("\n".join(lines))
 
 
@@ -1576,7 +1577,7 @@ async def _rebuild_schedule_after_manual(chat_id: int) -> str:
     lines = ["\n\n📅 Обновлённый график:"]
     for pub in schedule[:5]:
         t = pub["schedule_time"] + timedelta(hours=3)  # UTC→MSK
-        time_str = t.strftime("%a %d %b, %H:%M") if hasattr(t, "strftime") else str(t)
+        time_str = format_pub_slot_msk(t) if hasattr(t, "strftime") else str(t)
         lines.append(f"  • «{pub['title']}» — {time_str}")
     if len(schedule) > 5:
         lines.append(f"  ... и ещё {len(schedule) - 5}")
