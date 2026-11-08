@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # Called at module import time so NUDGE_TYPE_CONFIG is populated before
 # any 13:00 run, whether the legacy enqueue path or select_and_enqueue is used.
 from core.nudge_type_registry import register_types
+from core.helpers import format_pub_slot_msk
 register_types()
 
 # --- Module state ---
@@ -3515,7 +3516,7 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
 
                 # Уведомить
                 if scheduled_posts:
-                    lines = [f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}" for title, slot in scheduled_posts]  # UTC→MSK
+                    lines = [f"  • «{title}» — {format_pub_slot_msk(slot + timedelta(hours=3))}" for title, slot in scheduled_posts]  # UTC→MSK
                     await bot.send_message(
                         chat_id,
                         f"Добавлено в график публикаций ({len(scheduled_posts)}):\n" + "\n".join(lines),
