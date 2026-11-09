@@ -62,6 +62,13 @@ class GatewayMCPClient:
     RECOVERY_TIME = 60
 
     TOOLS_CACHE_TTL = 15 * 60  # 15 min (DP.SC.129)
+    # tools/list is never on a user's critical path (startup bootstrap and a
+    # fire-and-forget refresh), so it does not share the 3 s per-call budget:
+    # on a cold Gateway that budget expired before the reply and the bot started
+    # with zero discovered tools (pilot bot logs 29.10, 02.11, 04.11; WP-5 F70).
+    DISCOVERY_TIMEOUT = 15
+    # Delays before re-trying discovery when the cache is still empty after startup.
+    DISCOVERY_RETRY_DELAYS = (30, 60, 120)
 
     # WP-7 (2026-07-23): TTL негативного кэша «токена нет в БД» — без него каждый
     # запрос от T0/непривязанного пользователя (напр. collect_pre_search на любой
@@ -116,6 +123,9 @@ class GatewayMCPClient:
         # burst. 12 concurrent — компромисс: пропускает user-facing запросы,
         # сглаживает scheduler fan-out.
         self._call_semaphore = asyncio.Semaphore(12)
+        # Single-flight for tools/list: discovery runs outside _call_semaphore
+        # (rare, non-burst), and concurrent refreshes skip instead of piling up.
+        self._discovery_lock = asyncio.Lock()
 
         # Circuit breaker
         self._failures = 0
@@ -1163,7 +1173,17 @@ class GatewayMCPClient:
         чей именно). При 401 обновляем токен ЭТОГО пользователя и повторяем
         один раз — тот же паттерн, что и в `_do_call` (не перебор чужих
         токенов: рефреш чужого пользователя не чинит и не имеет смысла).
+
+        Single-flight: если загрузка уже идёт, второй вызов не шлёт запрос и
+        сразу возвращает текущий кэш — иначе каждый вопрос при пустом кэше
+        порождал свой запрос (замечание ревью WP-5 Ф70).
         """
+        if self._discovery_lock.locked():
+            return list(self._tools_cache)
+        async with self._discovery_lock:
+            return await self._fetch_tools()
+
+    async def _fetch_tools(self) -> List[Dict]:
         payload = {
             "jsonrpc": "2.0",
             "method": "tools/list",
@@ -1177,37 +1197,62 @@ class GatewayMCPClient:
             if token:
                 discovery_headers["Authorization"] = f"Bearer {token}"
 
-        session = await self._get_session()
         try:
-            async with self._call_semaphore:
-                for attempt in range(2):
-                    async with session.post(
-                        self.url,
-                        json=payload,
-                        headers=discovery_headers,
-                        timeout=aiohttp.ClientTimeout(total=self.DEFAULT_TIMEOUT)
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            mcp_tools = data.get("result", {}).get("tools", [])
-                            converted = (self._mcp_to_anthropic_tool(t) for t in mcp_tools)
-                            tools = [t for t in converted if t is not None]
-                            self._tools_cache = tools
-                            self._tools_cache_ts = time.time()
-                            logger.info(f"Gateway: discovery loaded {len(tools)} tools")
-                            return tools
-                        if resp.status == 401 and discovery_user_id is not None and attempt == 0:
-                            logger.info(f"Gateway: discovery 401 for user {discovery_user_id}, attempting refresh")
-                            if await self._refresh_single_token(discovery_user_id):
-                                new_token = self._get_access_token(discovery_user_id)
-                                if new_token:
-                                    discovery_headers["Authorization"] = f"Bearer {new_token}"
-                                continue
-                        logger.warning(f"Gateway: tools/list HTTP {resp.status}")
-                        break
+            session = await self._get_session()
+            # Outside _call_semaphore: a 15 s discovery wait must not hold slots
+            # that user-facing calls queue for; single-flight caps it at one request.
+            for attempt in range(2):
+                async with session.post(
+                    self.url,
+                    json=payload,
+                    headers=discovery_headers,
+                    timeout=aiohttp.ClientTimeout(total=self.DISCOVERY_TIMEOUT)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        mcp_tools = data.get("result", {}).get("tools", [])
+                        converted = (self._mcp_to_anthropic_tool(t) for t in mcp_tools)
+                        tools = [t for t in converted if t is not None]
+                        self._tools_cache = tools
+                        self._tools_cache_ts = time.time()
+                        logger.info(f"Gateway: discovery loaded {len(tools)} tools")
+                        return tools
+                    if resp.status == 401 and discovery_user_id is not None and attempt == 0:
+                        logger.info(f"Gateway: discovery 401 for user {discovery_user_id}, attempting refresh")
+                        if await self._refresh_single_token(discovery_user_id):
+                            new_token = self._get_access_token(discovery_user_id)
+                            if new_token:
+                                discovery_headers["Authorization"] = f"Bearer {new_token}"
+                            continue
+                    logger.warning(f"Gateway: tools/list HTTP {resp.status}")
+                    break
         except Exception as e:
-            logger.warning(f"Gateway: list_tools failed: {e}")
+            # Type name included: asyncio.TimeoutError has an empty str(), which
+            # made the three cold-start failures indistinguishable in the logs.
+            logger.warning(f"Gateway: list_tools failed: {type(e).__name__}: {e}")
         return list(self._tools_cache)
+
+    async def bootstrap_tools_discovery(self) -> int:
+        """Startup discovery, meant to run as a background task.
+
+        Loads tools once, then re-tries with backoff while the cache stays
+        empty. Without the retries a failed bootstrap left the cache empty
+        until the first user question triggered a refresh — that first answer
+        was built without any discovered tools. Returns the final tool count.
+        """
+        await self.list_tools()
+        for delay in self.DISCOVERY_RETRY_DELAYS:
+            if self._tools_cache:
+                break
+            await asyncio.sleep(delay)
+            if not self._tools_cache:  # a user-triggered refresh may have filled it
+                await self.list_tools()
+        count = len(self._tools_cache)
+        if count:
+            logger.info(f"✅ Gateway MCP: discovery {count} tools")
+        else:
+            logger.warning("Gateway: discovery still empty after startup retries")
+        return count
 
     def _mcp_to_anthropic_tool(self, mcp_tool: Dict) -> Optional[Dict]:
         """MCP tool format → Anthropic API format (inputSchema → input_schema).
