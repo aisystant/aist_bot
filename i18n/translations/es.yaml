@@ -201,6 +201,7 @@ bloom:
   level_3_desc: "Análisis y ejemplos prácticos"
 
 settings:
+  input_cancelled_hint: "Entrada cancelada. Para intentarlo de nuevo, pulsa otra vez el botón en ajustes."
   title: "Ajustes"
   what_to_change: "¿Qué quieres actualizar?"
   language:
