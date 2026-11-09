@@ -213,6 +213,13 @@ from i18n.prompts import (
 logger = get_logger(__name__)
 
 
+# Marks every proxied call as the reader-facing bot, so the llm-proxy can keep
+# its budget apart from night automation (WP-568 Ф12, 09.11.2026): without it,
+# calls with no X-User-ID (pre-gen, digests) were counted as "internal".
+PROXY_CONSUMER_HEADER = "X-IWE-Consumer"
+PROXY_CONSUMER = "aist-bot"
+
+
 def resolve_proxy_endpoint(api_key: str) -> tuple[str, dict]:
     """Base URL + headers for a raw aiohttp call to Claude, routed through the
     proxy when configured. For call sites that need a one-off request outside
@@ -226,6 +233,7 @@ def resolve_proxy_endpoint(api_key: str) -> tuple[str, dict]:
     }
     if proxy_secret:
         headers["x-iwe-internal-secret"] = proxy_secret
+        headers[PROXY_CONSUMER_HEADER] = PROXY_CONSUMER
     return base_url, headers
 
 
@@ -277,6 +285,7 @@ class ClaudeClient:
         headers = {"x-api-key": self.api_key}
         if self._proxy_secret:
             headers["x-iwe-internal-secret"] = self._proxy_secret
+            headers[PROXY_CONSUMER_HEADER] = PROXY_CONSUMER
             if account_id:
                 headers["X-User-ID"] = account_id
         trace = get_current_trace()
