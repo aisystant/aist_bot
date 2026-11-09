@@ -56,6 +56,10 @@ logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# Background startup task of tool discovery; module-level reference so the
+# task is not garbage-collected while it sleeps between retries.
+_discovery_task: asyncio.Task | None = None
+
 # ============= КОНСТАНТЫ (из config) =============
 from config import (
     DIFFICULTY_LEVELS, LEARNING_STYLES, EXPERIENCE_LEVELS,
@@ -423,13 +427,11 @@ async def main():
     await gateway_mcp.load_tokens_from_db()
     logger.info("✅ Gateway MCP: Ory tokens загружены")
 
-    # Bootstrap tool discovery cache (DP.SC.129). Fire-and-forget: ошибка не блокирует старт.
-    # При недоступности Gateway бот работает с hardcoded tool set.
-    try:
-        discovered = await gateway_mcp.list_tools()
-        logger.info(f"✅ Gateway MCP: discovery {len(discovered)} tools")
-    except Exception as _e:
-        logger.warning(f"Gateway MCP: tool discovery failed at startup, using hardcoded tools: {_e}")
+    # Bootstrap tool discovery cache (DP.SC.129) in the background with retries:
+    # startup does not wait for a cold Gateway (WP-5 Ф70). Until it loads,
+    # the bot works with the hardcoded tool set. Reference kept against GC.
+    global _discovery_task
+    _discovery_task = asyncio.create_task(gateway_mcp.bootstrap_tools_discovery())
 
     # Создаём bot с transport-layer Markdown→HTML intercept
     from core.safe_bot import SafeBot
