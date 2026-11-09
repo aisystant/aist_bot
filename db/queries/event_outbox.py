@@ -17,6 +17,12 @@ Deliberately scoped to these two event types only, not every event the bot
 emits (peer-session 2026-09-12-09-wp567-stars-retry-parnaya-zapis, Kimi's
 narrowing of Codex's outbox proposal) -- non-critical events keep the
 existing fire-and-forget `post_event` path.
+
+Widened by WP-568 Ф13 (DRR-f13-club-publisher-via-center.md): club publisher
+facts (club_publication, club_publication_queue_low) also go through this
+outbox, because the pilot's notification center reads them from the journal --
+a lost fire-and-forget POST would be a lost message. Those rows are written
+outside a business transaction (core/club_publisher_events.py).
 """
 
 import json
