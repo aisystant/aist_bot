@@ -201,6 +201,7 @@ bloom:
   level_3_desc: "Analyse et exemples pratiques"
 
 settings:
+  input_cancelled_hint: "Saisie annulée. Pour réessayer, appuyez à nouveau sur le bouton dans les paramètres."
   title: "Paramètres"
   what_to_change: "Que veux-tu mettre à jour ?"
   language:

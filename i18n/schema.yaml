@@ -1288,6 +1288,10 @@ settings:
     ru: "Невалидный API-ключ. Проверьте на wakatime.com/settings/api-key и попробуйте снова."
     en: "Invalid API key. Check at wakatime.com/settings/api-key and try again."
 
+  input_cancelled_hint:
+    ru: "Ввод отменён. Чтобы попробовать снова, нажмите кнопку в настройках ещё раз."
+    en: "Input cancelled. To try again, press the button in settings once more."
+
   waka_check_stats:
     ru: "посмотреть статистику"
     en: "check stats"
