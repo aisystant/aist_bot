@@ -35,6 +35,9 @@ from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content, cleanup_error_questions
 from db.queries.marathon_newcomer import is_on_newcomer_marathon
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time, coerce_ui_lang
+from core.club_publisher_events import (
+    classify_publish_failure, record_publication, record_queue_low, routes_via_center,
+)
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
 from clients.claude import is_api_degraded
@@ -3207,16 +3210,25 @@ async def _discourse_scheduled_publish():
                 from db.queries.discourse import get_scheduled_count
                 queue_count = await get_scheduled_count(pub["chat_id"])
 
-                await bot.send_message(
-                    pub["chat_id"],
-                    f"Опубликовано в клуб: «{pub['title']}»\n"
-                    f"{url}\n"
-                    f"В очереди: {queue_count}",
+                await record_publication(
+                    pub["chat_id"], status="published", publication_id=pub["id"],
+                    title=pub["title"], topic_url=url,
                 )
+                if not routes_via_center(pub["chat_id"]):
+                    await bot.send_message(
+                        pub["chat_id"],
+                        f"Опубликовано в клуб: «{pub['title']}»\n"
+                        f"{url}\n"
+                        f"В очереди: {queue_count}",
+                    )
                 logger.info(f"[Publisher] Scheduled post published: topic_id={topic_id}, queue={queue_count}")
             except Exception as e:
                 logger.error(f"[Discourse] Scheduled publish error for pub_id={pub['id']}: {e}")
                 await mark_publication_failed(pub["id"])
+                await record_publication(
+                    pub["chat_id"], status="failed", publication_id=pub["id"],
+                    title=pub["title"], failure=classify_publish_failure(e),
+                )
     finally:
         await bot.session.close()
 
@@ -3397,6 +3409,11 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
                     if notify:
                         queue_count = await get_scheduled_count(chat_id)
                         if queue_count < PUBLISHER_MIN_QUEUE:
+                            await record_queue_low(
+                                chat_id, pending_count=queue_count,
+                                min_queue=PUBLISHER_MIN_QUEUE, day=moscow_today(),
+                            )
+                        if queue_count < PUBLISHER_MIN_QUEUE and not routes_via_center(chat_id):
                             drafts = [p["title"] for p in all_posts
                                       if p["status"] == "draft" and p["target"] == "club"]
                             draft_hint = ""
@@ -3469,7 +3486,7 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
                         source_file=wr["path"],
                     )
                     if pub_id:
-                        scheduled_posts.append((wr["title"], slot_time))
+                        scheduled_posts.append((pub_id, wr["title"], slot_time))
                         logger.info(f"[Publisher] Auto-scheduled weekly review: {wr['title']!r} → {slot_time}")
                     else:
                         logger.info(f"[Publisher] Weekly review already scheduled (duplicate skipped): {wr['title']!r}")
@@ -3509,14 +3526,19 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
                         source_file=post["path"],
                     )
                     if pub_id:
-                        scheduled_posts.append((post["title"], slot))
+                        scheduled_posts.append((pub_id, post["title"], slot))
                         logger.info(f"[Publisher] Auto-scheduled: {post['title']!r} → {slot}")
                     else:
                         logger.info(f"[Publisher] Regular post already scheduled (duplicate skipped): {post['title']!r}")
 
                 # Уведомить
-                if scheduled_posts:
-                    lines = [f"  • «{title}» — {format_pub_slot_msk(slot + timedelta(hours=3))}" for title, slot in scheduled_posts]  # UTC→MSK
+                for pub_id, title, slot in scheduled_posts:
+                    await record_publication(
+                        chat_id, status="scheduled", publication_id=pub_id,
+                        title=title, scheduled_for=slot,
+                    )
+                if scheduled_posts and not routes_via_center(chat_id):
+                    lines = [f"  • «{title}» — {format_pub_slot_msk(slot + timedelta(hours=3))}" for _, title, slot in scheduled_posts]  # UTC→MSK
                     await bot.send_message(
                         chat_id,
                         f"Добавлено в график публикаций ({len(scheduled_posts)}):\n" + "\n".join(lines),
@@ -3526,6 +3548,11 @@ async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool 
                 if notify:
                     new_queue = await get_scheduled_count(chat_id)
                     if new_queue < PUBLISHER_MIN_QUEUE:
+                        await record_queue_low(
+                            chat_id, pending_count=new_queue,
+                            min_queue=PUBLISHER_MIN_QUEUE, day=moscow_today(),
+                        )
+                    if new_queue < PUBLISHER_MIN_QUEUE and not routes_via_center(chat_id):
                         drafts = [p["title"] for p in all_posts
                                   if p["status"] == "draft" and p["target"] == "club"]
                         draft_hint = ""
