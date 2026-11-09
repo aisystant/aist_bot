@@ -52,7 +52,9 @@
 | постановка в график (скан) | `club_publication.v1`, `status=scheduled`, `scheduled_for` | `club-publication:<instance>:<pub_id>:scheduled:<слот UTC>` |
 | `_discourse_scheduled_publish`, успех | `club_publication.v1`, `status=published`, `topic_url` | `club-publication:<instance>:<pub_id>:published` |
 | `_discourse_scheduled_publish`, исключение | `club_publication.v1`, `status=failed`, `failure` = `club_unreachable` / `club_rejected` / `unknown` | `club-publication:<instance>:<pub_id>:failed:<минута UTC>` |
-| Queue Watch (`notify=True`) | `club_publication_queue_low.v1` | `club-publication-queue-low:<instance>:<chat_id>:<дата МСК>` |
+| Queue Watch (`notify=True`) | `club_publication_queue_low.v1` | `club-publication-queue-low:<instance>:<account_id>:<дата МСК>` (без учётной записи платформы факт не пишется) |
+
+Telegram-номер из бота не уходит: ключи и данные несут только учётную запись платформы и номер публикации. Если факт не записан (нет учётной записи, сбой записи, журнал выключен), сообщение уходит напрямую, как раньше.
 
 Переключатели окружения (по умолчанию выключены):
 - `CLUB_PUBLISHER_EVENTS_INSTANCE` = `pilot` | `prod` — включает запись; значение уходит в поле `bot_instance`.

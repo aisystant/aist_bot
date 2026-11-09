@@ -16,7 +16,11 @@ Two env switches (config/settings.py):
                                   bot; set only after the tsekh-1 poller is
                                   verified, otherwise the pilot gets nothing.
 
-Recording never raises: a journal problem must not break publishing.
+Recording never raises: a journal problem must not break publishing. The
+record_* calls return True only when the fact is queued with the author's
+platform account; callers send directly otherwise, so the pilot never ends up
+with neither a message nor an event. No Telegram id leaves the bot: keys and
+payloads carry the platform account or the publication id only.
 Decision record: DS-my-strategy/inbox/WP-568/DRR-f13-club-publisher-via-center.md
 """
 
@@ -30,6 +34,7 @@ from config import (
     CLUB_PUBLISHER_EVENTS_INSTANCE,
     CLUB_PUBLISHER_PILOT_VIA_CENTER,
     DEVELOPER_CHAT_ID,
+    EVENT_GATEWAY_ENABLED,
     get_logger,
 )
 
@@ -65,18 +70,27 @@ def routes_via_center(chat_id: int) -> bool:
     return bool(
         CLUB_PUBLISHER_PILOT_VIA_CENTER
         and CLUB_PUBLISHER_EVENTS_INSTANCE
+        and EVENT_GATEWAY_ENABLED
         and DEVELOPER_CHAT_ID
         and chat_id == DEVELOPER_CHAT_ID
     )
 
 
-async def _enqueue(chat_id: int, external_id: str, event_type: str, payload: dict) -> None:
-    from db.connection import get_pool
-    from db.queries.event_outbox import insert_outbox_row
+async def _resolve_account(chat_id: int) -> Optional[str]:
     from helpers.dual_write import resolve_ory_id_from_chat
 
     try:
-        account_id = await resolve_ory_id_from_chat(chat_id)
+        return await resolve_ory_id_from_chat(chat_id)
+    except Exception as exc:
+        logger.warning(f"[PublisherEvents] account lookup failed: {exc}")
+        return None
+
+
+async def _enqueue(external_id: str, event_type: str, account_id: Optional[str], payload: dict) -> bool:
+    from db.connection import get_pool
+    from db.queries.event_outbox import insert_outbox_row
+
+    try:
         pool = await get_pool()
         async with pool.acquire() as conn:
             await insert_outbox_row(
@@ -87,8 +101,10 @@ async def _enqueue(chat_id: int, external_id: str, event_type: str, payload: dic
                 payload=payload,
                 occurred_at=datetime.now(timezone.utc),
             )
+        return True
     except Exception as exc:
         logger.warning(f"[PublisherEvents] enqueue failed {external_id}: {exc}")
+        return False
 
 
 async def record_publication(
@@ -96,25 +112,26 @@ async def record_publication(
     *,
     status: str,
     publication_id: int,
-    title: str,
+    title: Optional[str],
     scheduled_for: Optional[datetime] = None,
     topic_url: Optional[str] = None,
     failure: Optional[str] = None,
-) -> None:
-    """Queue one club_publication.v1 fact. `scheduled_for` is naive UTC (the
-    publisher's slot convention)."""
+) -> bool:
+    """Queue one club_publication.v1 fact. A naive `scheduled_for` is UTC (the
+    publisher's slot convention). Returns True when queued with an account."""
     instance = CLUB_PUBLISHER_EVENTS_INSTANCE
     if not instance:
-        return
+        return False
     payload: dict = {
         "status": status,
         "publication_id": publication_id,
-        "title": title[:_TITLE_MAX],
+        # minLength 1 in the schema: an empty title would be rejected forever.
+        "title": (title or "(без названия)")[:_TITLE_MAX],
         "bot_instance": instance,
     }
     key = f"club-publication:{instance}:{publication_id}:{status}"
     if scheduled_for is not None:
-        slot = scheduled_for.replace(tzinfo=timezone.utc)
+        slot = scheduled_for.replace(tzinfo=timezone.utc) if scheduled_for.tzinfo is None else scheduled_for.astimezone(timezone.utc)
         payload["scheduled_for"] = slot.isoformat().replace("+00:00", "Z")
         key += f":{slot:%Y%m%dT%H%M}"
     if topic_url:
@@ -123,18 +140,26 @@ async def record_publication(
         payload["failure"] = failure
         # A post can fail again after being rescheduled: one fact per attempt.
         key += f":{datetime.now(timezone.utc):%Y%m%dT%H%M}"
-    await _enqueue(chat_id, key, "club_publication", payload)
+    account_id = await _resolve_account(chat_id)
+    queued = await _enqueue(key, "club_publication", account_id, payload)
+    return queued and account_id is not None
 
 
-async def record_queue_low(chat_id: int, *, pending_count: int, min_queue: int, day: date) -> None:
-    """Queue one club_publication_queue_low.v1 fact per author per Moscow day."""
+async def record_queue_low(chat_id: int, *, pending_count: int, min_queue: int, day: date) -> bool:
+    """Queue one club_publication_queue_low.v1 fact per author per Moscow day.
+    The per-author key uses the platform account; without one there is no
+    PII-free key, so nothing is queued."""
     instance = CLUB_PUBLISHER_EVENTS_INSTANCE
     if not instance:
-        return
+        return False
+    account_id = await _resolve_account(chat_id)
+    if account_id is None:
+        logger.info("[PublisherEvents] queue_low not recorded: author has no platform account")
+        return False
     payload = {"pending_count": pending_count, "min_queue": min_queue, "bot_instance": instance}
-    await _enqueue(
-        chat_id,
-        f"club-publication-queue-low:{instance}:{chat_id}:{day.isoformat()}",
+    return await _enqueue(
+        f"club-publication-queue-low:{instance}:{account_id}:{day.isoformat()}",
         "club_publication_queue_low",
+        account_id,
         payload,
     )

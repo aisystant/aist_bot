@@ -68,12 +68,17 @@ async def fetch_pending_outbox(conn: asyncpg.Connection, batch: int) -> list[asy
     """Lock and return up to `batch` undelivered rows, oldest first. Caller
     must already be inside `conn.transaction()` -- FOR UPDATE SKIP LOCKED
     only serializes concurrent dispatchers within an explicit transaction
-    (same reasoning as core/notification_service.py `drain()`)."""
+    (same reasoning as core/notification_service.py `drain()`).
+
+    Fewest attempts first (WP-568 Ф13 cold review): a row the gateway rejects
+    for good keeps failing; ordered by age alone, `batch` such rows would hold
+    the head of the queue forever and starve payment events behind them. They
+    still surface through `count_stuck_outbox` and the operator alert."""
     return await conn.fetch(
         """SELECT id, external_id, event_type, account_id, payload, occurred_at, attempts
            FROM public.event_outbox
            WHERE delivered_at IS NULL
-           ORDER BY created_at ASC
+           ORDER BY attempts ASC, created_at ASC
            LIMIT $1
            FOR UPDATE SKIP LOCKED""",
         batch,
