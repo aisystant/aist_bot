@@ -396,7 +396,7 @@ def calc_words(duration_minutes: int, bloom_level: int = 1) -> int:
 
 | Файл | Назначение |
 |------|-----------|
-| `clients/claude.py` | Claude API клиент: generate_content, generate_question, generate_practice_intro |
+| `clients/claude.py` | Claude API клиент: generate_content, generate_question, generate_practice_intro. При работе через шлюз моделей (`IWE_LLM_PROXY_URL` + `PROXY_SHARED_SECRET`) каждый запрос несёт отметку `X-IWE-Consumer: aist-bot`: шлюз отделяет расход бота от ночной автоматики и не ограничивает бота её дневным потолком |
 | `clients/mcp.py` | MCP клиенты (Guides, Knowledge) |
 | `states/workshops/marathon/lesson.py` | State Machine: генерация урока |
 | `states/workshops/marathon/question.py` | State Machine: генерация вопроса |
@@ -411,6 +411,7 @@ def calc_words(duration_minutes: int, bloom_level: int = 1) -> int:
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-11-09 | Отметка `X-IWE-Consumer: aist-bot` во всех запросах к шлюзу моделей (WP-568 Ф12): без неё пре-генерация и дайджесты шли как «внутренняя автоматика» |
 | 2026-04-11 | Добавлена §7: Content Budget Model DP.D.027 (3 оси, `calc_words`, `BLOOM_MULTIPLIER`, `BLOOM_INSTRUCTION`) |
 | 2026-02-02 | Refactoring: ClaudeClient удалён из bot.py, используется импорт из clients/claude.py |
 | 2026-01-29 | Добавлена секция 3: генерация практики с переводом |
