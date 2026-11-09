@@ -102,6 +102,18 @@ class SettingsState(BaseState):
         if isinstance(user, dict):
             user['current_context'] = ctx
 
+    async def _reject_text_input(self, user, error_key: str) -> None:
+        """Report invalid input and leave input mode.
+
+        Staying in input mode trapped the user: every later message (even a
+        question) was parsed as the same field and rejected again (WP-5, 09.11:
+        a question was answered with «Невалидный API-ключ»). The user re-opens
+        input from the settings button.
+        """
+        lang = self._get_lang(user)
+        await self._set_waiting(user, None)
+        await self.send(user, f"{t(error_key, lang)}\n{t('settings.input_cancelled_hint', lang)}")
+
     def _get_waiting(self, user) -> str | None:
         """Читаем waiting_for из current_context."""
         if isinstance(user, dict):
@@ -425,7 +437,7 @@ class SettingsState(BaseState):
                 await update_intern(chat_id, schedule_time=normalized)
                 await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{normalized}*", parse_mode="Markdown")
             else:
-                await self.send(user, t('modes.invalid_time_format', lang))
+                await self._reject_text_input(user, 'modes.invalid_time_format')
                 return None
 
         elif field == 'schedule_feed':
@@ -435,20 +447,20 @@ class SettingsState(BaseState):
                 await update_intern(chat_id, feed_schedule_time=normalized)
                 await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{normalized}*", parse_mode="Markdown")
             else:
-                await self.send(user, t('modes.invalid_time_format', lang))
+                await self._reject_text_input(user, 'modes.invalid_time_format')
                 return None
 
         elif field == 'wakatime_key':
             # Валидируем API key через WakaTime API
             key = text.strip()
             if not key.startswith('waka_') and len(key) < 20:
-                await self.send(user, t('settings.waka_invalid_key', lang))
+                await self._reject_text_input(user, 'settings.waka_invalid_key')
                 return None
 
             from clients.wakatime import wakatime_client
             waka_user = await wakatime_client.validate_key(key)
             if not waka_user:
-                await self.send(user, t('settings.waka_invalid_key', lang))
+                await self._reject_text_input(user, 'settings.waka_invalid_key')
                 return None
 
             from db.queries.wakatime import save_wakatime_connection
@@ -644,7 +656,7 @@ class SettingsState(BaseState):
             if amount < 1 or amount > 10000:
                 raise ValueError
         except ValueError:
-            await self.send(user, t('donation.invalid_amount', lang))
+            await self._reject_text_input(user, 'donation.invalid_amount')
             return None
 
         await self._set_waiting(user, None)
