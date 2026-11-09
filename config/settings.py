@@ -677,6 +677,14 @@ PUBLISHER_DAYS = os.getenv("PUBLISHER_DAYS", "mon,thu")  # Пн: итоги не
 PUBLISHER_TIME = os.getenv("PUBLISHER_TIME", "10:00")  # Время публикации (МСК)
 PUBLISHER_INTERVAL = int(os.getenv("PUBLISHER_INTERVAL", "2"))  # Мин. интервал между публикациями (дней)
 PUBLISHER_MIN_QUEUE = int(os.getenv("PUBLISHER_MIN_QUEUE", "2"))  # Мин. очередь
+# WP-568 Ф13: facts about club publications go to the platform event journal
+# (core/club_publisher_events.py). "" = off; "pilot"/"prod" = bot_instance in the event.
+CLUB_PUBLISHER_EVENTS_INSTANCE = os.getenv("CLUB_PUBLISHER_EVENTS_INSTANCE", "").strip().lower()
+if CLUB_PUBLISHER_EVENTS_INSTANCE not in ("", "pilot", "prod"):
+    raise ValueError(f"CLUB_PUBLISHER_EVENTS_INSTANCE must be empty, pilot or prod, got {CLUB_PUBLISHER_EVENTS_INSTANCE!r}")
+# true -> the pilot (DEVELOPER_CHAT_ID) gets publisher messages only through the
+# notification center on tsekh-1; enable after the poller there is verified.
+CLUB_PUBLISHER_PILOT_VIA_CENTER = os.getenv("CLUB_PUBLISHER_PILOT_VIA_CENTER", "false").lower() == "true"
 
 # ============= EVALUATOR (DS-evaluator-agent) =============
 

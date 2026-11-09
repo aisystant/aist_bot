@@ -167,6 +167,10 @@ from .settings import (
     DEVELOPER_CHAT_ID,
     MENTOR_CHANNEL_ID,
 
+    # Публикатор клуба → журнал событий / Центр уведомлений (WP-568 Ф13)
+    CLUB_PUBLISHER_EVENTS_INSTANCE,
+    CLUB_PUBLISHER_PILOT_VIA_CENTER,
+
     # Лента → консультация (WP-498 Ф17)
     FEED_QUESTIONS_VIA_CONSULTATION,
 
@@ -310,6 +314,8 @@ __all__ = [
     'get_channel_context',
     'DEVELOPER_CHAT_ID',
     'FEED_QUESTIONS_VIA_CONSULTATION',
+    'CLUB_PUBLISHER_EVENTS_INSTANCE',
+    'CLUB_PUBLISHER_PILOT_VIA_CENTER',
     'MAINTENANCE_MODE',
     'MAINTENANCE_REDIRECT_BOT',
     'BOT_USERNAME',

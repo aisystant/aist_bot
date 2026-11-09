@@ -43,6 +43,23 @@
 
 ---
 
+## 4. Факты для журнала событий и Центра уведомлений (WP-568 Ф13)
+
+Публикатор записывает доменные факты о публикациях каждого автора в надёжную очередь `event_outbox`; `_drain_event_outbox` раз в минуту доставляет их в журнал событий платформы (event-gateway → `learning.domain_event`). Код — `core/club_publisher_events.py`.
+
+| Где | Факт | Ключ идемпотентности (`external_id`) |
+|-----|------|--------------------------------------|
+| постановка в график (скан) | `club_publication.v1`, `status=scheduled`, `scheduled_for` | `club-publication:<instance>:<pub_id>:scheduled:<слот UTC>` |
+| `_discourse_scheduled_publish`, успех | `club_publication.v1`, `status=published`, `topic_url` | `club-publication:<instance>:<pub_id>:published` |
+| `_discourse_scheduled_publish`, исключение | `club_publication.v1`, `status=failed`, `failure` = `club_unreachable` / `club_rejected` / `unknown` | `club-publication:<instance>:<pub_id>:failed:<минута UTC>` |
+| Queue Watch (`notify=True`) | `club_publication_queue_low.v1` | `club-publication-queue-low:<instance>:<chat_id>:<дата МСК>` |
+
+Переключатели окружения (по умолчанию выключены):
+- `CLUB_PUBLISHER_EVENTS_INSTANCE` = `pilot` | `prod` — включает запись; значение уходит в поле `bot_instance`.
+- `CLUB_PUBLISHER_PILOT_VIA_CENTER` = `true` — пилот (`DEVELOPER_CHAT_ID`) перестаёт получать сообщения публикатора напрямую: их доставляет Центр уведомлений на tsekh-1 (источник `club-publisher` в реестре отправителей). Включать только после проверки опроса на tsekh-1, иначе пилот не получит ничего.
+
+Путь одного сообщения прослеживается по `external_id`: строка `event_outbox` в БД бота → `learning.domain_event` → журнал отправок Центра на tsekh-1. Решение — `DS-my-strategy/inbox/WP-568/DRR-f13-club-publisher-via-center.md`.
+
 ## Связь с данными
 
 - `published_source_files` / `published_titles_lower` — дедуп против уже опубликованного (`db/queries/discourse.py`).
@@ -53,5 +70,6 @@
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-11-09 | Факты о публикациях в журнал событий (раздел 4) и переключатель доставки пилоту через Центр уведомлений (WP-568 Ф13) |
 | 2026-09-02 | Backfill закреплён behavioral-тестами; `notify=False` уточнён как отключение только Queue Watch; конфликт DB больше не выдаётся за новую постановку и не создаёт второе confirmation |
 | 2026-08-31 | Backfill-проход добавлен (peer-сессия с Codex, WP-502 проход 27) — фикс 14-дневного окна как молчаливого дедлайна публикации |
