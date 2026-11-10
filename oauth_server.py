@@ -2032,7 +2032,7 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         # WP-391 Ф6 P0#2 (пир-сессия 2026-07-29, Kimi+Hermes): ops-канал для
         # reindex-алертов. Чат — OPS_ALERT_CHAT_ID (env); без него алерт деградирует
         # в лог (поведение до этой правки) и 503 вызывающему — видно в мониторинге.
-        import html as _html
+        from core.reindex_alert import render_reindex_alert
         ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
         if not ops_chat_id:
             logger.warning("[InternalNotify] ops_alert получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
@@ -2040,25 +2040,13 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         if not _bot_instance:
             logger.warning("[InternalNotify] Bot instance not ready")
             return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
-        source = _html.escape(str(body.get('source', '?')))
-        failed = body.get('failed', [])
-        if isinstance(failed, list):
-            details = "; ".join(
-                _html.escape(f"{f.get('target', '?')}: {f.get('error', '?')}") for f in failed[:3] if isinstance(f, dict)
-            ) or "—"
-        else:
-            details = _html.escape(str(failed))[:300]
         try:
             await _bot_instance.send_message(
                 chat_id=int(ops_chat_id),
-                text=(
-                    f"🚨 <b>Reindex alert</b>: источник <code>{source}</code>\n"
-                    f"Провал целей переиндексации: {details}\n"
-                    f"Индекс может устаревать молча — нужна ручная переиндексация."
-                ),
+                text=render_reindex_alert(body),
                 parse_mode="HTML",
             )
-            logger.info("[InternalNotify] ops_alert source=%s sent", source)
+            logger.info("[InternalNotify] ops_alert sent")
             return web.Response(text=json.dumps({"ok": True}), content_type="application/json")
         except Exception as e:
             logger.exception("[InternalNotify] Error sending ops_alert: %s", e)
