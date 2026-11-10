@@ -10,10 +10,10 @@ Spec: https://core.telegram.org/bots/widgets
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 from datetime import date
-from functools import cache
 from pathlib import Path
 
 from aiogram.methods.base import TelegramMethod
@@ -39,7 +39,7 @@ def progress_widget_enabled() -> bool:
     return os.getenv("PROGRESS_WIDGET_ENABLED", "").strip().lower() in {"1", "true", "yes"}
 
 
-@cache
+@functools.cache
 def load_template(name: str) -> str:
     return (_TEMPLATES_DIR / f"{name}.html").read_text(encoding="utf-8")
 
