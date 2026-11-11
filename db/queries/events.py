@@ -18,6 +18,8 @@ import logging
 import time
 from datetime import datetime
 
+import asyncpg
+
 from db.connection import get_pool
 from helpers.dual_write import post_event
 
@@ -199,29 +201,38 @@ async def _insert_legacy_event(
     except Exception as e:
         logger.debug(f"[Events] legacy user_uuid lookup failed for {user_id}: {e}")
 
-    created_at = occurred_at or datetime.utcnow()
+    values = (
+        user_id,
+        event_type,
+        source,
+        json.dumps(payload) if payload else '{}',
+        confidence,
+        skill_ids or [],
+        legacy_uuid,
+    )
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow('''
-                INSERT INTO development.user_events
-                    (user_id, event_type, source, payload, confidence,
-                     skill_ids, user_uuid, external_id, created_at)
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
-                ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
-                DO NOTHING
-                RETURNING id
-            ''',
-                user_id,
-                event_type,
-                source,
-                json.dumps(payload) if payload else '{}',
-                confidence,
-                skill_ids or [],
-                legacy_uuid,
-                external_id,
-                created_at,
-            )
+            try:
+                # created_at: explicit for backfill, otherwise the database clock (NOW()).
+                row = await conn.fetchrow('''
+                    INSERT INTO development.user_events
+                        (user_id, event_type, source, payload, confidence,
+                         skill_ids, user_uuid, external_id, created_at)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, COALESCE($9, NOW()))
+                    ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
+                    DO NOTHING
+                    RETURNING id
+                ''', *values, external_id, occurred_at)
+            except (asyncpg.exceptions.UndefinedColumnError, asyncpg.exceptions.InvalidColumnReferenceError):
+                # Pilot DB created before the Hub migration: no external_id column / dedup index.
+                row = await conn.fetchrow('''
+                    INSERT INTO development.user_events
+                        (user_id, event_type, source, payload, confidence,
+                         skill_ids, user_uuid, created_at)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, NOW()))
+                    RETURNING id
+                ''', *values, occurred_at)
     except Exception as e:
         logger.warning(f"[Events] legacy insert of {event_type} for {user_id} failed: {e}")
         return None, False
