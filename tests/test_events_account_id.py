@@ -61,12 +61,22 @@ async def test_gateway_written_when_legacy_insert_fails(wiring):
 
 
 async def test_opt_out_by_platform_account_writes_nothing(wiring):
-    wiring.consent = SimpleNamespace(opt_in=False)
+    wiring.consent = {"opt_in": False}
 
     assert await events.log_event(42, "session_start") is None
     await _flush()
 
     assert wiring.posted == []
+
+
+async def test_opt_in_row_is_read_as_dict_and_writes_event(wiring):
+    # get_consent returns a ConsentRow TypedDict, i.e. a plain dict at runtime.
+    wiring.consent = {"account_id": ORY_ID, "opt_in": True, "scope": [], "opted_at": None}
+
+    assert await events.log_event(42, "session_start") == 101
+    await _flush()
+
+    assert [p["event_type"] for p in wiring.posted] == ["session_start"]
 
 
 async def test_dedup_skip_does_not_duplicate_in_journal(wiring):
