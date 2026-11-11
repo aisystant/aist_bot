@@ -23,6 +23,9 @@ _WP330_C5_WATCHDOG_DATE = date(2026, 5, 31)
 from typing import Optional
 
 from aiogram import Bot
+from aiogram.exceptions import (
+    TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter, TelegramServerError,
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 
@@ -246,6 +249,28 @@ def _build_delivery_kwargs(content_spec: dict) -> tuple[str, dict]:
     return text, kwargs
 
 
+async def _classify_transport_error(chat_id: int, error: Exception) -> Exception:
+    """Map a Telegram transport error to the delivery outcome taxonomy (РП-568 Ф16).
+
+    Returns the exception the drain should see: DeliveryBlocked / DeliveryPermanent /
+    DeliveryTransient, or the original error when the outcome is unknown (network
+    error or timeout after the request may have left — no retry, no duplicate).
+    A blocked user is marked in the database here, as direct senders did before.
+    """
+    from core.notification_service import (
+        DeliveryBlocked, DeliveryPermanent, DeliveryTransient,
+    )
+
+    if isinstance(error, TelegramForbiddenError) or _is_user_unavailable(error):
+        await _handle_unavailable_user(chat_id, "delivery")
+        return DeliveryBlocked(str(error))
+    if isinstance(error, (TelegramRetryAfter, TelegramServerError)):
+        return DeliveryTransient(str(error))
+    if isinstance(error, TelegramBadRequest):
+        return DeliveryPermanent(str(error))
+    return error
+
+
 async def _drain_delivery_queue():
     """WP-418 Ф3/Ф4: разобрать очередь Доставщика и доставить через транспорт.
 
@@ -256,7 +281,6 @@ async def _drain_delivery_queue():
     очередь держит core.notification_service.
     """
     from core.notification_service import drain
-    from core.error_classifier import is_suppressed
 
     if not _bot_token:
         return
@@ -267,20 +291,20 @@ async def _drain_delivery_queue():
         text, kwargs = _build_delivery_kwargs(content_spec)
         try:
             await bot.send_message(chat_id, text, **kwargs)
-        except Exception as e:
-            if _is_user_unavailable(e):
-                # паритет с прямыми отправителями до Ф4: пометить blocked в БД
-                await _handle_unavailable_user(chat_id, "delivery")
-                return  # drain уже пометил sent — алерт не нужен
+        except TelegramBadRequest as e:
             if kwargs.get("parse_mode") and "can't parse entities" in str(e).lower():
                 # ловушка 10.2: незакрытая разметка — повторить без форматирования,
-                # но С reply_markup (иначе «нажмите кнопку ниже» придёт без кнопки)
+                # но С reply_markup (иначе «нажмите кнопку ниже» придёт без кнопки).
+                # The first request was rejected, so nothing reached the user yet.
                 retry_kwargs = {k: v for k, v in kwargs.items() if k != "parse_mode"}
-                await bot.send_message(chat_id, content_spec.get("text", ""), **retry_kwargs)
+                try:
+                    await bot.send_message(chat_id, content_spec.get("text", ""), **retry_kwargs)
+                except Exception as retry_error:
+                    raise await _classify_transport_error(chat_id, retry_error) from retry_error
                 return
-            if is_suppressed(__name__, str(e)):
-                return  # benign — drain уже пометил sent, алерт не нужен
-            raise
+            raise await _classify_transport_error(chat_id, e) from e
+        except Exception as e:
+            raise await _classify_transport_error(chat_id, e) from e
 
     try:
         await drain(deliver)
@@ -313,24 +337,41 @@ async def _watch_delivery_queue():
                    WHERE status = 'queued'
                      AND scheduled_at < NOW() - INTERVAL '10 minutes'"""
             )
+            # РП-568 Ф16: 'unknown' = the request may have reached Telegram; it is
+            # never retried automatically, so a person has to look at it. The window is
+            # keyed on the claim time and outlasts the 1 h alert cooldown + 10 min tick.
+            unknown = await conn.fetchval(
+                """SELECT count(*) FROM development.notification_queue
+                   WHERE status = 'unknown'
+                     AND COALESCE(locked_at, created_at) > NOW() - INTERVAL '90 minutes'"""
+            )
     except Exception as e:
         logger.warning(f"[DeliveryWatch] fail-open, проверка пропущена: {e}")
         return
 
-    if not stuck:
+    if not stuck and not unknown:
         return
-    logger.error(f"[DeliveryWatch] {stuck} queued >10 мин — дренаж не работает")
+    lines = []
+    if stuck:
+        logger.error(f"[DeliveryWatch] {stuck} queued >10 мин — дренаж не работает")
+        lines.append(
+            f"⚠️ Доставщик: {stuck} сообщений висят в очереди >10 мин — "
+            "дренаж не работает (DELIVERY_LAYER_ENABLED сброшен или drain падает)"
+        )
+    if unknown:
+        logger.error(f"[DeliveryWatch] {unknown} with unknown outcome in the last 90 min")
+        lines.append(
+            f"❓ Доставщик: у {unknown} сообщений за полтора часа неизвестен исход "
+            "(сбой связи после отправки). Повтора не будет; проверить строки "
+            "status='unknown' в очереди и при необходимости вернуть в 'queued'."
+        )
     if not _bot_token or not DEVELOPER_CHAT_ID:
         return
     if time.time() - _last_delivery_watch_alert_ts < 3600:
         return  # cooldown: лог уже есть, не спамить канал каждые 10 мин
     bot = Bot(token=_bot_token)
     try:
-        await bot.send_message(
-            DEVELOPER_CHAT_ID,
-            f"⚠️ Доставщик: {stuck} сообщений висят в очереди >10 мин — "
-            "дренаж не работает (DELIVERY_LAYER_ENABLED сброшен или drain падает)",
-        )
+        await bot.send_message(DEVELOPER_CHAT_ID, "\n\n".join(lines))
         # метка ПОСЛЕ успешной отправки: упавший send не съедает алерт на час
         _last_delivery_watch_alert_ts = time.time()
     finally:
@@ -774,65 +815,84 @@ async def _check_marathon_missed_checkins():
         await bot.session.close()
 
 
-async def _send_marathon_nudges():
-    """WP-330 P2 / WP-418 Ф4 волна 1: поддерживающие nudge участникам с пропусками чек-инов.
+async def _checkin_stage1_sent_on(chat_id: int, episode_start, today):
+    """Moscow date stage 1 of this episode was delivered, or None.
 
-    Запускается ежедневно в 10:00 MSK. Отправка — через Доставщик (enqueue, класс
-    capped): дневной дедуп держит dedup_key (дата в ключе), журнал для аналитики
-    и cooldown-readers пишет drain с прежним notification_type='marathon_nudge'.
+    Before РП-568 Ф16 the reminder was journaled per day
+    (marathon_nudge:{chat}:{YYYY-MM-DD}); such a reminder inside the episode
+    counts as stage 1, otherwise the first run after deploy repeats it.
     """
-    from core.notification_service import enqueue, CLASS_CAPPED
-    from db.queries.marathon_newcomer import get_users_for_nudge
+    from core.checkin_nudge import journal_key
+    from db.queries.notifications import get_notification_sent_at
+
+    sent_at = await get_notification_sent_at(journal_key(chat_id, episode_start, 1))
+    if sent_at is not None:
+        return sent_at.astimezone(MOSCOW_TZ).date()
+    day = episode_start + timedelta(days=1)
+    while day < today:
+        if await get_notification_sent_at(f"marathon_nudge:{chat_id}:{day.isoformat()}"):
+            return day
+        day += timedelta(days=1)
+    return None
+
+
+async def _send_marathon_nudges():
+    """Missed check-in reminders: at most two per missed episode (РП-568 Ф16).
+
+    Rule and windows — core.checkin_nudge. Runs daily at 10:00 MSK through the
+    delivery layer (class capped). Without the nightly activity aggregation for
+    yesterday nothing is sent: «no activity» would be indistinguishable from
+    «the batch failed», and everyone would get a false reminder. In that case one
+    line goes to the developer channel per day.
+    """
+    from core.checkin_nudge import STAGE_TEXTS, due_stage, journal_key
+    from core.notification_service import enqueue, CLASS_CAPPED, CLASS_OPS_ALERT
+    from db.queries.marathon_newcomer import get_checkin_episodes, was_activity_batch_done
+    from db.queries.notifications import was_notification_sent
 
     if not _bot_token:
         return
 
-    users = await get_users_for_nudge()
-    if not users:
+    today = moscow_now().date()
+    yesterday = today - timedelta(days=1)
+    if not await was_activity_batch_done(yesterday):
+        logger.error(f"[MarathonNudge] activity batch for {yesterday} missing — reminders skipped")
+        if DEVELOPER_CHAT_ID:
+            key = f"checkin-nudge-batch-missing:{yesterday.isoformat()}"
+            await enqueue(
+                int(DEVELOPER_CHAT_ID), CLASS_OPS_ALERT,
+                {"text": (
+                    f"⚠️ Напоминания о пропущенных чек-инах сегодня не отправлены: "
+                    f"ночной подсчёт активности за {yesterday:%d.%m} не отметился. "
+                    "Проверить задачу _process_marathon_activity_batch (03:00 МСК)."
+                ), "format": "plain"},
+                dedup_key=key, journal_key=key, journal_type="ops_alert",
+            )
         return
 
-    today_str = moscow_now().strftime('%Y-%m-%d')
     queued = 0
-    for user in users:
-        chat_id = user['user_id']
-        current_day = user['current_day']
-        total_checkins = user['total_checkins']
-        missed = user.get('missed', max(0, current_day - total_checkins))
-
-        if missed == 1:
-            text = (
-                "🌤 *Небольшая пауза*\n\n"
-                "Вчера не получилось чекинуться — ничего страшного. "
-                "Сегодня новый день и новый слот. Попробуем снова?\n\n"
-                "Если хочешь сбросить марафон — /settings → «Мои данные» → "
-                "«Управление данными» → «🔄 Сбросить марафон». "
-                "Если нужна помощь — напиши /support."
-            )
-        elif missed >= 3:
-            text = (
-                "🤝 *Проверка связи*\n\n"
-                "Три дня без чек-ина. Возможно, марафон идёт в фоне, "
-                "а возможно, нужна помощь.\n\n"
-                "Чтобы начать с чистого листа — /settings → «Мои данные» → "
-                "«Управление данными» → «🔄 Сбросить марафон».\n"
-                "Напиши /support или просто ответь: что мешает?"
-            )
-        else:
-            continue  # missed == 2 — промежуточный, не отправляем
-
-        nudge_key = f"marathon_nudge:{chat_id}:{today_str}"
+    for episode in await get_checkin_episodes(today):
+        chat_id = episode["user_id"]
+        start = episode["episode_start"]
+        stage1_on = await _checkin_stage1_sent_on(chat_id, start, today)
+        stage2_sent = stage1_on is not None and await was_notification_sent(
+            journal_key(chat_id, start, 2)
+        )
+        stage = due_stage(today, start, stage1_on, stage2_sent)
+        if stage is None:
+            continue
+        key = journal_key(chat_id, start, stage)
         try:
             res = await enqueue(
-                chat_id, CLASS_CAPPED, {"text": text, "format": "markdown"},
-                dedup_key=nudge_key, journal_key=nudge_key,
-                journal_type='marathon_nudge',
+                chat_id, CLASS_CAPPED, {"text": STAGE_TEXTS[stage], "format": "markdown"},
+                dedup_key=key, journal_key=key, journal_type="marathon_nudge",
             )
         except Exception as e:
             logger.warning(f"[MarathonNudge] Failed to enqueue for {chat_id}: {e}")
             continue
         if res["status"] == "queued":
             queued += 1
-            logger.info(f"[MarathonNudge] Queued for {chat_id} (missed {missed})")
+            logger.info(f"[MarathonNudge] Queued stage {stage} for {chat_id} (episode {start})")
     if queued:
         logger.info(f"[MarathonNudge] Queued total: {queued}")
 
@@ -844,7 +904,7 @@ async def _process_marathon_activity_batch():
     календарный день (00:00–23:59 MSK) и upsert'ит в learning.marathon_activity.
     Запускается ежедневно в 03:00 MSK.
     """
-    from db.queries.marathon_newcomer import save_marathon_activity
+    from db.queries.marathon_newcomer import record_activity_batch_done, save_marathon_activity
     from db.connection import get_learning_pool
 
     yesterday = (moscow_now() - timedelta(days=1)).date()
@@ -869,6 +929,9 @@ async def _process_marathon_activity_batch():
                 action_type="checkin",
                 raw_count=row["raw_count"],
             )
+        # Marker read by the check-in reminders: «aggregated, maybe zero rows»
+        # differs from «the batch did not run» (РП-568 Ф16).
+        await record_activity_batch_done(yesterday, len(rows))
         if rows:
             logger.info(f"[MarathonActivityBatch] Upserted {len(rows)} rows for {yesterday}")
         else:

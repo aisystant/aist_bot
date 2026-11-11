@@ -14,16 +14,20 @@ import core.notification_service as ns
 # ─────────────────────────── фейк asyncpg ───────────────────────────
 
 class FakeConn:
-    def __init__(self, cap_count=0, duplicate=False, drain_rows=None, receipt_fails=False):
+    def __init__(self, cap_count=0, duplicate=False, drain_rows=None, receipt_fails=False,
+                 bot_blocked=False):
         self._cap_count = cap_count
         self._duplicate = duplicate
         self._drain_rows = drain_rows or []
         self._receipt_fails = receipt_fails
+        self._bot_blocked = bot_blocked
         self._next_id = 100
-        self.updates = []  # id строк, по которым прошёл UPDATE (дренаж)
-        self.update_sqls = []  # SQL UPDATE'ов — различение sent / suppressed (Ф4)
+        self.status_by_id = {}  # queue row id -> last status written by the drain
+        self.reason_by_id = {}
+        self.retry_delays = {}  # queue row id -> retry delay in minutes
         self.inserts = []  # args INSERT'ов — проверка journal_key/journal_type (Ф4)
         self.receipt_updates = []
+        self.stale_sweeps = 0
 
     def transaction(self):
         class _Tx:
@@ -34,17 +38,31 @@ class FakeConn:
         return _Tx()
 
     async def execute(self, sql, *args):
-        if sql.strip().upper().startswith("UPDATE"):
-            if "development.nudge_receipt" in sql:
-                if self._receipt_fails:
-                    raise Exception('UndefinedTableError: relation "development.nudge_receipt" does not exist')
-                self.receipt_updates.append(args[0] if args else None)
-            else:
-                self.updates.append(args[0] if args else None)
-                self.update_sqls.append(sql)
+        if not sql.strip().upper().startswith("UPDATE"):
+            return "OK"
+        if "development.nudge_receipt" in sql:
+            if self._receipt_fails:
+                raise Exception('UndefinedTableError: relation "development.nudge_receipt" does not exist')
+            self.receipt_updates.append(args[0])
+        elif "stale-sending" in sql:
+            self.stale_sweeps += 1
+        elif "id = ANY" in sql:
+            for queue_id in args[0]:
+                self.status_by_id[queue_id] = "sending"
+        elif "status = 'sent'" in sql:
+            self.status_by_id[args[0]] = "sent"
+        elif "status = 'queued'" in sql:
+            self.status_by_id[args[0]] = "queued"
+            self.reason_by_id[args[0]] = args[1]
+            self.retry_delays[args[0]] = args[2]
+        else:  # _set_status(id, status, reason)
+            self.status_by_id[args[0]] = args[1]
+            self.reason_by_id[args[0]] = args[2]
         return "OK"
 
     async def fetchval(self, sql, *args):
+        if "bot_blocked" in sql:
+            return self._bot_blocked
         return self._cap_count  # COUNT для потолка класса
 
     async def fetchrow(self, sql, *args):
@@ -156,89 +174,86 @@ async def test_duplicate_dedup_key_suppressed(monkeypatch):
 
 
 # ─────────────────────────── поведение drain ───────────────────────────
+# РП-568 Ф16 шаг 1а: каждая строка получает исход из закрытого списка, журнал
+# пишется только после доставки, повтор — только для временных ошибок.
 
-@pytest.mark.asyncio
-async def test_drain_delivers_and_marks_sent(monkeypatch):
-    row = {"id": 7, "chat_id": 555, "notification_class": ns.CLASS_MUST_DELIVER,
-           "payload": '{"text": "урок дня"}', "priority": 2,
-           "journal_key": None, "journal_type": None}
-    conn = FakeConn(drain_rows=[row])
-    _patch_pool(monkeypatch, conn)
+def _row(queue_id=7, klass=ns.CLASS_MUST_DELIVER, journal_key=None, journal_type=None,
+         attempts=0, text="урок дня"):
+    return {"id": queue_id, "chat_id": 555, "notification_class": klass,
+            "payload": '{"text": "%s"}' % text, "priority": 2,
+            "journal_key": journal_key, "journal_type": journal_type,
+            "attempts": attempts}
 
+
+def _patch_journal(monkeypatch, already_sent=False, check_fails=False):
     journaled = []
 
-    async def _capture_journal(**kwargs):
+    async def _was_sent(_key):
+        if check_fails:
+            raise ConnectionError("learning pool down")
+        return already_sent
+
+    async def _capture(**kwargs):
         journaled.append(kwargs)
         return True
-    monkeypatch.setattr(ns, "try_insert_notification", _capture_journal)
 
+    monkeypatch.setattr(ns, "was_notification_sent", _was_sent)
+    monkeypatch.setattr(ns, "try_insert_notification", _capture)
+    return journaled
+
+
+@pytest.mark.asyncio
+async def test_drain_delivers_marks_sent_and_journals_after(monkeypatch):
+    conn = FakeConn(drain_rows=[_row()])
+    _patch_pool(monkeypatch, conn)
+    journaled = _patch_journal(monkeypatch)
     delivered = []
 
     async def deliver(chat_id, content_spec):
+        # The row is already claimed, and nothing is journaled yet.
+        assert conn.status_by_id[7] == "sending"
+        assert journaled == []
         delivered.append((chat_id, content_spec["text"]))
 
     stats = await ns.drain(deliver)
 
-    assert delivered == [(555, "урок дня")]          # реально доставлено
-    assert stats["delivered"] == 1
-    assert conn.updates == [7]                        # статус помечен sent (log-before-send)
-    assert conn.receipt_updates == [7]                # receipt подтверждён только после deliver
+    assert delivered == [(555, "урок дня")]
+    assert stats == {"delivered": 1, "failed": 0}
+    assert conn.status_by_id[7] == "sent"
+    assert conn.receipt_updates == [7]
+    assert conn.stale_sweeps == 1
     # без journal_* — технический fallback (canary/ops-alert)
     assert journaled[0]["idempotency_key"] == "delivery:7"
     assert journaled[0]["notification_type"] == ns.CLASS_MUST_DELIVER
 
 
 @pytest.mark.asyncio
-async def test_transport_failure_leaves_once_receipt_reserved(monkeypatch):
-    row = {
-        "id": 8,
-        "chat_id": 555,
-        "notification_class": ns.CLASS_CAPPED,
-        "payload": '{"text": "milestone"}',
-        "priority": 4,
-        "journal_key": "nudge:555:2026-08-06:nudge_sessions_10",
-        "journal_type": "nudge",
-    }
+async def test_drain_journals_semantic_key_and_type(monkeypatch):
+    # Контракт readers (was_nudge_sent_recently) — ключ и тип отправителя, не класс.
+    row = _row(queue_id=9, klass=ns.CLASS_CAPPED,
+               journal_key="nudge:555:2026-06-12:slot_missing_3d", journal_type="nudge")
     conn = FakeConn(drain_rows=[row])
     _patch_pool(monkeypatch, conn)
+    journaled = _patch_journal(monkeypatch)
 
-    async def _journal_new(**_kwargs):
-        return True
+    async def deliver(_chat_id, _content_spec):
+        return None
 
-    async def _ambiguous_failure(_chat_id, _content_spec):
-        raise TimeoutError("transport outcome unknown")
+    await ns.drain(deliver)
 
-    monkeypatch.setattr(ns, "try_insert_notification", _journal_new)
-
-    stats = await ns.drain(_ambiguous_failure)
-
-    assert stats == {"delivered": 0, "failed": 1}
-    assert conn.receipt_updates == []
+    assert journaled[0]["idempotency_key"] == "nudge:555:2026-06-12:slot_missing_3d"
+    assert journaled[0]["notification_type"] == "nudge"
 
 
 @pytest.mark.asyncio
-async def test_drain_survives_receipt_settlement_failure(monkeypatch):
-    # Savepoint (peer-review round 1): сломанный settlement — таблица
-    # nudge_receipt ещё не создана в fail-open окне — не должен отменить
-    # уже случившуюся доставку и отравить общую транзакцию drain
-    # (иначе следующий drain пошлёт пользователю дубль).
-    row = {
-        "id": 9,
-        "chat_id": 777,
-        "notification_class": ns.CLASS_CAPPED,
-        "payload": '{"text": "milestone"}',
-        "priority": 4,
-        "journal_key": None,
-        "journal_type": None,
-    }
-    conn = FakeConn(drain_rows=[row], receipt_fails=True)
+async def test_drain_skips_row_already_in_journal(monkeypatch):
+    # Журнал помнит ключ (старый код до деплоя / второй экземпляр) → дубль не уходит.
+    row = _row(queue_id=11, klass=ns.CLASS_CAPPED,
+               journal_key="marathon_practice_nudge:555:3:30m",
+               journal_type="marathon_practice_nudge")
+    conn = FakeConn(drain_rows=[row])
     _patch_pool(monkeypatch, conn)
-
-    async def _journal_new(**_kwargs):
-        return True
-
-    monkeypatch.setattr(ns, "try_insert_notification", _journal_new)
-
+    journaled = _patch_journal(monkeypatch, already_sent=True)
     delivered = []
 
     async def deliver(chat_id, _content_spec):
@@ -246,66 +261,209 @@ async def test_drain_survives_receipt_settlement_failure(monkeypatch):
 
     stats = await ns.drain(deliver)
 
-    assert delivered == [777]                # доставка состоялась
-    assert stats["delivered"] == 1
-    assert conn.updates == [9]               # строка очереди помечена sent
-    assert conn.receipt_updates == []        # settlement упал — и это пережито
+    assert delivered == []
+    assert stats == {"delivered": 0, "failed": 0}
+    assert conn.status_by_id[11] == "suppressed"
+    assert conn.reason_by_id[11] == "journal-dup"
+    assert journaled == []
 
 
 @pytest.mark.asyncio
-async def test_drain_journals_semantic_key_and_type(monkeypatch):
-    # Ф4: контракт readers (was_nudge_sent_recently ищет
-    # external_id LIKE 'notification-nudge:{chat}:%:{key}' и type='nudge') —
-    # drain обязан журналировать СЕМАНТИЧЕСКИМ ключом/типом отправителя, не классом.
-    row = {"id": 9, "chat_id": 555, "notification_class": ns.CLASS_CAPPED,
-           "payload": '{"text": "nudge"}', "priority": 4,
-           "journal_key": "nudge:555:2026-06-12:slot_missing_3d",
-           "journal_type": "nudge"}
-    conn = FakeConn(drain_rows=[row])
+async def test_drain_blocked_user_is_final_and_not_journaled(monkeypatch):
+    conn = FakeConn(drain_rows=[_row()])
     _patch_pool(monkeypatch, conn)
+    journaled = _patch_journal(monkeypatch)
 
-    journaled = []
+    async def deliver(_chat_id, _content_spec):
+        raise ns.DeliveryBlocked("Forbidden: bot was blocked by the user")
 
-    async def _capture_journal(**kwargs):
-        journaled.append(kwargs)
-        return True
-    monkeypatch.setattr(ns, "try_insert_notification", _capture_journal)
+    stats = await ns.drain(deliver)
 
-    async def deliver(chat_id, content_spec):
-        pass
+    assert stats == {"delivered": 0, "failed": 1}
+    assert conn.status_by_id[7] == "blocked"
+    assert journaled == []
+    assert conn.receipt_updates == []
+
+
+@pytest.mark.asyncio
+async def test_drain_permanent_failure_is_not_retried(monkeypatch):
+    conn = FakeConn(drain_rows=[_row()])
+    _patch_pool(monkeypatch, conn)
+    journaled = _patch_journal(monkeypatch)
+
+    async def deliver(_chat_id, _content_spec):
+        raise ns.DeliveryPermanent("Bad Request: message is too long")
 
     await ns.drain(deliver)
 
-    assert journaled[0]["idempotency_key"] == "nudge:555:2026-06-12:slot_missing_3d"
-    assert journaled[0]["notification_type"] == "nudge"   # не 'capped'
+    assert conn.status_by_id[7] == "failed_permanent"
+    assert conn.retry_delays == {}
+    assert journaled == []
 
 
 @pytest.mark.asyncio
-async def test_drain_suppresses_journal_duplicate(monkeypatch):
-    # Журнал помнит ключ (отправлено старым кодом до деплоя / параллельным
-    # инстансом) → дубль НЕ доставляется, строка помечается suppressed.
-    row = {"id": 11, "chat_id": 555, "notification_class": ns.CLASS_CAPPED,
-           "payload": '{"text": "nudge"}', "priority": 4,
-           "journal_key": "marathon_practice_nudge:555:3:30m",
-           "journal_type": "marathon_practice_nudge"}
+async def test_drain_transient_failure_requeues_with_backoff(monkeypatch):
+    conn = FakeConn(drain_rows=[_row(attempts=0)])
+    _patch_pool(monkeypatch, conn)
+    journaled = _patch_journal(monkeypatch)
+
+    async def deliver(_chat_id, _content_spec):
+        raise ns.DeliveryTransient("Too Many Requests: retry after 5")
+
+    stats = await ns.drain(deliver)
+
+    assert stats == {"delivered": 0, "failed": 1}
+    assert conn.status_by_id[7] == "queued"
+    assert conn.retry_delays[7] == 2   # first attempt failed → 2^1 minutes
+    assert journaled == []
+
+
+@pytest.mark.asyncio
+async def test_drain_transient_failure_gives_up_after_max_attempts(monkeypatch):
+    conn = FakeConn(drain_rows=[_row(attempts=ns.MAX_ATTEMPTS - 1)])
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+
+    async def deliver(_chat_id, _content_spec):
+        raise ns.DeliveryTransient("Internal Server Error")
+
+    await ns.drain(deliver)
+
+    assert conn.status_by_id[7] == "failed_permanent"
+    assert conn.reason_by_id[7].startswith("retries-exhausted")
+    assert conn.retry_delays == {}
+
+
+@pytest.mark.asyncio
+async def test_drain_unknown_outcome_is_not_retried_or_journaled(monkeypatch):
+    # Таймаут: запрос мог дойти до Telegram — повтор дал бы дубль.
+    row = _row(queue_id=8, klass=ns.CLASS_CAPPED,
+               journal_key="nudge:555:2026-08-06:nudge_sessions_10", journal_type="nudge")
     conn = FakeConn(drain_rows=[row])
     _patch_pool(monkeypatch, conn)
+    journaled = _patch_journal(monkeypatch)
 
-    async def _journal_remembers(**kwargs):
-        return False  # UNIQUE(source, external_id) — ключ уже есть
-    monkeypatch.setattr(ns, "try_insert_notification", _journal_remembers)
+    async def deliver(_chat_id, _content_spec):
+        raise TimeoutError("transport outcome unknown")
 
+    stats = await ns.drain(deliver)
+
+    assert stats == {"delivered": 0, "failed": 1}
+    assert conn.status_by_id[8] == "unknown"
+    assert conn.retry_delays == {}
+    assert journaled == []
+    assert conn.receipt_updates == []
+
+
+@pytest.mark.asyncio
+async def test_drain_journal_check_failure_requeues_without_sending(monkeypatch):
+    conn = FakeConn(drain_rows=[_row()])
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch, check_fails=True)
     delivered = []
 
-    async def deliver(chat_id, content_spec):
+    async def deliver(chat_id, _content_spec):
+        delivered.append(chat_id)
+
+    await ns.drain(deliver)
+
+    assert delivered == []
+    assert conn.status_by_id[7] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_drain_survives_receipt_settlement_failure(monkeypatch):
+    # Сломанный settlement (таблица nudge_receipt ещё не создана) не отменяет
+    # уже случившуюся доставку.
+    conn = FakeConn(drain_rows=[_row(queue_id=9, klass=ns.CLASS_CAPPED)], receipt_fails=True)
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+    delivered = []
+
+    async def deliver(chat_id, _content_spec):
         delivered.append(chat_id)
 
     stats = await ns.drain(deliver)
 
-    assert delivered == []                            # дубль не ушёл пользователю
-    assert stats["delivered"] == 0
-    assert conn.updates == [11]
-    assert "suppressed" in conn.update_sqls[0]        # помечен suppressed, не sent
+    assert delivered == [555]
+    assert stats["delivered"] == 1
+    assert conn.status_by_id[9] == "sent"
+    assert conn.receipt_updates == []
+
+
+@pytest.mark.asyncio
+async def test_enqueue_suppresses_optional_nudge_to_user_who_blocked_bot(monkeypatch):
+    conn = FakeConn(bot_blocked=True)
+    _patch_pool(monkeypatch, conn)
+    res = await ns.enqueue(123, ns.CLASS_CAPPED, {"text": "напоминание"})
+    assert res["status"] == "suppressed"
+    assert res["reason"] == "blocked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("klass", [ns.CLASS_CRITICAL, ns.CLASS_MUST_DELIVER,
+                                   ns.CLASS_TRANSACTIONAL, ns.CLASS_OPS_ALERT])
+async def test_enqueue_non_optional_classes_ignore_stale_block_flag(monkeypatch, klass):
+    # bot_blocked clears only when the user writes; a payment or access message to
+    # someone who already unblocked must still be tried (the transport marks real blocks).
+    conn = FakeConn(bot_blocked=True)
+    _patch_pool(monkeypatch, conn)
+    res = await ns.enqueue(123, klass, {"text": "оплата прошла"})
+    assert res["status"] == "queued"
+
+
+class _FailingStatusConn(FakeConn):
+    """FakeConn whose UPDATE containing a given SQL fragment raises (DB error mid-batch)."""
+
+    def __init__(self, failing_sql, **kwargs):
+        super().__init__(**kwargs)
+        self._failing_sql = failing_sql
+        self.released = []
+
+    async def execute(self, sql, *args):
+        if "SET status = 'queued', locked_at = NULL" in sql and "ANY" in sql:
+            self.released.extend(args[0])
+            return "OK"
+        if self._failing_sql in sql:
+            raise ConnectionError("main pool dropped")
+        return await super().execute(sql, *args)
+
+
+@pytest.mark.asyncio
+async def test_db_error_after_send_never_requeues(monkeypatch):
+    # Telegram accepted the message, then the 'sent' UPDATE failed: the row must
+    # stay out of the queue (no duplicate) and the rest of the batch still runs.
+    rows = [_row(queue_id=1), _row(queue_id=2)]
+    conn = _FailingStatusConn("SET status = 'sent'", drain_rows=rows)
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+    delivered = []
+
+    async def deliver(chat_id, _content_spec):
+        delivered.append(chat_id)
+
+    await ns.drain(deliver)
+
+    assert delivered == [555, 555]          # second row was not stranded
+    assert conn.released == []              # nothing went back to the queue
+
+
+@pytest.mark.asyncio
+async def test_db_error_before_send_requeues_the_row(monkeypatch):
+    # The journal-dup status write fails before any transport call → back to 'queued'.
+    rows = [_row(queue_id=1, journal_key="k1")]
+    conn = _FailingStatusConn("SET status = $2", drain_rows=rows)
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch, already_sent=True)
+    delivered = []
+
+    async def deliver(chat_id, _content_spec):
+        delivered.append(chat_id)
+
+    await ns.drain(deliver)
+
+    assert delivered == []
+    assert conn.released == [1]
 
 
 @pytest.mark.asyncio
