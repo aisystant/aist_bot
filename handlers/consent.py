@@ -256,8 +256,10 @@ async def show_consent_revoke(message: Message) -> None:
         )
         return
     await message.answer(
-        "⚠️ <b>Полное удаление согласия</b>\n\n"
-        "Запись будет удалена. Действие необратимо — для повторного включения "
+        "⚠️ <b>Отзыв согласия</b>\n\n"
+        "Учёт будет остановлен. Сохранится только отметка об отказе, без данных о тебе, "
+        "чтобы мы не начали учитывать тебя снова, в том числе по подписке. "
+        "Для повторного включения "
         "потребуется новый /consent opt-in\n\n"
         "Продолжить?",
         parse_mode="HTML",
@@ -429,8 +431,10 @@ async def cmd_consent(message: Message, command: CommandObject):
             await message.answer("🗑 Записи о согласии нет — удалять нечего.")
             return
         await message.answer(
-            "⚠️ <b>Полное удаление согласия</b>\n\n"
-            "Запись будет удалена. Действие необратимо — для повторного включения "
+            "⚠️ <b>Отзыв согласия</b>\n\n"
+            "Учёт будет остановлен. Сохранится только отметка об отказе, без данных о тебе, "
+        "чтобы мы не начали учитывать тебя снова, в том числе по подписке. "
+        "Для повторного включения "
             'потребуется новый /consent opt-in\n\n'
             "Продолжить?",
             parse_mode="HTML",
@@ -634,13 +638,14 @@ async def on_consent_revoke_confirm(callback: CallbackQuery):
         deleted = await revoke_consent(account_id)
     except Exception as exc:
         logger.error("[consent_revoke] account_id=%s: %s", account_id, exc)
-        await callback.answer("Ошибка удаления. Попробуй позже.", show_alert=True)
+        await callback.answer("Ошибка отзыва согласия. Попробуй позже.", show_alert=True)
         return
-    await callback.answer("Запись удалена.")
+    await callback.answer("Согласие отозвано.")
     msg = (
-        "🗑 Запись о согласии удалена."
+        "🗑 Согласие отозвано: учёт остановлен. Сохранена только отметка об отказе, "
+        "чтобы мы не начали учитывать тебя снова."
         if deleted else
-        "ℹ️ Записи не было — удалять нечего."
+        "ℹ️ Активного согласия не было. Отметка об отказе сохранена."
     )
     await callback.message.edit_text(msg, parse_mode="HTML", reply_markup=_status_keyboard(None))
 
@@ -817,8 +822,10 @@ async def on_consent_goto_revoke(callback: CallbackQuery):
         )
         return
     await callback.message.edit_text(
-        "⚠️ <b>Полное удаление согласия</b>\n\n"
-        "Запись будет удалена. Действие необратимо — для повторного включения "
+        "⚠️ <b>Отзыв согласия</b>\n\n"
+        "Учёт будет остановлен. Сохранится только отметка об отказе, без данных о тебе, "
+        "чтобы мы не начали учитывать тебя снова, в том числе по подписке. "
+        "Для повторного включения "
         "потребуется новый /consent opt-in\n\n"
         "Продолжить?",
         parse_mode="HTML",
