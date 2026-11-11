@@ -87,3 +87,63 @@ async def test_backfill_keeps_occurred_at(wiring):
 
     assert wiring.posted[0]["occurred_at"] == past
     assert wiring.posted[0]["account_id"] == ORY_ID
+
+
+async def test_unlinked_user_goes_to_journal_without_account(wiring):
+    wiring.ory = None
+
+    await events.log_event(42, "session_start")
+    await _flush()
+
+    assert wiring.posted[0]["account_id"] is None
+
+
+class _FakeConn:
+    def __init__(self, fail_first):
+        self.fail_first = fail_first
+        self.sql = []
+
+    async def fetchrow(self, sql, *args):
+        self.sql.append(sql)
+        if self.fail_first and len(self.sql) == 1:
+            import asyncpg
+            raise asyncpg.exceptions.UndefinedColumnError('column "external_id" does not exist')
+        return {"id": 7}
+
+
+class _FakePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        pool = self
+
+        class _Ctx:
+            async def __aenter__(self):
+                return pool.conn
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Ctx()
+
+
+@pytest.mark.parametrize("fail_first, expected_inserts", [(False, 1), (True, 2)])
+async def test_legacy_insert_falls_back_without_external_id(monkeypatch, fail_first, expected_inserts):
+    conn = _FakeConn(fail_first)
+
+    async def get_pool():
+        return _FakePool(conn)
+
+    async def get_user_uuid(chat_id):
+        return "legacy-uuid"
+
+    monkeypatch.setattr(events, "get_pool", get_pool)
+    monkeypatch.setattr("db.queries.identity.get_user_uuid", get_user_uuid)
+
+    result = await events._insert_legacy_event(42, "session_start", None, 1.0, None, "bot", "ext-1", None)
+
+    assert result == (7, False)
+    assert len(conn.sql) == expected_inserts
+    assert "external_id" not in conn.sql[-1] or not fail_first
+    assert "COALESCE" in conn.sql[-1]  # database clock when no occurred_at
