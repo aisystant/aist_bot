@@ -26,6 +26,18 @@ def compute_streak_update(current_streak: int, had_yesterday: bool, current_long
     return new_streak, new_longest
 
 
+def effective_streak(stored_streak: int, last_active_day: Optional[date], today: date) -> int:
+    """Streak to show the user.
+
+    The stored counter only changes on an active day, so after a gap it keeps the
+    old value until the next activity. A streak survives while the last active
+    day is today or yesterday (same rule as compute_streak_update).
+    """
+    if last_active_day is None or last_active_day < today - timedelta(days=1):
+        return 0
+    return stored_streak or 0
+
+
 async def touch_last_active_date(chat_id: int):
     """Обновить last_active_date если ещё не сегодня. 1 lightweight UPDATE.
 
@@ -166,13 +178,17 @@ async def get_activity_stats(chat_id: int) -> dict:
             WHERE chat_id = $1 AND activity_date >= $2
             ORDER BY activity_date DESC
         ''', chat_id, week_start)
+        last_active_day = await conn.fetchval(
+            'SELECT MAX(activity_date) FROM public.activity_log WHERE chat_id = $1',
+            chat_id,
+        )
 
     # Количество активных дней с понедельника текущей недели
     days_active_this_week = len(set(a['activity_date'] for a in recent_activity))
 
     return {
         'total': user['active_days_total'],
-        'streak': user['active_days_streak'],
+        'streak': effective_streak(user['active_days_streak'], last_active_day, today),
         'longest_streak': user['longest_streak'],
         'last_active': user['last_active_date'],
         'days_active_this_week': days_active_this_week,

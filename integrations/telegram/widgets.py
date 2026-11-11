@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import functools
 import json
+import math
 import os
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from aiogram.methods.base import TelegramMethod
@@ -50,10 +51,17 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
     Keys are one letter to stay far below the 1024-byte chat_data limit:
     s streak, r record, w active days this week, t active days total,
     p points (omitted when unknown), c calendar bits oldest->newest,
-    o weekday offset of the first calendar day (0 = Monday), l language.
+    o weekday offset of the first calendar day (0 = Monday), k "dd.mm" of the
+    Monday that starts each calendar row, l language. The last calendar day is today.
     """
     calendar = cache.get("calendar") or []
-    offset = date.fromisoformat(calendar[0]["date"]).weekday() if calendar else 0
+    offset, week_labels = 0, []
+    if calendar:
+        first_day = date.fromisoformat(calendar[0]["date"])
+        offset = first_day.weekday()
+        first_monday = first_day - timedelta(days=offset)
+        rows = math.ceil((offset + len(calendar)) / 7)
+        week_labels = [(first_monday + timedelta(weeks=n)).strftime("%d.%m") for n in range(rows)]
     payload = {
         "s": int(cache.get("streak") or 0),
         "r": int(cache.get("longest_streak") or 0),
@@ -61,6 +69,7 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
         "t": int(cache.get("active_days_total") or 0),
         "c": "".join("1" if day.get("active") else "0" for day in calendar),
         "o": offset,
+        "k": week_labels,
         "l": lang if lang in {"ru", "en"} else "en",
     }
     points = cache.get("points_balance")
