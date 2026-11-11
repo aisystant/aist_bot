@@ -243,3 +243,58 @@ async def test_payment_without_id_returns_http_400(workshop, monkeypatch):
     assert response.status == 400
     assert json.loads(response.text) == {"ok": False, "error": "missing payment_id"}
     workshop[1].assert_not_awaited()
+
+
+# --- unsigned support replies: read back from Chatwoot ---------------------
+
+
+def _stored(message_id=501, **overrides):
+    message = {
+        "id": message_id,
+        "message_type": 1,
+        "private": False,
+        "sender": {"type": "user"},
+        "content": "Текст из Chatwoot",
+    }
+    message.update(overrides)
+    return message
+
+
+def test_read_back_accepts_only_public_agent_reply():
+    assert chatwoot.public_agent_reply_text([_stored()], 501) == "Текст из Chatwoot"
+    assert chatwoot.public_agent_reply_text([_stored(private=True)], 501) is None
+    assert chatwoot.public_agent_reply_text([_stored(sender={"type": "contact"})], 501) is None
+    assert chatwoot.public_agent_reply_text([_stored(message_type=0)], 501) is None
+    assert chatwoot.public_agent_reply_text([_stored(message_id=500)], 501) is None
+
+
+@pytest.mark.asyncio
+async def test_unsigned_reply_forwards_text_from_chatwoot_not_from_request(support, monkeypatch):
+    handler, bot = support
+    fetch = AsyncMock(return_value="Текст из Chatwoot")
+    monkeypatch.setattr(chatwoot, "fetch_public_agent_reply", fetch)
+    response = await _post(handler, _agent_reply(id=501, content="подделка"), signature=None)
+    assert response.status == 200
+    fetch.assert_awaited_once_with(16, 501)
+    assert "Текст из Chatwoot" in bot.send_message.await_args.args[1]
+    assert "подделка" not in bot.send_message.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_unsigned_reply_not_confirmed_by_chatwoot_is_rejected(support, monkeypatch):
+    handler, bot = support
+    monkeypatch.setattr(chatwoot, "fetch_public_agent_reply", AsyncMock(return_value=None))
+    response = await _post(handler, _agent_reply(id=501), signature=None)
+    assert response.status == 401
+    bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_invalid_signature_is_rejected_without_read_back(support, monkeypatch):
+    handler, bot = support
+    fetch = AsyncMock(return_value="Текст из Chatwoot")
+    monkeypatch.setattr(chatwoot, "fetch_public_agent_reply", fetch)
+    response = await _post(handler, _agent_reply(id=501), signature="sha256=bad")
+    assert response.status == 401
+    fetch.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
