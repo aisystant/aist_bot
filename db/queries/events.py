@@ -174,7 +174,7 @@ async def _tracking_opted_out(account_id: str, user_id: int, event_type: str) ->
     except Exception as e:
         logger.warning(f"[Events] consent check failed for {user_id}: {e}")
         return False
-    if consent and not consent.opt_in:
+    if consent and not consent["opt_in"]:
         logger.info(f"[Events] skip {event_type} for {user_id}: tracking consent opt_out")
         return True
     return False
