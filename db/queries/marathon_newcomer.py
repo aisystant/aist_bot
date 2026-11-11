@@ -413,34 +413,43 @@ async def resume_marathon(user_id: int, schedule_time: str = "04:00") -> bool:
     """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
-            '''UPDATE learning.marathon_progress
-               SET status = 'active', updated_at = NOW()
-               WHERE user_id = $1 AND status = 'paused' ''',
-            user_id,
-        )
-        if not result or result == "UPDATE 0":
-            return False
-        await conn.execute(
-            '''WITH ranked AS (
-                   SELECT DISTINCT day_number,
-                          DENSE_RANK() OVER (ORDER BY day_number) AS rn
-                   FROM learning.marathon_queue
-                   WHERE user_id = $1 AND status = 'pending'
-               )
-               UPDATE learning.marathon_queue q
-               SET scheduled_at = CASE
-                       WHEN q.content_type = 'lesson_practice'
-                       THEN (CURRENT_DATE + r.rn)::timestamp + $2::time
-                       ELSE (CURRENT_DATE + r.rn)::timestamp + $2::time + INTERVAL '14 hours'
-                   END,
-                   error = NULL,
-                   updated_at = NOW()
-               FROM ranked r
-               WHERE q.user_id = $1 AND q.day_number = r.day_number
-                 AND q.status = 'pending' ''',
-            user_id, schedule_time,
-        )
+        async with conn.transaction():
+            result = await conn.execute(
+                '''UPDATE learning.marathon_progress
+                   SET status = 'active', updated_at = NOW()
+                   WHERE user_id = $1 AND status = 'paused' ''',
+                user_id,
+            )
+            if not result or result == "UPDATE 0":
+                return False
+            # Resume counts as activity: days on pause are not missed check-ins, and
+            # a missed-check-in episode after the pause starts from today (РП-568 Ф16).
+            await conn.execute(
+                '''INSERT INTO learning.marathon_activity (user_id, activity_date, action_type, raw_count)
+                   VALUES ($1, (NOW() AT TIME ZONE 'Europe/Moscow')::DATE, 'resume', 1)
+                   ON CONFLICT (user_id, activity_date, action_type) DO NOTHING''',
+                user_id,
+            )
+            await conn.execute(
+                '''WITH ranked AS (
+                       SELECT DISTINCT day_number,
+                              DENSE_RANK() OVER (ORDER BY day_number) AS rn
+                       FROM learning.marathon_queue
+                       WHERE user_id = $1 AND status = 'pending'
+                   )
+                   UPDATE learning.marathon_queue q
+                   SET scheduled_at = CASE
+                           WHEN q.content_type = 'lesson_practice'
+                           THEN (CURRENT_DATE + r.rn)::timestamp + $2::time
+                           ELSE (CURRENT_DATE + r.rn)::timestamp + $2::time + INTERVAL '14 hours'
+                       END,
+                       error = NULL,
+                       updated_at = NOW()
+                   FROM ranked r
+                   WHERE q.user_id = $1 AND q.day_number = r.day_number
+                     AND q.status = 'pending' ''',
+                user_id, schedule_time,
+            )
     return True
 
 
@@ -543,10 +552,15 @@ async def get_missed_checkin_users(min_days: int = 2, working_days: list[int] | 
     return [dict(r) for r in rows]
 
 
-async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None = None) -> list[dict]:
-    """Получить активных участников с пропусками чек-инов для nudge.
+async def get_checkin_episodes(today, working_days: list[int] | None = None) -> list[dict]:
+    """Active participants with an open missed check-in episode (РП-568 Ф16).
 
-    Peer-session 2026-06-03-16: календарные даты через marathon_activity.
+    Returns [{user_id, episode_start}], where episode_start is the first missed
+    working day after the last activity (any action_type: check-in or resume
+    after a pause) and before today (Moscow date, passed by the caller). Everyone with an open episode is returned,
+    ordered — the stage decision and the once-per-stage journal key live in
+    core.checkin_nudge, not in a LIMIT here (the old LIMIT 100 without ORDER BY
+    could drop fresh misses).
     """
     wd = working_days if working_days is not None else [1, 2, 3, 4, 5, 6, 7]
     pool = await get_learning_pool()
@@ -554,66 +568,77 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
         rows = await conn.fetch(
             '''WITH active_users AS (
                      SELECT user_id,
-                            COALESCE(started_at, created_at)::DATE AS start_date,
-                            current_day
+                            COALESCE(started_at, created_at)::DATE AS start_date
                      FROM learning.marathon_progress
                      WHERE status = 'active' AND current_day > 0
                  ),
-                 days_series AS (
-                     SELECT user_id, generate_series(
-                         start_date,
-                         CURRENT_DATE - INTERVAL '1 day',
-                         '1 day'
-                     )::DATE AS d
-                     FROM active_users
-                 ),
-                 relevant_days AS (
-                     SELECT user_id, d FROM days_series
-                     WHERE EXTRACT(ISODOW FROM d)::int = ANY($2::int[])
-                 ),
-                 activity AS (
-                     SELECT user_id, activity_date
-                     FROM learning.marathon_activity
-                     WHERE user_id IN (SELECT user_id FROM active_users)
-                 ),
-                 missed AS (
-                     SELECT rd.user_id, rd.d
-                     FROM relevant_days rd
-                     LEFT JOIN activity a
-                         ON a.user_id = rd.user_id AND a.activity_date = rd.d
-                     WHERE a.user_id IS NULL
-                 ),
                  last_active AS (
-                     SELECT user_id, MAX(activity_date) AS last_d
-                     FROM activity
+                     -- marathon_activity is filled by the nightly batch for
+                     -- yesterday only; today's (and late-night) check-ins are
+                     -- read live from learning.marathon_state to close the episode.
+                     SELECT user_id, MAX(d) AS last_d
+                     FROM (
+                         SELECT user_id, activity_date AS d
+                         FROM learning.marathon_activity
+                         WHERE user_id IN (SELECT user_id FROM active_users)
+                         UNION ALL
+                         SELECT user_id,
+                                (check_in_at AT TIME ZONE 'Europe/Moscow')::DATE AS d
+                         FROM learning.marathon_state
+                         WHERE user_id IN (SELECT user_id FROM active_users)
+                           AND check_in_at >= ($2::date - 1)::timestamp
+                                              AT TIME ZONE 'Europe/Moscow'
+                     ) AS acts
                      GROUP BY user_id
                  ),
-                 streaks AS (
-                     SELECT m.user_id, COUNT(*) AS missed_streak
-                     FROM missed m
-                     LEFT JOIN last_active la ON la.user_id = m.user_id
-                     WHERE m.d > COALESCE(la.last_d, '1970-01-01'::DATE)
-                     GROUP BY m.user_id
-                 ),
-                 total_checkins AS (
-                     SELECT user_id, COUNT(DISTINCT day) AS cnt
-                     FROM learning.marathon_state
-                     WHERE user_id IN (SELECT user_id FROM active_users)
-                     GROUP BY user_id
+                 open_from AS (
+                     SELECT au.user_id,
+                            GREATEST(au.start_date,
+                                     COALESCE(la.last_d + 1, au.start_date)) AS from_d
+                     FROM active_users au
+                     LEFT JOIN last_active la ON la.user_id = au.user_id
                  )
-                 SELECT au.user_id,
-                        au.current_day,
-                        COALESCE(tc.cnt, 0) AS total_checkins,
-                        COALESCE(s.missed_streak, 0) AS missed
-                 FROM active_users au
-                 LEFT JOIN streaks s ON s.user_id = au.user_id
-                 LEFT JOIN total_checkins tc ON tc.user_id = au.user_id
-                 WHERE COALESCE(s.missed_streak, 0) >= 1
-                 LIMIT $1''',
-            limit,
+                 SELECT o.user_id, MIN(d)::DATE AS episode_start
+                 FROM open_from o,
+                      generate_series(o.from_d, $2::date - 1, '1 day') AS d
+                 WHERE EXTRACT(ISODOW FROM d)::int = ANY($1::int[])
+                 GROUP BY o.user_id
+                 ORDER BY o.user_id''',
             wd,
+            today,
         )
     return [dict(r) for r in rows]
+
+
+async def record_activity_batch_done(activity_date, rows: int) -> None:
+    """Mark the nightly activity aggregation for activity_date as completed.
+
+    Check-in reminders read this marker: without it «no activity» is
+    indistinguishable from «the batch failed», and everyone would get a false
+    «Небольшая пауза».
+    """
+    from db.queries.notifications import insert_domain_event_direct
+
+    await insert_domain_event_direct(
+        source="aist-bot",
+        external_id=f"marathon-activity-batch-{activity_date.isoformat()}",
+        event_type="marathon_activity_batch",
+        schema_version="v1",
+        occurred_at=datetime.utcnow(),
+        account_id=None,
+        payload={"activity_date": activity_date.isoformat(), "rows": rows},
+    )
+
+
+async def was_activity_batch_done(activity_date) -> bool:
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM public.domain_event "
+            "WHERE source = 'aist-bot' AND external_id = $1",
+            f"marathon-activity-batch-{activity_date.isoformat()}",
+        )
+    return row is not None
 
 
 async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:

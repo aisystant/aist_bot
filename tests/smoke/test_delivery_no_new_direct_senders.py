@@ -105,123 +105,118 @@ def _qualified_owner(tree: ast.AST, call: ast.Call) -> str:
     return ".".join(parts)
 
 
-# ── allowlist: pre-existing инвентарь (сгенерирован 2026-08-01, см. пир-сессию) ──
-# Категории: (D) слой доставки в scheduler.py · (W2) инвентарь волны 2
-# (oauth/tier/health) · (S) абстракции/обёртки состояний · (P) прочее
-# pre-existing — кандидаты волн 2-3. Новая запись сюда — только с причиной.
-ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
-    # (D) слой доставки в scheduler.py · (W2) инвентарь волны 2 (oauth/tier/health)
-    # · (S) абстракции/обёртки состояний · (P) прочее pre-existing (волны 2-3).
-    # Новая запись сюда — только с причиной в комментарии.
-("core/autofix.py", "send_fix_proposal"),
-("core/dispatcher.py", "Dispatcher.route_command"),
-("core/feedback_triage.py", "_send_alert"),
-("core/health_check.py", "run_l3_health_check"),
-("core/onboarder/x2.py", "_finish_x2"),
-("core/onboarder/x2.py", "_show_topic"),
-("core/onboarder/x2.py", "run_step"),
-("core/onboarder/x3.py", "_show_x3_offer"),
-    # WP-562/WP-567: a fixed-recipient operator transport for database/outbox
-    # failures cannot depend on that same database-backed delivery queue.
-    # Only this function is exempt; payment handlers remain under the guard.
-("core/operator_alerts.py", "_send_operator_alert"),
-("core/scheduler.py", "_check_marathon_missed_checkins"),
-("core/scheduler.py", "_check_marathon_split_delivery"),
-("core/scheduler.py", "_check_retry_storm"),
-# WP-330 Ф13: direct send moved under the lock/cooldown wrapper; delivery
-# migration remains separate from the rate-limit correctness fix.
-("core/scheduler.py", "_discourse_check_comments_unlocked"),
-("core/scheduler.py", "_discourse_scheduled_publish"),
-("core/scheduler.py", "_drain_delivery_queue.deliver"),
-("core/scheduler.py", "_notify_retry_exhausted"),
-("core/scheduler.py", "_process_marathon_queue"),
-("core/scheduler.py", "_refresh_subscribers_snapshot"),
-("core/scheduler.py", "_send_marathon_weekly_digest"),
-    # WP-578: та же схема, что _send_marathon_weekly_digest выше — cron-задача
-    # с собственным дедупом через notification_log (свой idempotency_key,
-    # не батч из одной email-подобной очереди); мигрировать вместе с
-    # соседним digest-джобом, не по отдельности.
-("core/scheduler.py", "_send_mentorship_disclaimer"),
-("core/scheduler.py", "_send_slot_daily_prompt"),
-    # WP-502: direct send moved under _publisher_scan_lock wrapper (same
-    # pattern as _discourse_check_comments_unlocked above); _smart_publisher_scan
-    # itself now only delegates and holds no direct bot.send_* call.
-("core/scheduler.py", "_smart_publisher_scan_unlocked"),
-("core/scheduler.py", "_watch_delivery_queue"),
-("core/scheduler.py", "pre_generate_feed_digest"),
-("core/scheduler.py", "scheduled_check"),
-("core/scheduler.py", "send_event_notifications"),
-("core/scheduler.py", "send_feedback_daily_digest"),
-("core/scheduler.py", "send_feedback_weekly_digest"),
-("core/scheduler.py", "send_milestone_notifications"),
-("core/scheduler.py", "send_reminder"),
-("core/scheduler.py", "send_user_reminder"),
-("core/tier_detector.py", "_notify_downgrade"),
-("core/tier_detector.py", "_notify_external_client_available"),
-("core/unstick.py", "recover_user"),
-("db/connection.py", "_send_schema_alert"),  # renamed 2026-09-07 (РП-246 Ф2): shared by schema-drift and REQUIRED_FOR_MONEY alerts
-("engines/feed/handlers.py", "show_topic_selection_direct"),
-("engines/tailor/bot_adapter.py", "BotTailorAdapter.deliver"),
-("engines/tailor/delivery.py", "notify_tailor_lesson"),
-("handlers/channels.py", "_notify_reply_to_bot_user"),
-("handlers/channels.py", "_send_simple_notification"),
-("handlers/channels.py", "on_bot_added_to_channel"),
-("handlers/dev.py", "cmd_broadcast_reconnect"),
-("handlers/external_session.py", "_heartbeat_soft_fail"),
-("handlers/external_session.py", "_safe_send"),
-("handlers/legacy/learning.py", "send_practice_topic"),
-("handlers/legacy/learning.py", "send_theory_topic"),
-("handlers/legacy/learning.py", "send_topic"),
-    # WP-612 Ф5: реактивная отправка по событию/команде владельца — уведомление об архивации
-    # в закрытый чат при включении сбора (условия закрепляются в самом чате) и ответ владельцу
-    # в личку. Адресат — тот самый чат/владелец, не батч и не расписание; очередь Доставщика
-    # здесь вредна: сбор нельзя регистрировать, пока уведомление не опубликовано и не закреплено.
-("handlers/chat_analyst.py", "_begin_collection"),
-    # WP-612 Ф9: ответ на нажатие кнопки /erase_me или /resume_me в личке того, кто нажал, сразу
-    # после нажатия; не батч и не расписание (сообщение с кнопкой могло стать недоступным для ответа).
-("handlers/chat_analyst.py", "_run_self_action"),
-    # WP-578: реактивная отправка сразу по команде наставника (тот же класс,
-    # что handlers/workshop.py: _send_direct_masterskaya_invite ниже) —
-    # адресат неизвестен заранее (берётся из reply в момент вызова), не
-    # батч/расписание, повод переносить на Доставщик отдельно от общей
-    # миграции реактивных инвайтов не сильнее, чем у соседа по паттерну.
-("handlers/mentorship.py", "cmd_mentor_invite"),
-    # WP-578 Ф9: реактивный ответ наставнику в личку на его же команду
-    # (ошибка использования вместо публичного reply в группу): адресат — сам
-    # вызвавший, не батч и не расписание; та же причина, что у
-    # cmd_mentor_invite выше.
-("handlers/mentorship.py", "_tell_mentor"),
-("handlers/showcase.py", "_send_seminar_access"),
-("handlers/tier_upgrade.py", "nudge_post_diagnosis_s0"),
-("handlers/tier_upgrade.py", "nudge_post_diagnosis_sN"),
-("handlers/tier_upgrade.py", "nudge_subscription_cta"),
-("handlers/tier_upgrade.py", "nudge_tier_suggest_t2"),
-("handlers/workshop.py", "_send_invite_by_count"),
-    # WP-181 Ф-direct (2026-09-10): та же схема message/bot fallback, что и
-    # _send_invite_by_count выше — реактивное уведомление сразу после
-    # оплаты, не batch/scheduled push. Отдельного повода мигрировать на
-    # Доставщик раньше сиблинга нет.
-("handlers/workshop.py", "_send_direct_masterskaya_invite"),
-("states/base.py", "BaseState.send"),
-("states/feed/topics.py", "FeedTopicsState._accept_topics"),
-("states/utilities/feedback.py", "FeedbackState._notify_developer_red"),
-    # WP-568 F16: invisible to the former name-based scanner (owner was not `bot`);
-    # pre-existing direct senders, to be moved to the single send point in step 1.
-("clients/digital_twin.py", "DigitalTwinClient.refresh_expiring_tokens"),
-("handlers/chat_analyst.py", "_forward"),
-("oauth_server.py", "_ory_already_linked_response"),
-("oauth_server.py", "_ory_guard_response"),
-("oauth_server.py", "chatwoot_webhook_handler"),
-("oauth_server.py", "github_app_callback_handler"),
-("oauth_server.py", "github_callback_handler"),
-("oauth_server.py", "google_calendar_callback_handler"),
-("oauth_server.py", "internal_notify_handler"),
-("oauth_server.py", "internal_notify_handler._send"),
-("oauth_server.py", "linear_callback_handler"),
-("oauth_server.py", "ory_callback_handler"),
-("oauth_server.py", "twin_callback_handler"),
-("oauth_server.py", "wakatime_callback_handler"),
+# ── allowlist (РП-568 Ф16 шаг 1а): three sections, each entry with its reason ──
+# REPLY_SENDERS — answer inside the handling of the user's own action in the bot
+#   (command, button, message), to the same chat, with no external trigger. Stays
+#   in the bot for good.
+# OPS_SENDERS — service channels (developer chat, mentor channel, analysed group),
+#   not notifications to a user about themself.
+# INITIATIVE_PENDING — initiative sends to users (scheduler, webhooks, OAuth
+#   callbacks, payments, commands about another person) not yet moved to
+#   core.notification_service.enqueue. It may only shrink: the count is pinned
+#   below and the test fails when it grows.
+
+REPLY_SENDERS: frozenset[tuple[str, str]] = frozenset({
+    ("core/dispatcher.py", "Dispatcher.route_command"),  # command routing in the user's own chat
+    ("core/onboarder/x2.py", "_finish_x2"),  # onboarding step driven by the user's message
+    ("core/onboarder/x2.py", "_show_topic"),  # onboarding step driven by the user's message
+    ("core/onboarder/x2.py", "run_step"),  # onboarding step driven by the user's message
+    ("core/onboarder/x3.py", "_show_x3_offer"),  # onboarding offer inside the same flow
+    ("engines/feed/handlers.py", "show_topic_selection_direct"),  # answer to a feed button
+    ("handlers/chat_analyst.py", "_run_self_action"),  # answer to /erase_me or /resume_me of the presser
+    ("handlers/mentorship.py", "_tell_mentor"),  # usage error back to the mentor who ran the command
+    ("states/base.py", "BaseState.send"),  # state machine reply in the active chat
+    ("states/feed/topics.py", "FeedTopicsState._accept_topics"),  # answer to topic selection
 })
+
+OPS_SENDERS: frozenset[tuple[str, str]] = frozenset({
+    ("core/autofix.py", "send_fix_proposal"),  # developer chat
+    ("core/feedback_triage.py", "_send_alert"),  # developer chat
+    ("core/health_check.py", "run_l3_health_check"),  # developer chat
+    ("core/operator_alerts.py", "_send_operator_alert"),  # fixed-recipient operator transport for database/outbox failures; cannot depend on the queue it reports on (WP-562/WP-567)
+    ("core/scheduler.py", "_check_marathon_missed_checkins"),  # mentor channel
+    ("core/scheduler.py", "_check_retry_storm"),  # developer chat
+    ("core/scheduler.py", "_drain_delivery_queue.deliver"),  # the delivery transport itself
+    ("core/scheduler.py", "_refresh_subscribers_snapshot"),  # developer chat
+    ("core/scheduler.py", "_watch_delivery_queue"),  # developer chat; the queue watcher cannot depend on the queue
+    ("core/scheduler.py", "send_feedback_daily_digest"),  # developer chat
+    ("core/scheduler.py", "send_feedback_weekly_digest"),  # developer chat
+    ("db/connection.py", "_send_schema_alert"),  # developer chat (schema drift, REQUIRED_FOR_MONEY)
+    ("handlers/chat_analyst.py", "_begin_collection"),  # archiving notice pinned in the analysed group and the owner (WP-612 Ф5)
+    ("handlers/chat_analyst.py", "_forward"),  # chat archive forwarding, not a notification
+    ("states/utilities/feedback.py", "FeedbackState._notify_developer_red"),  # developer chat
+})
+
+INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
+    ("clients/digital_twin.py", "DigitalTwinClient.refresh_expiring_tokens"),
+    ("core/scheduler.py", "_check_marathon_split_delivery"),
+    ("core/scheduler.py", "_discourse_check_comments_unlocked"),
+    ("core/scheduler.py", "_discourse_scheduled_publish"),
+    ("core/scheduler.py", "_notify_retry_exhausted"),
+    ("core/scheduler.py", "_process_marathon_queue"),
+    ("core/scheduler.py", "_send_marathon_weekly_digest"),
+    ("core/scheduler.py", "_send_mentorship_disclaimer"),
+    ("core/scheduler.py", "_send_slot_daily_prompt"),
+    ("core/scheduler.py", "_smart_publisher_scan_unlocked"),
+    ("core/scheduler.py", "pre_generate_feed_digest"),
+    ("core/scheduler.py", "scheduled_check"),
+    ("core/scheduler.py", "send_event_notifications"),
+    ("core/scheduler.py", "send_milestone_notifications"),
+    ("core/scheduler.py", "send_reminder"),
+    ("core/scheduler.py", "send_user_reminder"),
+    ("core/tier_detector.py", "_notify_downgrade"),
+    ("core/tier_detector.py", "_notify_external_client_available"),
+    ("core/unstick.py", "recover_user"),
+    ("engines/tailor/bot_adapter.py", "BotTailorAdapter.deliver"),
+    ("engines/tailor/delivery.py", "notify_tailor_lesson"),
+    ("handlers/channels.py", "_notify_reply_to_bot_user"),
+    ("handlers/channels.py", "_send_simple_notification"),
+    ("handlers/channels.py", "on_bot_added_to_channel"),
+    ("handlers/dev.py", "cmd_broadcast_reconnect"),
+    ("handlers/external_session.py", "_heartbeat_soft_fail"),
+    ("handlers/external_session.py", "_safe_send"),
+    ("handlers/legacy/learning.py", "send_practice_topic"),
+    ("handlers/legacy/learning.py", "send_theory_topic"),
+    ("handlers/legacy/learning.py", "send_topic"),
+    ("handlers/mentorship.py", "cmd_mentor_invite"),
+    ("handlers/showcase.py", "_send_seminar_access"),
+    ("handlers/tier_upgrade.py", "nudge_post_diagnosis_s0"),
+    ("handlers/tier_upgrade.py", "nudge_post_diagnosis_sN"),
+    ("handlers/tier_upgrade.py", "nudge_subscription_cta"),
+    ("handlers/tier_upgrade.py", "nudge_tier_suggest_t2"),
+    ("handlers/workshop.py", "_send_direct_masterskaya_invite"),
+    ("handlers/workshop.py", "_send_invite_by_count"),
+    ("oauth_server.py", "_ory_already_linked_response"),
+    ("oauth_server.py", "_ory_guard_response"),
+    ("oauth_server.py", "chatwoot_webhook_handler"),
+    ("oauth_server.py", "github_app_callback_handler"),
+    ("oauth_server.py", "github_callback_handler"),
+    ("oauth_server.py", "google_calendar_callback_handler"),
+    ("oauth_server.py", "internal_notify_handler"),
+    ("oauth_server.py", "internal_notify_handler._send"),
+    ("oauth_server.py", "linear_callback_handler"),
+    ("oauth_server.py", "ory_callback_handler"),
+    ("oauth_server.py", "twin_callback_handler"),
+    ("oauth_server.py", "wakatime_callback_handler"),
+})
+
+# Ratchet: lower this number in the same commit that moves a sender to the queue.
+INITIATIVE_PENDING_CEILING = 50
+
+ALLOWED_DIRECT_SENDERS = REPLY_SENDERS | OPS_SENDERS | INITIATIVE_PENDING
+
+
+def test_allowlist_sections_are_disjoint():
+    assert not (REPLY_SENDERS & OPS_SENDERS)
+    assert not (REPLY_SENDERS & INITIATIVE_PENDING)
+    assert not (OPS_SENDERS & INITIATIVE_PENDING)
+
+
+def test_initiative_pending_only_shrinks():
+    assert len(INITIATIVE_PENDING) <= INITIATIVE_PENDING_CEILING, (
+        "INITIATIVE_PENDING grew: a new initiative sender must go through "
+        "core.notification_service.enqueue, not into the allowlist"
+    )
 
 
 def test_no_new_direct_senders():
