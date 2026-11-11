@@ -14,7 +14,9 @@ from db.queries import consent as consent_queries
 
 class _ConsentConn:
     def __init__(self):
-        self.execute_results = iter(("UPDATE 2", "DELETE 1", "UPDATE 1"))
+        # set_consent -> fetchrow; revoke -> UPDATE consent_grant + INSERT refusal;
+        # set_consent_grant -> INSERT (asyncpg returns these status strings)
+        self.execute_results = iter(("UPDATE 2", "INSERT 0 1", "INSERT 0 1"))
 
     async def fetchrow(self, *_args):
         return {
@@ -26,6 +28,21 @@ class _ConsentConn:
 
     async def execute(self, *_args):
         return next(self.execute_results)
+
+    async def fetchval(self, *_args):
+        # previous legacy opt_in, read under FOR UPDATE in revoke_consent
+        return True
+
+    def transaction(self):
+        return _Transaction()
+
+
+class _Transaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc_info):
+        return False
 
 
 class _Acquire:
@@ -76,6 +93,6 @@ def test_consent_write_logs_exclude_account_id_but_keep_operation_details(monkey
     assert "opt_in=True" in caplog.text
     assert "scope_count=2" in caplog.text
     assert "consent_grant_rows=2" in caplog.text
-    assert "tracking_consent_rows=1" in caplog.text
+    assert "legacy_was_opt_in=True" in caplog.text
     assert "scope=typing_tracking" in caplog.text
     assert "granted=True" in caplog.text

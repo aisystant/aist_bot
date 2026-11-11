@@ -57,7 +57,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 | `/consent` | Status экран: opt-in/opt-out/нет, дата, scope, сводка событий 30d | `handlers/consent.py:186` |
 | `/consent opt-in` | Privacy-текст + inline [✅ Принять] | там же |
 | `/consent opt-out` | UPDATE `opt_in=FALSE` (история сохранена, `opted_at` не трогается) | `db/queries/consent.py:80` (COALESCE) |
-| `/consent revoke` | Двухшаговое подтверждение → DELETE строки (GDPR right to erasure) | `handlers/consent.py:317` |
+| `/consent revoke` | Двухшаговое подтверждение → отзыв: `consent_grant` получает `granted=false, revoked_at`, в `tracking_consent` остаётся строка-отказ (`opt_in=false`, пустой scope) вместо удаления — WP-5 Ф74, 11.11.2026: удаление стирало единственный след отказа, и сборщик двойника, считающий подписчиков согласившимися, начинал учитывать человека снова | `handlers/consent.py` (`on_consent_revoke_confirm`), `db/queries/consent.py` (`revoke_consent`) |
 | `consent_accept` | UPSERT с opt_in=TRUE через gateway; после подтверждения — ровно один следующий CTA: «🎓 Освоиться» (если открыт разрыв Х2/Х3, WP-406) или экран «С чего начнём?» (WP-349 Ф16б) — взаимоисключающе | `handlers/consent.py:498` |
 | `consent_decline` | Без записи в БД; после отказа — «🎓 Освоиться», если открыт разрыв Х2/Х3 (WP-406) | `handlers/consent.py:589` |
 | `consent_link_now` | Запуск `/link` flow, если LMS не привязан | `handlers/consent.py:344` |
