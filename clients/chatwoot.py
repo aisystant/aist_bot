@@ -63,11 +63,11 @@ async def send_message(source_id: str, conversation_id: int, content: str) -> bo
 def verify_signature(payload: bytes, signature: str, timestamp: str) -> bool:
     """Verify Chatwoot's signed timestamp and raw request body.
 
-    Fail-closed: a missing secret or a missing header rejects the request,
-    otherwise anyone who knows the webhook URL could message users as support.
+    Fail-closed: a missing secret or a missing header returns False, and the
+    caller must then confirm the message by reading it back from Chatwoot.
     """
     if not CHATWOOT_WEBHOOK_SECRET:
-        logger.error("[Chatwoot] CHATWOOT_WEBHOOK_SECRET not configured — rejecting webhook")
+        logger.debug("[Chatwoot] CHATWOOT_WEBHOOK_SECRET not configured; signature not checked")
         return False
     if not signature or not timestamp:
         return False
