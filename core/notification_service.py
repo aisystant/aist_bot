@@ -24,13 +24,39 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Awaitable, Callable, Optional
+from zoneinfo import ZoneInfo
 
 from db.connection import get_pool
-from db.queries.notifications import try_insert_notification
+from db.queries.notifications import try_insert_notification, was_notification_sent
 
 logger = logging.getLogger(__name__)
+
+# Day boundary for caps and the per-user lock: Moscow, not UTC (pilot audience).
+DELIVERY_TZ = "Europe/Moscow"
+
+# Delivery attempts per row before a transient failure becomes permanent.
+MAX_ATTEMPTS = 3
+# A row left in 'sending' longer than this (process died mid-call) is settled as
+# 'unknown': the request may or may not have reached Telegram, so no retry.
+STALE_SENDING_MINUTES = 10
+
+
+class DeliveryBlocked(Exception):
+    """Transport: the user blocked the bot or the chat is gone. No retry."""
+
+
+class DeliveryPermanent(Exception):
+    """Transport: Telegram rejected the message for good (bad request). No retry."""
+
+
+class DeliveryTransient(Exception):
+    """Transport: rate limit or server error before acceptance. Retry later."""
+
+# Any other exception from deliver_fn means the outcome is unknown (timeout,
+# network error after the request left): the row is settled as 'unknown'
+# without retry, because a duplicate is worse than a loss for nudges.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,6 +119,7 @@ async def enqueue(
     canary/ops-alert.
 
     Returns: {"notification_id": int|None, "status": "queued"|"suppressed", "reason"?: str}
+    Suppression reasons: opt-out, blocked, duplicate, cap-exceeded.
     """
     policy = CLASS_POLICY.get(klass)
     if policy is None:
@@ -123,8 +150,17 @@ async def enqueue(
             # снимает гонку COUNT-then-INSERT на границе потолка (только этот scope, не весь журнал).
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext($1))",
-                f"deliver:{chat_id}:{_today_utc().isoformat()}",
+                delivery_lock_key(chat_id),
             )
+
+            # Optional nudges to users who blocked the bot never enter the queue.
+            # Other classes still try: bot_blocked clears only when the user
+            # writes, and a critical message (payment, access) to someone who
+            # already unblocked must not be lost; the transport marks real blocks.
+            if klass == CLASS_CAPPED and await _is_bot_blocked(conn, chat_id):
+                return await _record_suppressed(
+                    conn, chat_id, klass, content_spec, priority, dedup_key, "blocked"
+                )
 
             if policy.opt_out and await _is_opted_out(conn, chat_id, klass):
                 return await _record_suppressed(
@@ -141,9 +177,10 @@ async def enqueue(
                 used = await conn.fetchval(
                     """SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = $2
-                         AND created_at::date = (NOW() AT TIME ZONE 'UTC')::date
-                         AND status IN ('queued', 'sent')""",
-                    chat_id, klass,
+                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $3)::date
+                             = (NOW() AT TIME ZONE $3)::date
+                         AND status IN ('queued', 'sending', 'sent', 'unknown')""",
+                    chat_id, klass, DELIVERY_TZ,
                 )
                 if used >= policy.daily_cap:
                     return await _record_suppressed(
@@ -172,108 +209,262 @@ async def drain(
 ) -> dict:
     """Разобрать очередь: взять queued по приоритету, доставить через deliver_fn.
 
-    deliver_fn(chat_id, content_spec) выполняет физическую отправку; бросает при отказе.
+    deliver_fn(chat_id, content_spec) выполняет физическую отправку. Исход —
+    по тому, как она завершилась (РП-568 Ф16, шаг 1а):
+      вернула             → sent (журнал domain_event пишется только здесь);
+      DeliveryBlocked     → blocked, без повтора;
+      DeliveryPermanent   → failed_permanent, без повтора;
+      DeliveryTransient   → снова queued с отсрочкой 2^attempts мин, не больше
+                            MAX_ATTEMPTS попыток, затем failed_permanent;
+      любое другое        → unknown: запрос мог дойти, повтор дал бы дубль.
 
-    Log-before-send (§10.10): помечаем sent + пишем журнал ДО отправки → дубля не будет
-    при падении между отправкой и фиксацией. Цена — потеря при транзиентном отказе TG
-    (тот же компромисс, что у reminders). Retry через транспорт DP.ROLE.044 — следующий шаг.
+    Строки забираются короткой транзакцией и переводятся в 'sending' ДО сетевого
+    вызова; сам вызов идёт вне транзакции (раньше пакет из 20 строк держал одну
+    транзакцию на все сетевые вызовы, и сбой посреди пакета терял остаток).
     """
     pool = await get_pool()
-    delivered = 0
-    failed = 0
     async with pool.acquire() as conn:
-        # Явная транзакция: вне её asyncpg авто-коммитит SELECT и row-locks
-        # отпускаются сразу — FOR UPDATE SKIP LOCKED переставал разводить
-        # конкурентные consumers (redeploy-overlap: два инстанса берут одни строки).
-        async with conn.transaction():
-            rows = await conn.fetch(
-                """SELECT id, chat_id, notification_class, payload, priority,
-                          journal_key, journal_type
-                   FROM development.notification_queue
-                   WHERE status = 'queued' AND scheduled_at <= NOW()
-                   ORDER BY priority ASC, scheduled_at ASC
-                   LIMIT $1
-                   FOR UPDATE SKIP LOCKED""",
-                batch,
-            )
+        await _settle_stale_sending(conn)
+        rows = await _claim_batch(conn, batch)
+
+        counts = {"delivered": 0, "failed": 0}
+        attempted: set[int] = set()
+        try:
             for row in rows:
-                content_spec = row["payload"]
-                if isinstance(content_spec, str):
-                    content_spec = json.loads(content_spec)
-                chat_id = row["chat_id"]
-                klass = row["notification_class"]
+                attempted.add(row["id"])
+                outcome = await _deliver_row(conn, row, deliver_fn)
+                if outcome == "sent":
+                    counts["delivered"] += 1
+                elif outcome != "suppressed":
+                    counts["failed"] += 1
+        finally:
+            # A failure mid-batch must not strand rows that were never handed to
+            # Telegram: they go back to the queue instead of ageing into 'unknown'.
+            untouched = [row["id"] for row in rows if row["id"] not in attempted]
+            if untouched:
+                await _release_claim(conn, untouched)
 
-                # log-before-send: журнал в learning.domain_event + статус sent.
-                # Семантический ключ/тип от отправителя (Ф4) сохраняет контракт readers
-                # (was_nudge_sent_recently: external_id LIKE 'notification-nudge:...',
-                # get_notification_stats: payload->>'notification_type'). Fallback —
-                # технический delivery:{id} (canary/ops-alert без семантики).
-                inserted = await try_insert_notification(
-                    chat_id=chat_id,
-                    notification_type=row["journal_type"] or klass,
-                    idempotency_key=row["journal_key"] or f"delivery:{row['id']}",
-                    payload={"notification_class": klass, "priority": row["priority"]},
-                    delivered_via="notification_service",
-                )
-                if not inserted:
-                    # Журнал уже помнит ключ: отправлено старым кодом до деплоя или
-                    # параллельным инстансом (redeploy-overlap). Дубль не доставляем.
-                    await conn.execute(
-                        """UPDATE development.notification_queue
-                           SET status = 'suppressed', reason = 'journal-dup'
-                           WHERE id = $1""",
-                        row["id"],
-                    )
-                    logger.info(
-                        "[Delivery] journal-dup skip id=%s chat=%s class=%s",
-                        row["id"], chat_id, klass,
-                    )
-                    continue
-                await conn.execute(
-                    "UPDATE development.notification_queue SET status = 'sent', sent_at = NOW() WHERE id = $1",
-                    row["id"],
-                )
-                try:
-                    await deliver_fn(chat_id, content_spec)
-                    try:
-                        # Savepoint: без него ошибка settlement (напр. таблица
-                        # ещё не создана в fail-open окне) отравляет общую
-                        # транзакцию drain — и уже отправленное уйдёт повторно.
-                        async with conn.transaction():
-                            await conn.execute(
-                                """UPDATE development.nudge_receipt
-                                   SET status = 'delivered', delivered_at = NOW()
-                                   WHERE queue_id = $1 AND status = 'reserved'""",
-                                row["id"],
-                            )
-                    except Exception as receipt_error:
-                        # Migration 043 is fail-open at boot for legacy deploys.
-                        # Delivery must not fail after transport acknowledgement;
-                        # a missing settlement remains safely at-most-once.
-                        logger.warning(
-                            "[Delivery] receipt settlement failed id=%s: %s",
-                            row["id"], receipt_error,
-                        )
-                    delivered += 1
-                except Exception as e:
-                    failed += 1
-                    logger.error(
-                        "[Delivery] deliver failed id=%s chat=%s class=%s: %s",
-                        row["id"], chat_id, klass, e,
-                    )
+    if counts["delivered"] or counts["failed"]:
+        logger.info("[Delivery] drain: delivered=%s failed=%s",
+                    counts["delivered"], counts["failed"])
+    return counts
 
-    if delivered or failed:
-        logger.info("[Delivery] drain: delivered=%s failed=%s", delivered, failed)
-    return {"delivered": delivered, "failed": failed}
+
+async def _claim_batch(conn, batch: int) -> list:
+    """Забрать пакет строк и пометить их 'sending' одной короткой транзакцией.
+
+    FOR UPDATE SKIP LOCKED разводит два экземпляра бота при выкатке: строку,
+    взятую одним, второй не видит, а после коммита она уже не 'queued'.
+    """
+    async with conn.transaction():
+        rows = await conn.fetch(
+            """SELECT id, chat_id, notification_class, payload, priority,
+                      journal_key, journal_type, attempts
+               FROM development.notification_queue
+               WHERE status = 'queued' AND scheduled_at <= NOW()
+               ORDER BY priority ASC, scheduled_at ASC
+               LIMIT $1
+               FOR UPDATE SKIP LOCKED""",
+            batch,
+        )
+        if rows:
+            await conn.execute(
+                """UPDATE development.notification_queue
+                   SET status = 'sending', locked_at = NOW(),
+                       attempts = COALESCE(attempts, 0) + 1
+                   WHERE id = ANY($1::int[])""",
+                [row["id"] for row in rows],
+            )
+    return list(rows)
+
+
+async def _deliver_row(conn, row, deliver_fn) -> str:
+    """Доставить одну забранную строку и записать её исход. Возвращает исход.
+
+    A database error before the transport call puts the row back to 'queued'
+    (nothing was sent); one after the transport call is logged and the row is
+    left in 'sending' (the stale sweep settles it as 'unknown', never re-sends).
+    """
+    try:
+        return await _deliver_row_unguarded(conn, row, deliver_fn)
+    except _RowAfterSendError as e:
+        logger.error("[Delivery] bookkeeping failed after the transport call id=%s: %s",
+                     row["id"], e.__cause__)
+        return "unknown"
+    except Exception as e:
+        logger.error("[Delivery] row failed before delivery id=%s: %s", row["id"], e)
+        await _release_claim(conn, [row["id"]])
+        return "failed_transient"
+
+
+class _RowAfterSendError(Exception):
+    """Bookkeeping failed after Telegram already accepted the message."""
+
+
+async def _release_claim(conn, queue_ids: list[int]) -> None:
+    try:
+        await conn.execute(
+            """UPDATE development.notification_queue
+               SET status = 'queued', locked_at = NULL
+               WHERE id = ANY($1::int[]) AND status = 'sending'""",
+            queue_ids,
+        )
+    except Exception as e:
+        # The stale sweep will settle these rows as 'unknown' in 10 minutes.
+        logger.error("[Delivery] could not release claimed rows %s: %s", queue_ids, e)
+
+
+async def _deliver_row_unguarded(conn, row, deliver_fn) -> str:
+    content_spec = row["payload"]
+    if isinstance(content_spec, str):
+        content_spec = json.loads(content_spec)
+    queue_id = row["id"]
+    chat_id = row["chat_id"]
+    klass = row["notification_class"]
+    journal_key = row["journal_key"] or f"delivery:{queue_id}"
+
+    # Журнал помнит ключ: отправлено старым кодом до деплоя или параллельным
+    # экземпляром. Дубль не доставляем.
+    try:
+        already_sent = await was_notification_sent(journal_key)
+    except Exception as e:
+        # Journal unreachable: nothing was sent yet, so this is safely retryable.
+        return await _retry_or_give_up(conn, row, e)
+    if already_sent:
+        await _set_status(conn, queue_id, "suppressed", "journal-dup")
+        logger.info("[Delivery] journal-dup skip id=%s chat=%s class=%s",
+                    queue_id, chat_id, klass)
+        return "suppressed"
+
+    try:
+        try:
+            await deliver_fn(chat_id, content_spec)
+        except DeliveryBlocked as e:
+            await _set_status(conn, queue_id, "blocked", str(e)[:200])
+            return "blocked"
+        except DeliveryPermanent as e:
+            await _set_status(conn, queue_id, "failed_permanent", str(e)[:200])
+            logger.warning("[Delivery] permanent failure id=%s chat=%s class=%s: %s",
+                           queue_id, chat_id, klass, e)
+            return "failed_permanent"
+        except DeliveryTransient as e:
+            return await _retry_or_give_up(conn, row, e)
+        except Exception as e:
+            await _set_status(conn, queue_id, "unknown", f"{type(e).__name__}: {e}"[:200])
+            logger.error("[Delivery] outcome unknown id=%s chat=%s class=%s: %s",
+                         queue_id, chat_id, klass, e)
+            return "unknown"
+        await conn.execute(
+            """UPDATE development.notification_queue
+               SET status = 'sent', sent_at = NOW() WHERE id = $1""",
+            queue_id,
+        )
+    except Exception as e:
+        # The transport was already called: the row must never return to the
+        # queue from here, or a message Telegram accepted could go out twice.
+        raise _RowAfterSendError() from e
+    await _journal_sent(row, klass, journal_key)
+    await _settle_receipt(conn, queue_id)
+    return "sent"
+
+
+async def _retry_or_give_up(conn, row, error: Exception) -> str:
+    attempts = row["attempts"] + 1 if row["attempts"] is not None else 1
+    if attempts >= MAX_ATTEMPTS:
+        await _set_status(conn, row["id"], "failed_permanent",
+                          f"retries-exhausted: {error}"[:200])
+        logger.warning("[Delivery] retries exhausted id=%s chat=%s: %s",
+                       row["id"], row["chat_id"], error)
+        return "failed_permanent"
+    await conn.execute(
+        """UPDATE development.notification_queue
+           SET status = 'queued', locked_at = NULL, reason = $2,
+               scheduled_at = NOW() + INTERVAL '1 minute' * $3
+           WHERE id = $1""",
+        row["id"], f"transient: {error}"[:200], 2 ** attempts,
+    )
+    logger.info("[Delivery] transient failure id=%s attempt=%s, retry scheduled: %s",
+                row["id"], attempts, error)
+    return "failed_transient"
+
+
+async def _journal_sent(row, klass: str, journal_key: str) -> None:
+    """Записать факт доставки в журнал с прежним ключом и типом отправителя.
+
+    Контракт читателей (was_nudge_sent_recently, отбор напоминаний о практике,
+    сверка конвейеров) держится на прежних idempotency_key и notification_type.
+    Сбой журнала после доставки не отменяет её: строка очереди уже 'sent'.
+    """
+    try:
+        await try_insert_notification(
+            chat_id=row["chat_id"],
+            notification_type=row["journal_type"] or klass,
+            idempotency_key=journal_key,
+            payload={"notification_class": klass, "priority": row["priority"]},
+            delivered_via="notification_service",
+        )
+    except Exception as e:
+        logger.error("[Delivery] journal write failed after delivery id=%s: %s",
+                     row["id"], e)
+
+
+async def _settle_receipt(conn, queue_id: int) -> None:
+    try:
+        await conn.execute(
+            """UPDATE development.nudge_receipt
+               SET status = 'delivered', delivered_at = NOW()
+               WHERE queue_id = $1 AND status = 'reserved'""",
+            queue_id,
+        )
+    except Exception as receipt_error:
+        # Migration 043 is fail-open at boot for legacy deploys; a missing
+        # settlement remains safely at-most-once.
+        logger.warning("[Delivery] receipt settlement failed id=%s: %s",
+                       queue_id, receipt_error)
+
+
+async def _settle_stale_sending(conn) -> None:
+    """Строки, застрявшие в 'sending' (процесс упал посреди вызова), → 'unknown'."""
+    await conn.execute(
+        """UPDATE development.notification_queue
+           SET status = 'unknown', reason = 'stale-sending'
+           WHERE status = 'sending'
+             AND locked_at < NOW() - INTERVAL '1 minute' * $1""",
+        STALE_SENDING_MINUTES,
+    )
+
+
+async def _set_status(conn, queue_id: int, status: str, reason: str) -> None:
+    await conn.execute(
+        """UPDATE development.notification_queue
+           SET status = $2, reason = $3 WHERE id = $1""",
+        queue_id, status, reason,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Внутренние помощники.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _today_utc() -> datetime.date:
-    # Naive UTC date — согласован с created_at::date в COUNT (NOW() AT TIME ZONE 'UTC').
-    return datetime.utcnow().date()
+def delivery_lock_key(chat_id: int) -> str:
+    """Per-user, per-day advisory lock key shared by every queue writer.
+
+    Both enqueue paths (this module and core.nudge_delivery) must serialise on
+    the same key, or the cap COUNT-then-INSERT race reopens between them.
+    """
+    return f"deliver:{chat_id}:{_today_local().isoformat()}"
+
+
+def _today_local() -> date:
+    # Moscow date — the same boundary the cap COUNT uses (DELIVERY_TZ).
+    return datetime.now(ZoneInfo(DELIVERY_TZ)).date()
+
+
+async def _is_bot_blocked(conn, chat_id: int) -> bool:
+    return bool(await conn.fetchval(
+        "SELECT bot_blocked FROM development.user_state WHERE chat_id = $1",
+        chat_id,
+    ))
 
 
 async def _is_opted_out(conn, chat_id: int, klass: str) -> bool:
@@ -289,7 +480,7 @@ async def _is_opted_out(conn, chat_id: int, klass: str) -> bool:
 async def _is_duplicate(conn, dedup_key: str, window_hours: int) -> bool:
     row = await conn.fetchrow(
         """SELECT 1 FROM development.notification_queue
-           WHERE dedup_key = $1 AND status IN ('queued', 'sent')
+           WHERE dedup_key = $1 AND status IN ('queued', 'sending', 'sent', 'unknown')
              AND created_at >= NOW() - INTERVAL '1 hour' * $2
            LIMIT 1""",
         dedup_key, window_hours,

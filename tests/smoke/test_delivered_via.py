@@ -72,6 +72,7 @@ async def test_drain_stamps_delivered_via(monkeypatch):
         "priority": 4,
         "journal_key": "nudge:555:2026-06-15:test",
         "journal_type": "nudge",
+        "attempts": 0,
     }
 
     async def _fake_get_pool():
@@ -86,6 +87,11 @@ async def test_drain_stamps_delivered_via(monkeypatch):
         return True
 
     monkeypatch.setattr(ns, "try_insert_notification", _capture)
+
+    async def _not_sent_yet(_key):
+        return False
+
+    monkeypatch.setattr(ns, "was_notification_sent", _not_sent_yet)
 
     async def _noop_deliver(chat_id, content):
         pass
