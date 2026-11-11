@@ -153,6 +153,21 @@ async def was_notification_sent(idempotency_key: str) -> bool:
         return row is not None
 
 
+async def get_notification_sent_at(idempotency_key: str) -> Optional[datetime]:
+    """When the notification with this key was journaled as sent (UTC), or None.
+
+    The drain journals only after Telegram accepted the message (РП-568 Ф16),
+    so this is the delivery time, not the queueing time.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT occurred_at FROM public.domain_event "
+            "WHERE source = 'aist-bot' AND event_type = 'notification_sent' AND external_id = $1",
+            f"notification-{idempotency_key}",
+        )
+
+
 async def get_legacy_template_update_chat_ids(version: str) -> set[int]:
     """Chats that already got this release under the pre-WP-529 key.
 

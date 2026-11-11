@@ -29,6 +29,7 @@ from enum import Enum
 from typing import Optional
 
 from db.connection import get_pool
+from core.notification_service import DELIVERY_TZ, delivery_lock_key
 from db.queries.notifications import fetch_recent_nudges_by_type
 
 logger = logging.getLogger(__name__)
@@ -170,12 +171,12 @@ async def _try_enqueue_one(user_id: int, candidate: NudgeCandidate) -> EnqueueRe
             # движками остаётся открытым (найдено code review 2026-07-04-11).
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext($1))",
-                f"deliver:{user_id}:{_today_utc().isoformat()}",
+                delivery_lock_key(user_id),
             )
 
             duplicate = await conn.fetchrow(
                 """SELECT 1 FROM development.notification_queue
-                   WHERE dedup_key = $1 AND status IN ('queued', 'sent')
+                   WHERE dedup_key = $1 AND status IN ('queued', 'sending', 'sent', 'unknown')
                      AND created_at >= NOW() - INTERVAL '1 day' * $2
                    LIMIT 1""",
                 candidate.dedup_key, config.cooldown_days,
@@ -190,9 +191,10 @@ async def _try_enqueue_one(user_id: int, candidate: NudgeCandidate) -> EnqueueRe
                 used = await conn.fetchval(
                     """SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = 'capped'
-                         AND created_at::date = (NOW() AT TIME ZONE 'UTC')::date
-                         AND status IN ('queued', 'sent')""",
-                    user_id,
+                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date
+                             = (NOW() AT TIME ZONE $2)::date
+                         AND status IN ('queued', 'sending', 'sent', 'unknown')""",
+                    user_id, DELIVERY_TZ,
                 )
                 if used >= 2:
                     return EnqueueResult(
