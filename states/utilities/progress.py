@@ -385,7 +385,39 @@ class ProgressState(BaseState):
             [InlineKeyboardButton(text="🔬 Диагностический профиль", callback_data="progress_cp_profile")],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_exit")],
         ])
+        # WP-5 Ф72: first entry shows the overview as a Telegram widget;
+        # navigation back from sections keeps editing the text card.
+        if callback is None and await self._send_overview_widget(user, cache, lang, keyboard):
+            return
         await self._show_section(user, text, keyboard, callback)
+
+    async def _send_overview_widget(self, user, cache: dict, lang: str, keyboard: InlineKeyboardMarkup) -> bool:
+        """Send the overview as an HTML widget. False → caller sends the text card."""
+        from aiogram.exceptions import TelegramAPIError
+
+        from integrations.telegram.widgets import (
+            SendWidget,
+            build_progress_chat_data,
+            load_template,
+            progress_widget_enabled,
+        )
+
+        if not progress_widget_enabled():
+            return False
+        chat_id = self._get_chat_id(user)
+        try:
+            await self.bot(SendWidget(
+                chat_id=chat_id,
+                html=load_template("progress"),
+                caption=t('progress.title_hub', lang, name=cache.get('name', '')),
+                chat_data=build_progress_chat_data(cache, lang),
+                reply_markup=keyboard,
+            ))
+        except (TelegramAPIError, OSError, ValueError) as e:
+            logger.warning(f"[Progress] widget send failed for chat {chat_id}, falling back to text: {e}")
+            return False
+        logger.info(f"[Progress] widget sent to chat {chat_id}")
+        return True
 
     # ─── DISPLAY HELPER ────────────────────────────────────────
 
