@@ -2427,6 +2427,11 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     if message_type not in (1, "outgoing"):
         return web.Response(text="ok")
 
+    # Chatwoot marks internal notes as outgoing too. Forward only messages
+    # explicitly marked public; a missing or malformed flag stays private.
+    if payload.get("private") is not False:
+        return web.Response(text="ok")
+
     content = payload.get("content", "").strip()
     if not content:
         return web.Response(text="ok")
