@@ -1035,7 +1035,8 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
             # Оплата workshop (по умолчанию)
             from handlers.workshop import process_workshop_webhook
             result = await process_workshop_webhook(data, _bot_instance)
-        return web.Response(text=json.dumps(result), content_type="application/json")
+        status = 200 if result.get("ok") else 400
+        return web.Response(text=json.dumps(result), content_type="application/json", status=status)
     except Exception as e:
         logger.error(f"[WorkshopWebhook] error: {e}")
         import traceback
@@ -2405,7 +2406,8 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
 
     from clients.chatwoot import verify_signature
     sig = request.headers.get("X-Chatwoot-Signature", "")
-    if not verify_signature(body, sig):
+    timestamp = request.headers.get("X-Chatwoot-Timestamp", "")
+    if not verify_signature(body, sig, timestamp):
         logger.warning("[Chatwoot webhook] invalid signature")
         return web.Response(status=401, text="invalid signature")
 
@@ -2425,6 +2427,16 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
 
     # message_type 1 = outgoing (agent → customer); also accept string "outgoing"
     if message_type not in (1, "outgoing"):
+        return web.Response(text="ok")
+
+    # Chatwoot marks internal notes as outgoing too. Forward only messages
+    # explicitly marked public; a missing or malformed flag stays private.
+    if payload.get("private") is not False:
+        return web.Response(text="ok")
+
+    sender = payload.get("sender")
+    if not isinstance(sender, dict) or sender.get("type") != "user":
+        logger.warning("[Chatwoot webhook] public reply without agent sender; skipped")
         return web.Response(text="ok")
 
     content = payload.get("content", "").strip()
