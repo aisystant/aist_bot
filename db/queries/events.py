@@ -17,7 +17,8 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Optional
+
+import asyncpg
 
 from db.connection import get_pool
 from helpers.dual_write import post_event
@@ -86,15 +87,15 @@ def _make_external_id(user_id: int, event_type: str) -> str:
 async def log_event(
     user_id: int,
     event_type: str,
-    payload: Optional[dict] = None,
+    payload: dict | None = None,
     confidence: float = 1.0,
-    skill_ids: Optional[list] = None,
+    skill_ids: list | None = None,
     source: str = 'bot',
-) -> Optional[int]:
-    """Записать событие в development.user_events через Integrity Pipeline.
+) -> int | None:
+    """Записать событие: legacy development.user_events + центральный журнал (gateway).
 
     Args:
-        user_id: chat_id пользователя (пока без FK на public.users)
+        user_id: chat_id пользователя (telegram_id)
         event_type: тип события (session_start, ai_chat, marathon_step, ...)
         payload: произвольные данные события (JSONB)
         confidence: сила сигнала 0.0–1.0 (тест=0.9, самооценка=0.3)
@@ -102,224 +103,182 @@ async def log_event(
         source: продьюсер ('bot', 'lms', 'club', 'web_app')
 
     Returns:
-        id записи или None при ошибке/dedup
+        id legacy-записи или None (ошибка legacy / dedup / opt-out).
     """
-    try:
-        pool = await get_pool()
-        # Resolve user_uuid from public.users (WP-82 Phase 2)
-        user_uuid = None
-        try:
-            from db.queries.identity import get_user_uuid
-            user_uuid = await get_user_uuid(user_id)
-        except Exception:
-            pass
-
-        # WP-253: consent guard — skip logging for users with explicit opt_out
-        if user_uuid:
-            try:
-                from db.queries.consent import get_consent
-                consent = await get_consent(str(user_uuid))
-                if consent and not consent.opt_in:
-                    logger.info(f"[Events] skip {event_type} for {user_id}: tracking consent opt_out")
-                    return None
-            except Exception as e:
-                logger.warning(f"[Events] consent check failed for {user_id}: {e}")
-                # fail-open: continue logging on consent check errors
-
-        external_id = _make_external_id(user_id, event_type)
-
-        async with pool.acquire() as conn:
-            # Попытка 1: с external_id + dedup (Neon с миграцией Hub)
-            try:
-                row = await conn.fetchrow('''
-                    INSERT INTO development.user_events
-                        (user_id, event_type, source, payload, confidence,
-                         skill_ids, user_uuid, external_id)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
-                    ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
-                    DO NOTHING
-                    RETURNING id
-                ''',
-                    user_id,
-                    event_type,
-                    source,
-                    json.dumps(payload) if payload else '{}',
-                    confidence,
-                    skill_ids or [],
-                    user_uuid,
-                    external_id,
-                )
-            except Exception:
-                # Fallback: без external_id (pilot DB без миграции Hub)
-                row = await conn.fetchrow('''
-                    INSERT INTO development.user_events
-                        (user_id, event_type, source, payload, confidence,
-                         skill_ids, user_uuid)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
-                    RETURNING id
-                ''',
-                    user_id,
-                    event_type,
-                    source,
-                    json.dumps(payload) if payload else '{}',
-                    confidence,
-                    skill_ids or [],
-                    user_uuid,
-                )
-
-            event_id = row['id'] if row else None
-            if event_id:
-                logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")
-
-                # WP-268 Phase 2 Phase B: dual-write центрального event log.
-                # Gateway имеет permissive schema legacy_bot_event.v1 для всех
-                # 36+ event_types бота — пропустит любой event_type без
-                # дополнительной schema-регистрации.
-                # Только при успешной legacy записи (event_id != None) — иначе
-                # dedup-skip раздваивается, легаси и gateway получат разное.
-                try:
-                    gw_payload: dict = {
-                        "user_id": str(user_id),
-                        "source": source,
-                        "confidence": confidence,
-                        "skill_count": len(skill_ids) if skill_ids else 0,
-                        "payload_keys": list(payload.keys()) if payload else [],
-                    }
-                    # WP-214 Ф10.7: явно передаём activity_domain чтобы gateway
-                    # записал его в колонку (не только в payload JSONB).
-                    domain = _ACTIVITY_DOMAIN_MAP.get(event_type)
-                    if domain:
-                        gw_payload["activity_domain"] = domain
-                    asyncio.create_task(post_event(
-                        source="aist-bot",
-                        external_id=external_id,  # уже идемпотентный (см. _make_external_id)
-                        event_type=event_type,
-                        schema_version="v1",
-                        occurred_at=datetime.utcnow(),
-                        account_id=str(user_uuid) if user_uuid else None,
-                        payload=gw_payload,
-                    ))
-                except Exception as exc:
-                    # Никогда не блокировать legacy путь.
-                    logger.warning(f"[Events] dual-write task schedule failed: {exc}")
-            else:
-                logger.debug(f"[Events] {event_type} dedup skip for {user_id}")
-            return event_id
-    except Exception as e:
-        logger.warning(f"[Events] Failed to log {event_type} for {user_id}: {e}")
-        return None
+    return await _record_event(user_id, event_type, payload, confidence, skill_ids, source, occurred_at=None)
 
 
 async def log_event_with_occurred_at(
     user_id: int,
     event_type: str,
-    payload: Optional[dict] = None,
-    occurred_at: Optional[datetime] = None,
+    payload: dict | None = None,
+    occurred_at: datetime | None = None,
     confidence: float = 1.0,
-    skill_ids: Optional[list] = None,
+    skill_ids: list | None = None,
     source: str = 'bot',
-) -> Optional[int]:
+) -> int | None:
     """Записать событие с явным occurred_at (для backfill в прошлое).
 
-    Расширение log_event: если occurred_at задан — INSERT использует его как
-    created_at, иначе NOW(). Используется в /onboarding_time wizard (backfill).
-
+    Используется в /onboarding_time wizard (backfill).
     Privacy: event_type='slot_logged', payload.source='self_report_backfill',
     payload.confidence='estimated' сигнализируют о синтетической природе.
     """
+    return await _record_event(user_id, event_type, payload, confidence, skill_ids, source, occurred_at=occurred_at)
+
+
+async def _record_event(
+    user_id: int,
+    event_type: str,
+    payload: dict | None,
+    confidence: float,
+    skill_ids: list | None,
+    source: str,
+    occurred_at: datetime | None,
+) -> int | None:
+    """Shared path of log_event / log_event_with_occurred_at.
+
+    The central journal is keyed by the platform account (persona.ory_identity),
+    the same id the digital-twin collector and the consent table use. Until
+    2026-11-11 events went there under the legacy public.users.id, so the
+    collector never counted them and opt-out was checked against the wrong id
+    (WP-5 Ф74). The gateway write no longer depends on the legacy insert.
+    """
+    from helpers.dual_write import resolve_ory_id_from_chat
+
+    account_id = await resolve_ory_id_from_chat(user_id)
+    if account_id and await _tracking_opted_out(account_id, user_id, event_type):
+        return None
+
+    external_id = _make_external_id(user_id, event_type)
     effective_at = occurred_at or datetime.utcnow()
 
+    event_id, legacy_dedup = await _insert_legacy_event(
+        user_id, event_type, payload, confidence, skill_ids, source, external_id, occurred_at,
+    )
+    if legacy_dedup:
+        logger.debug(f"[Events] {event_type} dedup skip for {user_id}")
+        return None
+    if event_id:
+        logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")
+
+    _schedule_gateway_write(user_id, event_type, source, payload, confidence, skill_ids,
+                            account_id, external_id, effective_at)
+    return event_id
+
+
+async def _tracking_opted_out(account_id: str, user_id: int, event_type: str) -> bool:
+    """WP-253 consent guard. Fail-open on lookup errors."""
+    try:
+        from db.queries.consent import get_consent
+        consent = await get_consent(account_id)
+    except Exception as e:
+        logger.warning(f"[Events] consent check failed for {user_id}: {e}")
+        return False
+    if consent and not consent.opt_in:
+        logger.info(f"[Events] skip {event_type} for {user_id}: tracking consent opt_out")
+        return True
+    return False
+
+
+async def _insert_legacy_event(
+    user_id: int,
+    event_type: str,
+    payload: dict | None,
+    confidence: float,
+    skill_ids: list | None,
+    source: str,
+    external_id: str,
+    occurred_at: datetime | None,
+) -> tuple[int | None, bool]:
+    """Insert into development.user_events. Returns (id, is_dedup_skip).
+
+    Failure is logged and returns (None, False): the central journal is still written.
+    """
+    legacy_uuid = None
+    try:
+        from db.queries.identity import get_user_uuid
+        legacy_uuid = await get_user_uuid(user_id)
+    except Exception as e:
+        logger.debug(f"[Events] legacy user_uuid lookup failed for {user_id}: {e}")
+
+    values = (
+        user_id,
+        event_type,
+        source,
+        json.dumps(payload) if payload else '{}',
+        confidence,
+        skill_ids or [],
+        legacy_uuid,
+    )
     try:
         pool = await get_pool()
-        user_uuid = None
-        try:
-            from db.queries.identity import get_user_uuid
-            user_uuid = await get_user_uuid(user_id)
-        except Exception:
-            pass
-
-        external_id = _make_external_id(user_id, event_type)
-
         async with pool.acquire() as conn:
-            # Попытка 1: с created_at + external_id + dedup
             try:
+                # created_at: explicit for backfill, otherwise the database clock (NOW()).
                 row = await conn.fetchrow('''
                     INSERT INTO development.user_events
                         (user_id, event_type, source, payload, confidence,
                          skill_ids, user_uuid, external_id, created_at)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, COALESCE($9, NOW()))
                     ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
                     DO NOTHING
                     RETURNING id
-                ''',
-                    user_id,
-                    event_type,
-                    source,
-                    json.dumps(payload) if payload else '{}',
-                    confidence,
-                    skill_ids or [],
-                    user_uuid,
-                    external_id,
-                    effective_at,
-                )
-            except Exception:
-                # Fallback: без external_id и явного created_at
+                ''', *values, external_id, occurred_at)
+            except (asyncpg.exceptions.UndefinedColumnError, asyncpg.exceptions.InvalidColumnReferenceError):
+                # Pilot DB created before the Hub migration: no external_id column / dedup index.
                 row = await conn.fetchrow('''
                     INSERT INTO development.user_events
                         (user_id, event_type, source, payload, confidence,
                          skill_ids, user_uuid, created_at)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, NOW()))
                     RETURNING id
-                ''',
-                    user_id,
-                    event_type,
-                    source,
-                    json.dumps(payload) if payload else '{}',
-                    confidence,
-                    skill_ids or [],
-                    user_uuid,
-                    effective_at,
-                )
-
-            event_id = row['id'] if row else None
-            if event_id:
-                logger.info(
-                    f"[Events] {event_type} backfill logged for {user_id} "
-                    f"(id={event_id}, occurred_at={effective_at.date()})"
-                )
-                try:
-                    gw_payload: dict = {
-                        "user_id": str(user_id),
-                        "source": source,
-                        "confidence": confidence,
-                        "skill_count": len(skill_ids) if skill_ids else 0,
-                        "payload_keys": list(payload.keys()) if payload else [],
-                    }
-                    domain = _ACTIVITY_DOMAIN_MAP.get(event_type)
-                    if domain:
-                        gw_payload["activity_domain"] = domain
-                    asyncio.create_task(post_event(
-                        source="aist-bot",
-                        external_id=external_id,
-                        event_type=event_type,
-                        schema_version="v1",
-                        occurred_at=effective_at,
-                        account_id=str(user_uuid) if user_uuid else None,
-                        payload=gw_payload,
-                    ))
-                except Exception as exc:
-                    logger.warning(f"[Events] backfill dual-write task failed: {exc}")
-            else:
-                logger.debug(f"[Events] {event_type} backfill dedup skip for {user_id}")
-            return event_id
+                ''', *values, occurred_at)
     except Exception as e:
-        logger.warning(f"[Events] Failed to backfill {event_type} for {user_id}: {e}")
-        return None
+        logger.warning(f"[Events] legacy insert of {event_type} for {user_id} failed: {e}")
+        return None, False
+    return (row['id'], False) if row else (None, True)
+
+
+def _schedule_gateway_write(
+    user_id: int,
+    event_type: str,
+    source: str,
+    payload: dict | None,
+    confidence: float,
+    skill_ids: list | None,
+    account_id: str | None,
+    external_id: str,
+    occurred_at: datetime,
+) -> None:
+    """Fire-and-forget write to the central event journal (WP-268 dual-write)."""
+    gw_payload: dict = {
+        "user_id": str(user_id),
+        "source": source,
+        "confidence": confidence,
+        "skill_count": len(skill_ids) if skill_ids else 0,
+        "payload_keys": list(payload.keys()) if payload else [],
+    }
+    # WP-214 Ф10.7: activity_domain goes into its own column, not only the payload.
+    domain = _ACTIVITY_DOMAIN_MAP.get(event_type)
+    if domain:
+        gw_payload["activity_domain"] = domain
+    try:
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=external_id,
+            event_type=event_type,
+            schema_version="v1",
+            occurred_at=occurred_at,
+            account_id=account_id,
+            payload=gw_payload,
+        ))
+    except Exception as exc:
+        logger.warning(f"[Events] dual-write task schedule failed: {exc}")
 
 
 async def get_user_events(
     user_id: int,
-    event_type: Optional[str] = None,
+    event_type: str | None = None,
     limit: int = 50,
 ) -> list:
     """Получить события пользователя (для аналитики и отладки)."""
