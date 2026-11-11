@@ -2404,10 +2404,11 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     """
     body = await request.read()
 
-    from clients.chatwoot import verify_signature
+    from clients.chatwoot import fetch_public_agent_reply, verify_signature
     sig = request.headers.get("X-Chatwoot-Signature", "")
     timestamp = request.headers.get("X-Chatwoot-Timestamp", "")
-    if not verify_signature(body, sig, timestamp):
+    signed = bool(sig) and verify_signature(body, sig, timestamp)
+    if sig and not signed:
         logger.warning("[Chatwoot webhook] invalid signature")
         return web.Response(status=401, text="invalid signature")
 
@@ -2445,6 +2446,20 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
 
     if not conv_id:
         return web.Response(text="ok")
+
+    if not signed:
+        # API-channel webhooks arrive unsigned: forward only the text Chatwoot itself
+        # returns for this message id, so a forged request cannot inject content.
+        message_id = payload.get("id")
+        verified = (
+            await fetch_public_agent_reply(conv_id, message_id)
+            if isinstance(message_id, int) else None
+        )
+        if verified is None:
+            logger.warning("[Chatwoot webhook] unsigned message not confirmed by Chatwoot conv=%r id=%r",
+                           conv_id, message_id)
+            return web.Response(status=401, text="unverified")
+        content = verified
 
     try:
         from db.queries.helpdesk import get_chat_id_by_conversation
