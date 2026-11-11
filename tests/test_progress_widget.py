@@ -59,6 +59,9 @@ def test_template_fits_telegram_size_limits():
     assert len(zlib.compress(html, 9)) <= 4096
     assert b"\x00" not in html
     assert b"color-mix" not in html  # unsupported by the widget sandbox
+    # opacity < 1 marks an element "heavy"; >16 heavy elements stop the widget,
+    # and the calendar alone has ~29 cells (seen live 2026-11-11: "Widget stopped").
+    assert b"opacity" not in html
 
 
 def test_send_widget_serializes_as_bot_api_call():
