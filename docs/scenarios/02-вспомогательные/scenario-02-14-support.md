@@ -46,7 +46,8 @@
 9. Бот → создаёт contact + conversation в Chatwoot (Public API)
 10. Бот → «✅ Тикет #N создан. Агент ответит в течение 24 часов.»
 11. Агент отвечает в Chatwoot UI → Chatwoot шлёт webhook → бот пересылает в TG: «🛟 Агент поддержки: {текст}»
-   - Бот принимает webhook только с верной подписью (`X-Chatwoot-Signature`, HMAC-SHA256 по `CHATWOOT_WEBHOOK_SECRET`); без секрета в env или без подписи — 401, пересылки нет.
+   - Подписанный webhook (`X-Chatwoot-Signature` + `X-Chatwoot-Timestamp`, HMAC-SHA256 по `CHATWOOT_WEBHOOK_SECRET`) принимается при верной подписи; неверная подпись — 401.
+   - Webhook без подписи (канал API Chatwoot подпись не присылает) бот сверяет с самим Chatwoot: читает сообщение по номеру через API (`CHATWOOT_API_TOKEN`, `CHATWOOT_ACCOUNT_ID`) и пересылает текст из Chatwoot, только если это публичный ответ оператора; не подтвердилось — 401, пересылки нет.
    - Пересылаются только публичные ответы (`private: false`); внутренние заметки операторов (`private: true` или поле отсутствует) пользователю не уходят.
 
 ## Режим отказа
