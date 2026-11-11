@@ -91,6 +91,7 @@ class ProgressState(BaseState):
         from db.queries.activity import get_activity_stats, get_activity_calendar
         from db.queries.qa import get_user_qa_stats
         from db.queries.github import get_github_connection
+        from db.queries.rewards import get_points_rank
         from core.topics import get_marathon_day, get_display_day, TOPICS
 
         intern = await get_intern(chat_id)
@@ -106,6 +107,7 @@ class ProgressState(BaseState):
             qa_stats,
             github,
             points_balance,
+            points_rank,
         ) = await asyncio.gather(
             get_activity_stats(chat_id),
             get_activity_calendar(chat_id, weeks=4),
@@ -115,6 +117,7 @@ class ProgressState(BaseState):
             get_user_qa_stats(chat_id),
             get_github_connection(chat_id),
             self._fetch_points(intern.get('dt_user_id')),
+            get_points_rank(intern.get('dt_user_id')),
             return_exceptions=True,
         )
 
@@ -143,6 +146,9 @@ class ProgressState(BaseState):
         if isinstance(points_balance, Exception):
             logger.error(f"[Progress] points_balance error: {points_balance}")
             points_balance = None
+        if isinstance(points_rank, Exception):
+            logger.error(f"[Progress] points_rank error: {points_rank}")
+            points_rank = None
 
         # Марафон
         completed_topics = intern.get('completed_topics', [])
@@ -256,6 +262,10 @@ class ProgressState(BaseState):
             'days_active_week': activity_stats.get('days_active_this_week', 0),
             # Rewards (WP-253 Ф9.3 проекция)
             'points_balance': points_balance,
+            # Points (earned_total, never decrease) and place among all accounts
+            'points_earned': points_rank['earned_total'] if points_rank else None,
+            'points_rank': points_rank['rank'] if points_rank else None,
+            'points_rank_total': points_rank['total'] if points_rank else None,
             # Calendar
             'calendar': cal_data,
             'most_active_wd': most_active_wd,
@@ -365,6 +375,12 @@ class ProgressState(BaseState):
         text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest} {t('progress.days', lang)}\n"
         text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
         text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
+        earned = cache.get('points_earned')
+        if earned is not None:
+            text += f"⭐ Баллы: {int(float(earned))}"
+            if cache.get('points_rank'):
+                text += f" · место {cache['points_rank']} из {cache['points_rank_total']}"
+            text += "\n"
         if points is not None:
             text += f"🏆 Бонусы: {int(float(points))}\n"
         text += f"📆 {t('progress.since', lang)}: {reg_date}"

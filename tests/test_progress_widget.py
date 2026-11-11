@@ -29,12 +29,15 @@ def test_chat_data_packs_overview_fields():
         "days_active_week": 4,
         "active_days_total": 41,
         "points_balance": "120.0",
+        "points_earned": "15300.50",
+        "points_rank": 7,
+        "points_rank_total": 340,
         "calendar": _calendar(wednesday, "1101"),
     }
 
     data = json.loads(build_progress_chat_data(cache, "ru"))
 
-    assert data == {"s": 3, "r": 9, "w": 4, "t": 41, "p": 120, "c": "1101", "o": 2, "k": ["12.10"], "l": "ru"}
+    assert data == {"s": 3, "r": 9, "w": 4, "t": 41, "p": 120, "b": 15300, "g": 7, "n": 340, "c": "1101", "o": 2, "k": ["12.10"], "l": "ru"}
 
 
 def test_chat_data_labels_each_calendar_row_with_its_monday():
@@ -47,7 +50,7 @@ def test_chat_data_labels_each_calendar_row_with_its_monday():
 def test_chat_data_omits_unknown_points_and_falls_back_to_english():
     data = json.loads(build_progress_chat_data({"calendar": []}, "fr"))
 
-    assert "p" not in data
+    assert not {"p", "b", "g", "n"} & data.keys()
     assert data["l"] == "en"
     assert data["c"] == "" and data["o"] == 0 and data["k"] == []
 

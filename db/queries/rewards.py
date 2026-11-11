@@ -203,6 +203,36 @@ async def get_earned_total(account_id: Optional[str]) -> Optional[Decimal]:
         return None
 
 
+async def get_points_rank(account_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Points (earned_total) with the user's place among all accounts that earned any.
+
+    Returns {'earned_total', 'rank', 'total'} or None (not linked / no row / error).
+    Ties share a place: rank = 1 + number of accounts with strictly more points.
+    """
+    if not account_id:
+        return None
+
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT me.earned_total,
+                       1 + (SELECT count(*) FROM public.point_balances o
+                            WHERE o.earned_total > me.earned_total) AS rank,
+                       (SELECT count(*) FROM public.point_balances o
+                        WHERE o.earned_total > 0) AS total
+                FROM public.point_balances me
+                WHERE me.account_id = $1
+                """,
+                account_id,
+            )
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"[rewards] get_points_rank({account_id}): {e}")
+        return None
+
+
 async def get_recent_redeemed_events(account_id: Optional[str], limit: int = 3) -> list:
     """Последние confirmed списания (burn-операции) пилота.
 
