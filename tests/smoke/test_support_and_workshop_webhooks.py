@@ -31,8 +31,8 @@ SECRET = "synthetic-chatwoot-secret"
 TIMESTAMP = str(int(time.time()))
 
 
-def _sign(raw: bytes) -> str:
-    signed_body = TIMESTAMP.encode() + b"." + raw
+def _sign(raw: bytes, timestamp: str = TIMESTAMP) -> str:
+    signed_body = timestamp.encode() + b"." + raw
     return "sha256=" + hmac.new(SECRET.encode(), signed_body, hashlib.sha256).hexdigest()
 
 
@@ -63,7 +63,8 @@ def test_signature_rejected_when_timestamp_missing_or_stale(monkeypatch):
     monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", SECRET)
     assert chatwoot.verify_signature(b"{}", _sign(b"{}"), "") is False
     assert chatwoot.verify_signature(b"{}", _sign(b"{}"), "invalid") is False
-    assert chatwoot.verify_signature(b"{}", _sign(b"{}"), str(int(TIMESTAMP) - 3600)) is False
+    stale = str(int(TIMESTAMP) - 3600)
+    assert chatwoot.verify_signature(b"{}", _sign(b"{}", stale), stale) is False
 
 
 # --- support reply handler ---------------------------------------------
