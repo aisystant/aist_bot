@@ -15,6 +15,7 @@ def _request(private=...):
         "message_type": 1,
         "conversation": {"id": 17},
         "content": "Ответ оператора",
+        "sender": {"type": "user"},
     }
     if private is not ...:
         payload["private"] = private
@@ -53,3 +54,18 @@ async def test_explicit_public_reply_is_forwarded():
         "🛟 *Агент поддержки:*\n\nОтвет оператора",
         parse_mode="Markdown",
     )
+
+
+@pytest.mark.parametrize("sender", [None, {}, {"type": "contact"}])
+async def test_public_message_without_agent_sender_is_not_forwarded(sender):
+    request = _request(False)
+    payload = json.loads((await request.read()).decode())
+    payload["sender"] = sender
+    request.read = AsyncMock(return_value=json.dumps(payload).encode())
+    bot = SimpleNamespace(send_message=AsyncMock())
+    with patch("clients.chatwoot.verify_signature", return_value=True), \
+         patch.object(oauth_server, "_bot_instance", bot):
+        response = await oauth_server.chatwoot_webhook_handler(request)
+
+    assert response.status == 200
+    bot.send_message.assert_not_awaited()

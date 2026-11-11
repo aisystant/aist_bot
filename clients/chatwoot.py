@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 import os
+import time
 
 import aiohttp
 
@@ -57,8 +58,8 @@ async def send_message(source_id: str, conversation_id: int, content: str) -> bo
             return False
 
 
-def verify_signature(payload: bytes, signature: str) -> bool:
-    """Verify HMAC-SHA256 from Chatwoot X-Chatwoot-Signature header.
+def verify_signature(payload: bytes, signature: str, timestamp: str) -> bool:
+    """Verify Chatwoot's signed timestamp and raw request body.
 
     Fail-closed: a missing secret or a missing header rejects the request,
     otherwise anyone who knows the webhook URL could message users as support.
@@ -66,9 +67,16 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     if not CHATWOOT_WEBHOOK_SECRET:
         logger.error("[Chatwoot] CHATWOOT_WEBHOOK_SECRET not configured — rejecting webhook")
         return False
-    if not signature:
+    if not signature or not timestamp:
         return False
-    expected = hmac.new(
-        CHATWOOT_WEBHOOK_SECRET.encode(), payload, hashlib.sha256
+    try:
+        signed_at = int(timestamp)
+    except ValueError:
+        return False
+    if abs(time.time() - signed_at) > 300:
+        return False
+    signed_body = timestamp.encode() + b"." + payload
+    expected = "sha256=" + hmac.new(
+        CHATWOOT_WEBHOOK_SECRET.encode(), signed_body, hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
