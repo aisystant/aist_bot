@@ -58,9 +58,16 @@ async def send_message(source_id: str, conversation_id: int, content: str) -> bo
 
 
 def verify_signature(payload: bytes, signature: str) -> bool:
-    """Verify HMAC-SHA256 from Chatwoot X-Chatwoot-Signature header."""
-    if not CHATWOOT_WEBHOOK_SECRET or not signature:
-        return True
+    """Verify HMAC-SHA256 from Chatwoot X-Chatwoot-Signature header.
+
+    Fail-closed: a missing secret or a missing header rejects the request,
+    otherwise anyone who knows the webhook URL could message users as support.
+    """
+    if not CHATWOOT_WEBHOOK_SECRET:
+        logger.error("[Chatwoot] CHATWOOT_WEBHOOK_SECRET not configured — rejecting webhook")
+        return False
+    if not signature:
+        return False
     expected = hmac.new(
         CHATWOOT_WEBHOOK_SECRET.encode(), payload, hashlib.sha256
     ).hexdigest()

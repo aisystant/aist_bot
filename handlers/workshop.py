@@ -35,6 +35,7 @@ from aiogram.filters import Command, ChatMemberUpdatedFilter, JOIN_TRANSITION, L
 
 from db.queries import get_intern
 from db.queries.aisystant import get_aisystant_id
+from db.queries.notifications import try_insert_notification, was_notification_sent
 from db.queries.workshop import (
     get_workshop_payment_count,
     create_and_confirm_payment,
@@ -884,8 +885,14 @@ async def process_workshop_webhook(data: dict, bot: Bot) -> dict:
 
     if not telegram_id:
         return {"ok": False, "error": "missing telegram_id"}
+    # Without payment_id the payment row has no idempotency key: a resent
+    # webhook would add a second row and raise the payment count (wrong invite).
+    if not payment_id:
+        logger.error(f"[Workshop] webhook rejected: missing payment_id, tg={telegram_id}")
+        return {"ok": False, "error": "missing payment_id"}
 
     telegram_id = int(telegram_id)
+    payment_id = str(payment_id)
 
     # Получаем aisystant_id если есть связка
     aisystant_id = await get_aisystant_id(telegram_id)
@@ -899,17 +906,21 @@ async def process_workshop_webhook(data: dict, bot: Bot) -> dict:
         payment_id=payment_id,
         product="masterskaya_direct" if is_direct else None,
     )
-
-    # Отправляем invite
-    intern = await get_intern(telegram_id)
-    lang = _lang(intern)
-
-    if is_direct:
-        await _send_direct_masterskaya_invite(bot, telegram_id, lang)
-        count = None
+    # A resent webhook (row_id == 0) re-sends the invite only if the first
+    # delivery did not get it out; the invite is recorded after a successful send.
+    invite_key = f"workshop_invite:{payment_id}"
+    count = None
+    if await was_notification_sent(invite_key):
+        logger.info(f"[Workshop] invite already sent for payment_id={payment_id}, row={row_id}")
     else:
-        count = await get_workshop_payment_count(telegram_id)
-        await _send_invite_by_count(bot, telegram_id, count, lang)
+        intern = await get_intern(telegram_id)
+        lang = _lang(intern)
+        if is_direct:
+            await _send_direct_masterskaya_invite(bot, telegram_id, lang)
+        else:
+            count = await get_workshop_payment_count(telegram_id)
+            await _send_invite_by_count(bot, telegram_id, count, lang)
+        await try_insert_notification(telegram_id, "workshop_invite", invite_key)
 
     # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер).
     # Без payment_id helper пропустит эмиссию с warning — идемпотентный
