@@ -2407,10 +2407,9 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     from clients.chatwoot import fetch_public_agent_reply, verify_signature
     sig = request.headers.get("X-Chatwoot-Signature", "")
     timestamp = request.headers.get("X-Chatwoot-Timestamp", "")
+    # A signature we cannot verify (no shared secret, or a mismatch) is not trusted
+    # and not fatal either: such requests take the same read-back path as unsigned ones.
     signed = bool(sig) and verify_signature(body, sig, timestamp)
-    if sig and not signed:
-        logger.warning("[Chatwoot webhook] invalid signature")
-        return web.Response(status=401, text="invalid signature")
 
     try:
         payload = json.loads(body)
@@ -2448,16 +2447,16 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
         return web.Response(text="ok")
 
     if not signed:
-        # API-channel webhooks arrive unsigned: forward only the text Chatwoot itself
-        # returns for this message id, so a forged request cannot inject content.
+        # Unsigned or unverifiable: forward only the text Chatwoot itself returns
+        # for this message id, so a forged request cannot inject content.
         message_id = payload.get("id")
         verified = (
             await fetch_public_agent_reply(conv_id, message_id)
             if isinstance(message_id, int) else None
         )
         if verified is None:
-            logger.warning("[Chatwoot webhook] unsigned message not confirmed by Chatwoot conv=%r id=%r",
-                           conv_id, message_id)
+            logger.warning("[Chatwoot webhook] message not confirmed by Chatwoot conv=%r id=%r signature=%s",
+                           conv_id, message_id, "unverifiable" if sig else "absent")
             return web.Response(status=401, text="unverified")
         content = verified
 
