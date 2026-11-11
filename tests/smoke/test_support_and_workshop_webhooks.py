@@ -290,11 +290,26 @@ async def test_unsigned_reply_not_confirmed_by_chatwoot_is_rejected(support, mon
 
 
 @pytest.mark.asyncio
-async def test_invalid_signature_is_rejected_without_read_back(support, monkeypatch):
+async def test_invalid_signature_not_confirmed_by_chatwoot_is_rejected(support, monkeypatch):
     handler, bot = support
-    fetch = AsyncMock(return_value="Текст из Chatwoot")
+    fetch = AsyncMock(return_value=None)
     monkeypatch.setattr(chatwoot, "fetch_public_agent_reply", fetch)
     response = await _post(handler, _agent_reply(id=501), signature="sha256=bad")
     assert response.status == 401
-    fetch.assert_not_awaited()
+    fetch.assert_awaited_once_with(16, 501)
     bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_signed_reply_without_secret_is_confirmed_by_read_back(support, monkeypatch):
+    # Production 11.11: Chatwoot signs, the bot has no shared secret; the reply
+    # must still arrive, with the text taken from Chatwoot, not from the request.
+    handler, bot = support
+    monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", "")
+    fetch = AsyncMock(return_value="Текст из Chatwoot")
+    monkeypatch.setattr(chatwoot, "fetch_public_agent_reply", fetch)
+    response = await _post(handler, _agent_reply(id=501, content="подделка"), signature="sha256=any")
+    assert response.status == 200
+    fetch.assert_awaited_once_with(16, 501)
+    assert "Текст из Chatwoot" in bot.send_message.await_args.args[1]
+    assert "подделка" not in bot.send_message.await_args.args[1]
