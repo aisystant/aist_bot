@@ -34,7 +34,14 @@ def test_chat_data_packs_overview_fields():
 
     data = json.loads(build_progress_chat_data(cache, "ru"))
 
-    assert data == {"s": 3, "r": 9, "w": 4, "t": 41, "p": 120, "c": "1101", "o": 2, "l": "ru"}
+    assert data == {"s": 3, "r": 9, "w": 4, "t": 41, "p": 120, "c": "1101", "o": 2, "k": ["12.10"], "l": "ru"}
+
+
+def test_chat_data_labels_each_calendar_row_with_its_monday():
+    # 29 days from Wednesday 14.10 to Wednesday 11.11: 5 rows, Mondays 12.10 .. 09.11
+    data = json.loads(build_progress_chat_data({"calendar": _calendar(date(2026, 10, 14), "0" * 29)}, "ru"))
+
+    assert data["k"] == ["12.10", "19.10", "26.10", "02.11", "09.11"]
 
 
 def test_chat_data_omits_unknown_points_and_falls_back_to_english():
@@ -42,7 +49,7 @@ def test_chat_data_omits_unknown_points_and_falls_back_to_english():
 
     assert "p" not in data
     assert data["l"] == "en"
-    assert data["c"] == "" and data["o"] == 0
+    assert data["c"] == "" and data["o"] == 0 and data["k"] == []
 
 
 def test_chat_data_fits_telegram_limit_for_full_calendar():
