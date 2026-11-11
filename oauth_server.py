@@ -1035,7 +1035,8 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
             # Оплата workshop (по умолчанию)
             from handlers.workshop import process_workshop_webhook
             result = await process_workshop_webhook(data, _bot_instance)
-        return web.Response(text=json.dumps(result), content_type="application/json")
+        status = 200 if result.get("ok") else 400
+        return web.Response(text=json.dumps(result), content_type="application/json", status=status)
     except Exception as e:
         logger.error(f"[WorkshopWebhook] error: {e}")
         import traceback
@@ -2403,9 +2404,11 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     """
     body = await request.read()
 
-    from clients.chatwoot import verify_signature
+    from clients.chatwoot import fetch_public_agent_reply, verify_signature
     sig = request.headers.get("X-Chatwoot-Signature", "")
-    if not verify_signature(body, sig):
+    timestamp = request.headers.get("X-Chatwoot-Timestamp", "")
+    signed = bool(sig) and verify_signature(body, sig, timestamp)
+    if sig and not signed:
         logger.warning("[Chatwoot webhook] invalid signature")
         return web.Response(status=401, text="invalid signature")
 
@@ -2427,12 +2430,36 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     if message_type not in (1, "outgoing"):
         return web.Response(text="ok")
 
+    # Chatwoot marks internal notes as outgoing too. Forward only messages
+    # explicitly marked public; a missing or malformed flag stays private.
+    if payload.get("private") is not False:
+        return web.Response(text="ok")
+
+    sender = payload.get("sender")
+    if not isinstance(sender, dict) or sender.get("type") != "user":
+        logger.warning("[Chatwoot webhook] public reply without agent sender; skipped")
+        return web.Response(text="ok")
+
     content = payload.get("content", "").strip()
     if not content:
         return web.Response(text="ok")
 
     if not conv_id:
         return web.Response(text="ok")
+
+    if not signed:
+        # API-channel webhooks arrive unsigned: forward only the text Chatwoot itself
+        # returns for this message id, so a forged request cannot inject content.
+        message_id = payload.get("id")
+        verified = (
+            await fetch_public_agent_reply(conv_id, message_id)
+            if isinstance(message_id, int) else None
+        )
+        if verified is None:
+            logger.warning("[Chatwoot webhook] unsigned message not confirmed by Chatwoot conv=%r id=%r",
+                           conv_id, message_id)
+            return web.Response(status=401, text="unverified")
+        content = verified
 
     try:
         from db.queries.helpdesk import get_chat_id_by_conversation
