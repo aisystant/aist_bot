@@ -50,7 +50,9 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
 
     Keys are one letter to stay far below the 1024-byte chat_data limit:
     s streak, r record, w active days this week, t active days total,
-    p points (omitted when unknown), c calendar bits oldest->newest,
+    p bonuses = spendable points balance, b points = earned_total, g/n place in
+    the points rating and number of rated accounts (each omitted when unknown),
+    c calendar bits oldest->newest,
     o weekday offset of the first calendar day (0 = Monday), k "dd.mm" of the
     Monday that starts each calendar row, l language. The last calendar day is today.
     """
@@ -72,8 +74,9 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
         "k": week_labels,
         "l": lang if lang in {"ru", "en"} else "en",
     }
-    points = cache.get("points_balance")
-    if points is not None:
-        payload["p"] = int(float(points))
+    for key, field in (("p", "points_balance"), ("b", "points_earned"), ("g", "points_rank"), ("n", "points_rank_total")):
+        value = cache.get(field)
+        if value is not None:
+            payload[key] = int(float(value))
 
     return json.dumps(payload, separators=(",", ":"))

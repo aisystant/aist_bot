@@ -5,7 +5,9 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 .hero{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
 .big{font-size:34px;font-weight:700;color:var(--acc)}
 .mut{color:var(--mut);font-size:12px}
-.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px}
+.tiles.two{grid-template-columns:repeat(2,1fr)}
+.tiles.last{margin-bottom:12px}
 .tile{border:1px solid rgba(128,128,128,.35);border-radius:8px;padding:6px}
 .tile b{display:block;font-size:17px}
 .cal{display:grid;grid-template-columns:34px repeat(7,1fr);gap:3px;align-items:center}
@@ -18,14 +20,16 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 </style>
 <div class="w" id="root"></div>
 <script>
-var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активность за 4 недели, в рамке — сегодня",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]},
-en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Activity, last 4 weeks, today outlined",d:["Mo","Tu","We","Th","Fr","Sa","Su"]}};
+var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",b:"баллы",g:"место из ",c:"Активность за 4 недели, в рамке — сегодня",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]},
+en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"bonuses",b:"points",g:"place of ",c:"Activity, last 4 weeks, today outlined",d:["Mo","Tu","We","Th","Fr","Sa","Su"]}};
+function num(v){return String(v).replace(/\B(?=(\d{3})+(?!\d))/g," ")}
 function tile(v,l){return '<div class="tile"><b>'+v+'</b><span class="mut">'+l+'</span></div>'}
 function draw(){
  var d={};try{d=JSON.parse(TelegramWidget.chatData||"{}")}catch(e){}
  var l=L[d.l]||L.ru,h='';
  h+='<div class="hero"><span class="big">'+(d.s||0)+'</span><span class="mut">'+l.s+' · '+l.r+' '+(d.r||0)+'</span></div>';
- h+='<div class="tiles">'+tile((d.w||0)+'/7',l.w)+tile(d.t||0,l.t)+(d.p==null?'':tile(d.p,l.p))+'</div>';
+ h+='<div class="tiles two">'+tile((d.w||0)+'/7',l.w)+tile(d.t||0,l.t)+'</div>';
+ h+='<div class="tiles last">'+(d.b==null?'':tile(num(d.b),l.b))+(d.g==null?'':tile(d.g,l.g+d.n))+(d.p==null?'':tile(num(d.p),l.p))+'</div>';
  h+='<div class="mut" style="margin-bottom:6px">'+l.c+'</div><div class="cal"><span></span>';
  for(var i=0;i<7;i++)h+='<span>'+l.d[i]+'</span>';
  var c=d.c||"",o=d.o||0,k=d.k||[];
