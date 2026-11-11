@@ -6,11 +6,11 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 .big{font-size:34px;font-weight:700;color:var(--acc)}
 .mut{color:var(--mut);font-size:12px}
 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
-.tile{border:1px solid var(--mut);border-radius:8px;padding:6px}
+.tile{border:1px solid rgba(128,128,128,.35);border-radius:8px;padding:6px}
 .tile b{display:block;font-size:17px}
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.cal i{display:block;aspect-ratio:1;border-radius:4px;background:var(--mut);opacity:.25}
-.cal i.on{background:var(--acc);opacity:1}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal i{display:block;height:16px;border-radius:3px;background:rgba(128,128,128,.2)}
+.cal i.on{background:var(--acc)}
 .cal i.x{background:transparent}
 .cal span{font-size:10px;text-align:center;color:var(--mut)}
 </style>
