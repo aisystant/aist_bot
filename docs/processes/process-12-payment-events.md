@@ -46,6 +46,8 @@ Stars-подписки фрагментированы по telegram_id).
 | Семинар YooKassa (webhook) | `showcase.py:process_seminar_yookassa_webhook` | yookassa | bank_card |
 | Семинар Aisystant/Tilda (webhook) | `showcase.py:process_seminar_aisystant_webhook` | aisystant | manual |
 
+**Мастерская Aisystant (webhook), идемпотентность приглашения:** запрос без `payment_id` отклоняется до записи оплаты (`missing payment_id`), иначе повтор добавил бы вторую строку и поднял счётчик оплат; факт отправки приглашения записывается после успешной отправки (ключ `workshop_invite:{payment_id}` в журнале уведомлений): повтор с тем же `payment_id` приглашение повторно не отправляет, а если первая доставка упала до отправки — досылает его.
+
 ## Ограничения (зафиксированы review 2026-06-12)
 
 - Без `external_payment_id` или с `amount <= 0` эмиссия пропускается
