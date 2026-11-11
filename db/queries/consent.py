@@ -144,38 +144,54 @@ async def count_practice_events_30d(account_id: str) -> dict[str, int]:
 
 
 async def revoke_consent(account_id: str) -> bool:
-    """GDPR right to erasure — обновить consent_grant (новая таблица) и tracking_consent (legacy).
+    """Отзыв согласия: consent_grant помечается отозванным, tracking_consent хранит отказ.
 
     WP-457 Ф10: обе таблицы должны отражать отзыв согласия. RLS-политики читают consent_grant.
 
+    WP-5 Ф74 (11.11.2026): legacy-строка больше не удаляется, а остаётся с opt_in=false
+    и пустым scope. Удаление стирало единственный след отказа у тех, у кого не было
+    строк consent_grant: сборщик двойника, считающий подписчиков согласившимися,
+    снова начал бы их учитывать, а запись событий (db/queries/events.py) после
+    удаления строки снова шла. Строка отказа — только account_id и «нет», без данных.
+    Все читатели get_consent() трактуют opt_in=false так же, как отсутствие строки.
+
     Returns:
-        True, если хотя бы одна таблица обновлена. False, если ничего не изменилось.
+        True, если до отзыва было активное согласие хотя бы в одной таблице.
     """
     pool = await get_consent_pool()
     async with pool.acquire() as conn:
-        # Обновить новую таблицу consent_grant (WP-316 Ф9): все scope для этого user
-        updated_grant = await conn.execute(
-            """UPDATE learning.consent_grant
-               SET granted = FALSE, revoked_at = NOW()
-               WHERE account_id = $1::uuid AND granted = TRUE""",
-            account_id,
-        )
-        # Удалить legacy tracking_consent для совместимости (старый код может его проверять)
-        deleted_legacy = await conn.execute(
-            "DELETE FROM learning.tracking_consent WHERE account_id = $1::uuid",
-            account_id,
-        )
+        async with conn.transaction():
+            # Обновить новую таблицу consent_grant (WP-316 Ф9): все scope для этого user
+            updated_grant = await conn.execute(
+                """UPDATE learning.consent_grant
+                   SET granted = FALSE, revoked_at = NOW()
+                   WHERE account_id = $1::uuid AND granted = TRUE""",
+                account_id,
+            )
+            had_legacy_opt_in = await conn.fetchval(
+                "SELECT opt_in FROM learning.tracking_consent WHERE account_id = $1::uuid FOR UPDATE",
+                account_id,
+            )
+            # L2-PRIVACY: account_id — PRIMARY KEY, ON CONFLICT резолвится в ту же строку.
+            await conn.execute(
+                """INSERT INTO learning.tracking_consent (account_id, opt_in, scope, opted_at)
+                   VALUES ($1::uuid, FALSE, '{}'::text[], NOW())
+                   ON CONFLICT (account_id) DO UPDATE
+                       SET opt_in = FALSE,
+                           scope = '{}'::text[],
+                           opted_at = COALESCE(tracking_consent.opted_at, EXCLUDED.opted_at)""",
+                account_id,
+            )
 
-    # asyncpg execute() возвращает строку "UPDATE N" или "DELETE M"
-    # Последний токен = количество затронутых строк
+    # asyncpg execute() возвращает строку "UPDATE N"; последний токен = число строк
     updated_rows = int(updated_grant.split()[-1])
-    deleted_rows = int(deleted_legacy.split()[-1])
-    success = updated_rows > 0 or deleted_rows > 0
+    success = updated_rows > 0 or bool(had_legacy_opt_in)
+    invalidate_consent_cache(account_id)
 
     logger.info(
-        "[consent] revoke consent_grant_rows=%d tracking_consent_rows=%d",
+        "[consent] revoke consent_grant_rows=%d legacy_was_opt_in=%s",
         updated_rows,
-        deleted_rows,
+        bool(had_legacy_opt_in),
     )
     return success
 
