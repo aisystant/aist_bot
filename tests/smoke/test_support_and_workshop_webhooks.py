@@ -15,7 +15,9 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import sys
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
@@ -26,10 +28,12 @@ from aiohttp import web
 import clients.chatwoot as chatwoot
 
 SECRET = "synthetic-chatwoot-secret"
+TIMESTAMP = str(int(time.time()))
 
 
-def _sign(raw: bytes) -> str:
-    return hmac.new(SECRET.encode(), raw, hashlib.sha256).hexdigest()
+def _sign(raw: bytes, timestamp: str = TIMESTAMP) -> str:
+    signed_body = timestamp.encode() + b"." + raw
+    return "sha256=" + hmac.new(SECRET.encode(), signed_body, hashlib.sha256).hexdigest()
 
 
 # --- signature -----------------------------------------------------------
@@ -37,22 +41,30 @@ def _sign(raw: bytes) -> str:
 
 def test_signature_rejected_when_secret_not_configured(monkeypatch):
     monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", "")
-    assert chatwoot.verify_signature(b"{}", "anything") is False
+    assert chatwoot.verify_signature(b"{}", "anything", TIMESTAMP) is False
 
 
 def test_signature_rejected_when_header_missing(monkeypatch):
     monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", SECRET)
-    assert chatwoot.verify_signature(b"{}", "") is False
+    assert chatwoot.verify_signature(b"{}", "", TIMESTAMP) is False
 
 
 def test_signature_rejected_when_wrong(monkeypatch):
     monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", SECRET)
-    assert chatwoot.verify_signature(b"{}", "0" * 64) is False
+    assert chatwoot.verify_signature(b"{}", "0" * 64, TIMESTAMP) is False
 
 
 def test_signature_accepted_when_valid(monkeypatch):
     monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", SECRET)
-    assert chatwoot.verify_signature(b"{}", _sign(b"{}")) is True
+    assert chatwoot.verify_signature(b"{}", _sign(b"{}"), TIMESTAMP) is True
+
+
+def test_signature_rejected_when_timestamp_missing_or_stale(monkeypatch):
+    monkeypatch.setattr(chatwoot, "CHATWOOT_WEBHOOK_SECRET", SECRET)
+    assert chatwoot.verify_signature(b"{}", _sign(b"{}"), "") is False
+    assert chatwoot.verify_signature(b"{}", _sign(b"{}"), "invalid") is False
+    stale = str(int(TIMESTAMP) - 3600)
+    assert chatwoot.verify_signature(b"{}", _sign(b"{}", stale), stale) is False
 
 
 # --- support reply handler ---------------------------------------------
@@ -83,8 +95,10 @@ async def _post(handler, body: dict, signature: str | None = "valid"):
     headers = {}
     if signature == "valid":
         headers["X-Chatwoot-Signature"] = _sign(raw)
+        headers["X-Chatwoot-Timestamp"] = TIMESTAMP
     elif signature:
         headers["X-Chatwoot-Signature"] = signature
+        headers["X-Chatwoot-Timestamp"] = TIMESTAMP
     request = SimpleNamespace(read=AsyncMock(return_value=raw), headers=headers)
     return await handler(request)
 
@@ -96,6 +110,7 @@ def _agent_reply(**overrides):
         "conversation": {"id": 16},
         "content": "Ответ оператора",
         "private": False,
+        "sender": {"type": "user"},
     }
     body.update(overrides)
     return body
@@ -199,3 +214,32 @@ async def test_payment_without_payment_id_is_rejected_before_recording(workshop)
     assert result == {"ok": False, "error": "missing payment_id"}
     create.assert_not_awaited()
     invite.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_payment_without_id_returns_http_400(workshop, monkeypatch):
+    source = Path(__file__).resolve().parents[2] / "oauth_server.py"
+    tree = ast.parse(source.read_text(), filename=str(source))
+    handler = next(
+        node for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "workshop_payment_handler"
+    )
+    namespace = {
+        "web": web,
+        "os": os,
+        "logger": logging.getLogger(__name__),
+        "_bot_instance": object(),
+    }
+    exec(compile(ast.Module(body=[handler], type_ignores=[]), str(source), "exec"), namespace)
+    monkeypatch.setenv("WORKSHOP_WEBHOOK_SECRET", "synthetic-payment-secret")
+    request = SimpleNamespace(
+        headers={"X-Webhook-Secret": "synthetic-payment-secret"},
+        json=AsyncMock(return_value={"telegram_id": 5, "purpose": "WORKSHOP"}),
+    )
+
+    response = await namespace["workshop_payment_handler"](request)
+
+    assert response.status == 400
+    assert json.loads(response.text) == {"ok": False, "error": "missing payment_id"}
+    workshop[1].assert_not_awaited()
