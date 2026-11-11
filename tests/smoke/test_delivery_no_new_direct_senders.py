@@ -11,9 +11,10 @@
 Реализация — AST (не regex): строки/docstring/комментарии не матчатся,
 методы классов и вложенные функции получают квалифицированные имена.
 `send_chat_action` (typing indicator) — не доставка, вне контроля.
-Охват владельца: `bot`, `self.bot`, `Bot(...)`. Документированный предел:
-`b = bot; b.send_...` и `getattr(bot, ...)` не ловятся (полный data-flow
-избыточен для smoke-сторожа). `message.answer` — отдельная волна
+Охват владельца: любой (`bot`, `self.bot`, `Bot(...)`, `_bot_instance`,
+`bot_instance`, `cfg.client` …) — РП-568 Ф16: прежний фильтр по имени `bot`
+пропускал 15 функций, в т.ч. весь `oauth_server.py`. Документированный предел:
+`getattr(x, "send_message")` не ловится. `message.answer` — отдельная волна
 (может быть обходом; callback.answer — ACK/toast, отдельный класс).
 """
 import ast
@@ -30,6 +31,7 @@ CONTROLLED_SEND_METHODS = frozenset({
     "send_audio", "send_voice", "send_animation", "send_sticker",
     "send_location", "send_venue", "send_contact", "send_poll",
     "send_dice", "send_media_group",
+    "copy_message", "forward_message", "send_invoice",
 })
 
 # Закрытый список исключений из скана (всё остальное от корня проекта сканируется).
@@ -42,6 +44,8 @@ EXCLUDED_DIRS = frozenset({
 DELIVERY_LAYER_FILES = frozenset({
     "core/notification_service.py",
     "core/nudge_delivery.py",
+    # Transport wrapper (Bot subclass): its send_message is the transport itself.
+    "core/safe_bot.py",
 })
 
 
@@ -51,17 +55,6 @@ def _iter_py_files(root: Path):
         if any(part in EXCLUDED_DIRS for part in rel.parts):
             continue
         yield rel
-
-
-def _owner_is_bot(node: ast.AST) -> bool:
-    """Значение-владелец атрибута — bot / self.bot / Bot(...)."""
-    if isinstance(node, ast.Name) and node.id == "bot":
-        return True
-    if isinstance(node, ast.Attribute) and node.attr == "bot":
-        return True  # self.bot, x.bot
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Bot":
-        return True
-    return False
 
 
 def scan_direct_senders(root: Path) -> set[tuple[str, str]]:
@@ -76,9 +69,7 @@ def scan_direct_senders(root: Path) -> set[tuple[str, str]]:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
-            if not (isinstance(func, ast.Attribute)
-                    and func.attr in CONTROLLED_SEND_METHODS
-                    and _owner_is_bot(func.value)):
+            if not (isinstance(func, ast.Attribute) and func.attr in CONTROLLED_SEND_METHODS):
                 continue
             hits.add((str(rel), _qualified_owner(tree, node)))
     return hits
@@ -214,6 +205,22 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("states/base.py", "BaseState.send"),
 ("states/feed/topics.py", "FeedTopicsState._accept_topics"),
 ("states/utilities/feedback.py", "FeedbackState._notify_developer_red"),
+    # WP-568 F16: invisible to the former name-based scanner (owner was not `bot`);
+    # pre-existing direct senders, to be moved to the single send point in step 1.
+("clients/digital_twin.py", "DigitalTwinClient.refresh_expiring_tokens"),
+("handlers/chat_analyst.py", "_forward"),
+("oauth_server.py", "_ory_already_linked_response"),
+("oauth_server.py", "_ory_guard_response"),
+("oauth_server.py", "chatwoot_webhook_handler"),
+("oauth_server.py", "github_app_callback_handler"),
+("oauth_server.py", "github_callback_handler"),
+("oauth_server.py", "google_calendar_callback_handler"),
+("oauth_server.py", "internal_notify_handler"),
+("oauth_server.py", "internal_notify_handler._send"),
+("oauth_server.py", "linear_callback_handler"),
+("oauth_server.py", "ory_callback_handler"),
+("oauth_server.py", "twin_callback_handler"),
+("oauth_server.py", "wakatime_callback_handler"),
 })
 
 
@@ -289,6 +296,18 @@ def test_scanner_catches_bot_constructor(tmp_path):
         "    await Bot(token).send_message(1, 'x')\n"
     )
     assert ("probe.py", "ok") in _scan_source(tmp_path, src)
+
+
+def test_scanner_catches_any_owner_and_forwarding(tmp_path):
+    src = (
+        "async def via_instance():\n"
+        "    await _bot_instance.send_message(1, 'x')\n"
+        "async def via_client():\n"
+        "    await cfg.client.copy_message(1, 2, 3)\n"
+    )
+    hits = _scan_source(tmp_path, src)
+    assert ("probe.py", "via_instance") in hits
+    assert ("probe.py", "via_client") in hits
 
 
 if __name__ == "__main__":  # генератор allowlist (одноразовый, не тест)
