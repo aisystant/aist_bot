@@ -93,10 +93,12 @@ class FeedTopicsState(BaseState):
         intern = self._user_to_intern_dict(user)
         context = context or {}
 
-        # Обновляем режим пользователя (derive_mode учитывает marathon_status)
+        # Обновляем режим пользователя (derive_mode учитывает marathon_status).
+        # WP-5 F76: a paused feed stays paused; only the resume button turns it back on.
         from db.queries.users import derive_mode
-        marathon_status = intern.get('marathon_status', 'not_started')
-        await update_intern(chat_id, mode=derive_mode(marathon_status, FeedStatus.ACTIVE), feed_status=FeedStatus.ACTIVE)
+        if intern.get('feed_status') != FeedStatus.PAUSED:
+            marathon_status = intern.get('marathon_status', 'not_started')
+            await update_intern(chat_id, mode=derive_mode(marathon_status, FeedStatus.ACTIVE), feed_status=FeedStatus.ACTIVE)
 
         # Проверяем текущую неделю
         week = await get_current_feed_week(chat_id)

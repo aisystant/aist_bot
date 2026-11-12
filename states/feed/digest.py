@@ -12,6 +12,7 @@ from typing import Optional, Dict
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 
 from states.base import BaseState
+from states.feed.pause import toggle_row
 from i18n import t
 from helpers.message_split import prepare_html_parts
 from db.queries.users import get_intern, update_intern, moscow_today
@@ -29,6 +30,7 @@ from engines.feed.planner import generate_multi_topic_digest
 from engines.shared import handle_question
 from config import (
     get_logger,
+    FeedStatus,
     FeedWeekStatus,
     FEED_SESSION_DURATION_MAX,
     FEED_SESSION_DURATION_MIN,
@@ -94,6 +96,12 @@ class FeedDigestState(BaseState):
             'feed_duration': getattr(user, 'feed_duration', FEED_SESSION_DURATION_MAX),
         }
 
+    def _get_feed_status(self, user) -> str:
+        """Feed status of the reader (active / paused / not_started)."""
+        if isinstance(user, dict):
+            return user.get('feed_status') or FeedStatus.NOT_STARTED
+        return getattr(user, 'feed_status', None) or FeedStatus.NOT_STARTED
+
     async def _recover_session_id(self, chat_id: int) -> Optional[int]:
         """Восстанавливает session_id из БД при пустом _user_data.
 
@@ -151,6 +159,12 @@ class FeedDigestState(BaseState):
         if week.get('status') == FeedWeekStatus.PLANNING:
             await self.send(user, t('feed.select_topics_first', lang))
             return "change_topics"
+
+        # WP-5 F76: a paused reader may still read on demand; only remind about the pause
+        # and offer resume. Nothing is written here.
+        if self._get_feed_status(user) == FeedStatus.PAUSED:
+            await self.send(user, t('feed.paused_notice', lang),
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=toggle_row(FeedStatus.PAUSED, lang)))
 
         # Continuous mode: re-activate completed weeks
         if week.get('status') == FeedWeekStatus.COMPLETED:
@@ -455,6 +469,7 @@ class FeedDigestState(BaseState):
                 text=f"📜 {t('feed.history_button', lang)}",
                 callback_data="feed_history"
             )],
+            *toggle_row(self._get_feed_status(user), lang),
         ])
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
@@ -851,7 +866,8 @@ class FeedDigestState(BaseState):
             [InlineKeyboardButton(
                 text=f"🔄 {t('buttons.reset_topics', lang)}",
                 callback_data="feed_reset_topics"
-            )]
+            )],
+            *toggle_row(self._get_feed_status(user), lang),
         ])
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")

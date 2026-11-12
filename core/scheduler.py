@@ -37,6 +37,7 @@ from db.queries import get_intern, update_intern, get_all_scheduled_interns, get
 from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content, cleanup_error_questions
 from db.queries.marathon_newcomer import is_on_newcomer_marathon
+from states.feed.pause import PAUSE_CALLBACK
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time, coerce_ui_lang
 from core.club_publisher_events import (
     classify_publish_failure, record_publication, record_queue_low, routes_via_center,
@@ -1586,6 +1587,15 @@ async def pre_generate_upcoming():
     await asyncio.gather(*[_pregen_one(cid) for cid in users])
 
 
+def feed_notification_keyboard(lang: str):
+    """Keyboard of the daily digest notification: open it, or pause the feed (WP-5 F76)."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")],
+        [InlineKeyboardButton(text=t('buttons.feed_disable_digest', lang), callback_data=PAUSE_CALLBACK)],
+    ])
+
+
 async def pre_generate_feed_digest(chat_id: int, bot: Bot):
     """Пре-генерация дайджеста Ленты и отправка уведомления.
 
@@ -1594,9 +1604,8 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
     2. Check: сессия на сегодня уже есть → skip
     3. Generate: generate_multi_topic_digest()
     4. Save: create_feed_session(status='pending')
-    5. Send notification: кнопка «Получить дайджест»
+    5. Send notification: кнопки «Получить дайджест» и «Отключить дайджест»
     """
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from engines.feed.planner import generate_multi_topic_digest
     from config import FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN
 
@@ -1695,6 +1704,12 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Feed: {chat_id} — session already active/completed before notification, skip")
         return
 
+    # WP-5 F76: the reader may have paused the feed while the digest was being generated.
+    fresh = await get_intern(chat_id)
+    if (fresh or {}).get('feed_status') != 'active':
+        logger.info(f"[Scheduler] Feed: {chat_id} — feed paused during generation, notification skipped")
+        return
+
     # WP-152: idempotency через notification_log
     from db.queries.notifications import try_insert_notification
     today_str = today.strftime('%Y-%m-%d')
@@ -1703,10 +1718,8 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Feed digest already sent to {chat_id} today, skip")
         return
 
-    # Отправляем уведомление с кнопкой «Получить дайджест»
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")]
-    ])
+    # Отправляем уведомление с кнопками «Получить дайджест» и «Отключить дайджест»
+    keyboard = feed_notification_keyboard(lang)
 
     try:
         await bot.send_message(
