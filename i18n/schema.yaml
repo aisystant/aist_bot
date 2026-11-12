@@ -3675,6 +3675,11 @@ feed:
     ru: "Дайджест пропущен. Завтра будет новый!"
     en: "Digest skipped. A new one will be ready tomorrow!"
 
+  digest_in_progress:
+    ru: "⏳ Дайджест уже готовится. Пришлю, как только будет готов."
+    en: "⏳ The digest is already being prepared. I will send it as soon as it is ready."
+    description: "Second entry into the feed while the digest is being built (WP-5 F78)"
+
   paused_confirm:
     ru: "⏸ Лента на паузе: ежедневный дайджест больше не придёт. Темы и прогресс сохранены.\nВернуть можно кнопкой ниже или командой /feed."
     en: "⏸ The feed is paused: the daily digest will no longer arrive. Your topics and progress are kept.\nTo bring it back, tap the button below or send /feed."

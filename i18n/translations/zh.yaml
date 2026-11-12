@@ -768,6 +768,7 @@ feed:
   digest_completed_today: "今天的摘要已完成。明天见！"
   digest_skipped: "摘要已跳过。明天会有新的！"
   slow_generation: "⏳ 摘要生成比平时慢。准备好后我会立即发送，无需重复 /feed。"
+  digest_in_progress: "⏳ 摘要正在准备中。准备好后我会立即发送。"
   paused_confirm: "⏸ 信息流已暂停：每日摘要将不再发送。你的主题和进度已保留。\n恢复方式：点击下方按钮或发送 /feed。"
   resumed_confirm: "▶️ 信息流已恢复：每日摘要将按计划再次发送。"
   paused_notice: "⏸ 信息流已暂停：不会收到每日摘要。如需继续阅读，请点击「恢复信息流」。"
