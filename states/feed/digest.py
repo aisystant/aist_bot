@@ -39,6 +39,9 @@ from config import (
 
 logger = get_logger(__name__)
 
+# chat_ids whose digest is being built right now (WP-5 F78).
+_digest_in_progress: set[int] = set()
+
 # Таймаут на генерацию контента (секунды)
 CONTENT_GENERATION_TIMEOUT = 90
 
@@ -196,7 +199,19 @@ class FeedDigestState(BaseState):
             await self._show_digest(user, existing, week)
             return None
 
-        # Генерируем новый дайджест
+        # Генерируем новый дайджест.
+        # WP-5 F78: one build per chat; a second entry during a build (button, /feed) does not start another.
+        if chat_id in _digest_in_progress:
+            await self.send(user, t('feed.digest_in_progress', lang))
+            return None
+        _digest_in_progress.add(chat_id)
+        try:
+            return await self._generate_and_show(user, week, today, intern, lang, chat_id)
+        finally:
+            _digest_in_progress.discard(chat_id)
+
+    async def _generate_and_show(self, user, week: dict, today, intern: dict, lang: str, chat_id: int) -> Optional[str]:
+        """Builds today's digest with the model, saves the session and shows it."""
         await self.send(user, t('loading.generating_content', lang))
 
         try:
