@@ -20,8 +20,8 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 </style>
 <div class="w" id="root"></div>
 <script>
-var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активность за 4 недели, в рамке — сегодня",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],g:["ИИ-среда","клуб","обучение","бот"]},
-en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Activity, last 4 weeks, today outlined",d:["Mo","Tu","We","Th","Fr","Sa","Su"],g:["IWE","club","courses","bot"]}};
+var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активные действия по неделям",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],g:["IWE","клуб","LMS","бот"]},
+en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Active days by week",d:["Mo","Tu","We","Th","Fr","Sa","Su"],g:["IWE","club","LMS","bot"]}};
 var G=["#2b8a3e","#1971c2","#e8590c","#9c36b5"];
 function cellStyle(m){
  var c=[],i;for(i=0;i<4;i++)if(m&(1<<i))c.push(G[i]);
