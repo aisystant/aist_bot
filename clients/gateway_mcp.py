@@ -769,6 +769,24 @@ class GatewayMCPClient:
         result = await self._call("dt_write_digital_twin", {"path": path, "data": data}, telegram_user_id)
         return self._parse_text_content(result)
 
+    async def dt_read_activity(
+        self, telegram_user_id: int, date_from: Optional[str] = None, date_to: Optional[str] = None
+    ) -> Optional[dict]:
+        """Дни активности по местам (IWE, клуб, LMS, бот) из журнала событий платформы.
+
+        Moscow dates, inclusive; the server defaults to the last 28 days. Returns
+        {"days": [{"day", "channel", "events"}], "period", "as_of", "source"} or None
+        (no subscription, circuit open, server error), so callers fall back to bot-only data.
+        """
+        args: dict = {}
+        if date_from:
+            args["from"] = date_from
+        if date_to:
+            args["to"] = date_to
+        result = await self._call("dt_read_activity", args, telegram_user_id, timeout=5)
+        parsed = self._parse_text_content(result)
+        return parsed if isinstance(parsed, dict) and isinstance(parsed.get("days"), list) else None
+
     async def dt_describe(self, path: str, telegram_user_id: Optional[int] = None) -> Optional[str]:
         """Описание метамодели ЦД."""
         result = await self._call("dt_describe_by_path", {"path": path}, telegram_user_id)

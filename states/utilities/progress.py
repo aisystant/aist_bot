@@ -19,6 +19,7 @@ from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
+from core.activity_board import apply_ecosystem
 from states.base import BaseState
 from i18n import t
 from config import MARATHON_DAYS, Mode
@@ -80,6 +81,25 @@ class ProgressState(BaseState):
             logger.error(f"[Progress] _fetch_points error: {e}")
             return None
 
+    async def _fetch_ecosystem_days(self, chat_id: int, weeks: int = 4) -> Optional[list]:
+        """Дни активности по местам (IWE, клуб, LMS, бот) из журнала платформы (WP-417 Ф7).
+
+        Тот же период, что у календаря бота (сегодня по Москве и 4 недели назад). Шлюз сам
+        проверяет подписку; любой отказ или сбой возвращает None, и табло остаётся на данных бота.
+        """
+        from clients.gateway_mcp import gateway_mcp
+        from db.queries.users import moscow_today
+
+        today = moscow_today()
+        try:
+            answer = await gateway_mcp.dt_read_activity(
+                chat_id, (today - timedelta(weeks=weeks)).isoformat(), today.isoformat()
+            )
+        except Exception as e:
+            logger.warning(f"[Progress] ecosystem activity failed for chat {chat_id}: {e}")
+            return None
+        return answer["days"] if answer else None
+
     async def _prefetch(self, chat_id: int) -> dict:
         """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
         from db.queries import get_intern
@@ -106,6 +126,7 @@ class ProgressState(BaseState):
             qa_stats,
             github,
             points_balance,
+            ecosystem_days,
         ) = await asyncio.gather(
             get_activity_stats(chat_id),
             get_activity_calendar(chat_id, weeks=4),
@@ -115,6 +136,7 @@ class ProgressState(BaseState):
             get_user_qa_stats(chat_id),
             get_github_connection(chat_id),
             self._fetch_points(intern.get('dt_user_id')),
+            self._fetch_ecosystem_days(chat_id),
             return_exceptions=True,
         )
 
@@ -244,7 +266,7 @@ class ProgressState(BaseState):
         complexity_level = intern.get('complexity_level', 1)
         topics_at_level = await get_theory_count_at_level(chat_id, complexity_level)
 
-        return {
+        cache = {
             'name': self._get_user_name(intern),
             'reg_date': reg_date_str,
             'complexity_level': complexity_level,
@@ -296,6 +318,10 @@ class ProgressState(BaseState):
                 'notes_path': github.get('notes_path', '') if github else '',
             },
         }
+        # WP-417 Ф7: places other than the bot (IWE, club, LMS) mark days too; None/Exception = bot-only
+        if isinstance(ecosystem_days, list):
+            apply_ecosystem(cache, ecosystem_days)
+        return cache
 
     # ─── ENTER ────────────────────────────────────────────────
 
