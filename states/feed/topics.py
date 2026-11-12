@@ -350,14 +350,9 @@ class FeedTopicsState(BaseState):
             confirm_text += f"{t('feed.selected_topics', lang)}\n"
             confirm_text += "\n".join([f"✓ {title}" for title in titles])
 
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=f"📖 {t('buttons.get_digest', lang)}",
-                    callback_data="feed_get_digest"
-                )]
-            ])
-
-            await self.bot.send_message(chat_id, confirm_text, reply_markup=keyboard)
+            # WP-5 F78: the digest starts building right after this message; a "Get digest" button here
+            # made readers start a second build in parallel.
+            await self.bot.send_message(chat_id, confirm_text)
             return True
 
         except Exception as e:
