@@ -19,12 +19,16 @@ from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from core.activity_board import apply_ecosystem
+from core.activity_board import apply_ecosystem, apply_totals
 from states.base import BaseState
 from i18n import t
 from config import MARATHON_DAYS, Mode
 
 logger = logging.getLogger(__name__)
+
+# Optional gateway reads on /progress (WP-417 Ф7): one 5 s attempt plus the wait for a free
+# gateway slot; past this the overview is shown with the bot's own data.
+OPTIONAL_GATEWAY_READ_SECONDS = 8
 
 
 class ProgressState(BaseState):
@@ -92,13 +96,31 @@ class ProgressState(BaseState):
 
         today = moscow_today()
         try:
-            answer = await gateway_mcp.dt_read_activity(
-                chat_id, (today - timedelta(weeks=weeks)).isoformat(), today.isoformat()
+            answer = await asyncio.wait_for(
+                gateway_mcp.dt_read_activity(
+                    chat_id, (today - timedelta(weeks=weeks)).isoformat(), today.isoformat()
+                ),
+                OPTIONAL_GATEWAY_READ_SECONDS,
             )
         except Exception as e:
-            logger.warning(f"[Progress] ecosystem activity failed for chat {chat_id}: {e}")
+            logger.warning(f"[Progress] ecosystem activity failed for chat {chat_id}: {e!r}")
             return None
         return answer["days"] if answer else None
+
+    async def _fetch_activity_totals(self, chat_id: int) -> Optional[dict]:
+        """All-time days, streak and record from the Profiler's nightly run (WP-417 Ф7).
+
+        None when the night run has not produced them yet or the gateway is slow or down;
+        the overview then keeps the bot's own counters.
+        """
+        from clients.gateway_mcp import gateway_mcp
+
+        try:
+            return await asyncio.wait_for(gateway_mcp.dt_read_activity_totals(chat_id),
+                                          OPTIONAL_GATEWAY_READ_SECONDS)
+        except Exception as e:
+            logger.warning(f"[Progress] activity totals failed for chat {chat_id}: {e!r}")
+            return None
 
     async def _prefetch(self, chat_id: int) -> dict:
         """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
@@ -127,6 +149,7 @@ class ProgressState(BaseState):
             github,
             points_balance,
             ecosystem_days,
+            activity_totals,
         ) = await asyncio.gather(
             get_activity_stats(chat_id),
             get_activity_calendar(chat_id, weeks=4),
@@ -137,6 +160,7 @@ class ProgressState(BaseState):
             get_github_connection(chat_id),
             self._fetch_points(intern.get('dt_user_id')),
             self._fetch_ecosystem_days(chat_id),
+            self._fetch_activity_totals(chat_id),
             return_exceptions=True,
         )
 
@@ -321,6 +345,12 @@ class ProgressState(BaseState):
         # WP-417 Ф7: places other than the bot (IWE, club, LMS) mark days too; None/Exception = bot-only
         if isinstance(ecosystem_days, list):
             apply_ecosystem(cache, ecosystem_days)
+        # Nightly all-time totals after the calendar, so today's activity is already marked
+        if isinstance(activity_totals, dict):
+            try:
+                apply_totals(cache, activity_totals)
+            except (KeyError, TypeError, ValueError) as e:
+                logger.warning(f"[Progress] malformed activity totals for chat {chat_id}: {e!r}")
         return cache
 
     # ─── ENTER ────────────────────────────────────────────────
