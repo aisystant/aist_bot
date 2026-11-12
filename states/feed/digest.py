@@ -161,10 +161,9 @@ class FeedDigestState(BaseState):
             return "change_topics"
 
         # WP-5 F76: a paused reader may still read on demand; only remind about the pause
-        # and offer resume. Nothing is written here.
+        # (the resume button is under the digest). Nothing is written here.
         if self._get_feed_status(user) == FeedStatus.PAUSED:
-            await self.send(user, t('feed.paused_notice', lang),
-                            reply_markup=InlineKeyboardMarkup(inline_keyboard=toggle_row(FeedStatus.PAUSED, lang)))
+            await self.send(user, t('feed.paused_notice', lang))
 
         # Continuous mode: re-activate completed weeks
         if week.get('status') == FeedWeekStatus.COMPLETED:
@@ -273,7 +272,8 @@ class FeedDigestState(BaseState):
 
         # Формируем заголовок
         if topics_list:
-            topics_str = ", ".join(f"*{tp}*" for tp in topics_list)
+            # feed.digest_header already wraps the line in *...*; nested bold left stray "**".
+            topics_str = ", ".join(topics_list)
             text = t('feed.digest_header', lang, topics=topics_str) + "\n"
         else:
             topic = session.get('topic_title', t('feed.topics_of_day', lang))
@@ -341,6 +341,7 @@ class FeedDigestState(BaseState):
             text=f"📋 {t('buttons.topics_menu', lang)}",
             callback_data="feed_whats_next"
         )])
+        buttons.extend(toggle_row(self._get_feed_status(user), lang))  # WP-5 F76
 
         # C5: Topic → Program hint (DP.ARCH.002 § 12.7)
         from config.conversion import PROGRAM_NAMES
@@ -722,7 +723,8 @@ class FeedDigestState(BaseState):
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.topics_menu', lang)}",
                     callback_data="feed_topics_menu"
-                )]
+                )],
+                *toggle_row(self._get_feed_status(user), lang),  # WP-5 F76
             ])
 
             await callback.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
