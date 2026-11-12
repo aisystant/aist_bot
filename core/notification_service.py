@@ -119,7 +119,8 @@ async def enqueue(
     canary/ops-alert.
 
     Returns: {"notification_id": int|None, "status": "queued"|"suppressed", "reason"?: str}
-    Suppression reasons: opt-out, blocked, duplicate, cap-exceeded.
+    Suppression reasons: already-sent (journal_key in the delivery journal),
+    opt-out, blocked, duplicate, cap-exceeded.
     """
     policy = CLASS_POLICY.get(klass)
     if policy is None:
@@ -142,6 +143,23 @@ async def enqueue(
             )
     if priority is None:
         priority = policy.priority
+
+    # A key already in the delivery journal (sent by this queue earlier than the
+    # dedup window, or by the pre-queue code) is a repeat: refuse it here, before
+    # a row exists. Otherwise a sender polling every 10 minutes adds a row per
+    # tick that the drain then suppresses as journal-dup (WP-568 F16, 12.11).
+    if journal_key:
+        try:
+            already_sent = await was_notification_sent(journal_key)
+        except Exception as e:
+            # Journal unreachable: let the row in; the drain checks the journal again.
+            logger.warning("[Delivery] journal check failed key=%s: %s", journal_key, e)
+            already_sent = False
+        if already_sent:
+            logger.info(
+                "[Delivery] journal skip chat=%s class=%s key=%s", chat_id, klass, journal_key
+            )
+            return {"notification_id": None, "status": "suppressed", "reason": "already-sent"}
 
     pool = await get_pool()
     async with pool.acquire() as conn:

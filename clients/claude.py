@@ -168,7 +168,7 @@ async def _send_openrouter_403_alert(recent: int) -> None:
                 "format": "html",
             },
             dedup_key="openrouter_403_alert",
-            journal_key="openrouter-403-alert",
+            journal_key=f"openrouter-403-alert:{datetime.utcnow():%Y-%m-%dT%H}",
             journal_type="ops_alert",
         )
     except Exception as e:

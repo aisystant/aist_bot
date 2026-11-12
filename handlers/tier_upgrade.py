@@ -2,10 +2,6 @@
 Хендлеры tier_upgrade — CTA-нуджи для переходов T1→T4 (WP-349 Ф4).
 
 Содержит:
-  nudge_post_diagnosis_s0      — B-low: ступень 1, предложить Марафон/S0
-  nudge_post_diagnosis_sN      — B-high: ступень 2+, предложить S{N} поток
-  nudge_subscription_cta       — C/E: активные дни или ступень ≥2, предложить подписку
-  nudge_tier_suggest_t2        — D: ступень выросла, предложить T2
   nudge_personal_guide_cta     — F: 14+ дней + подписка → тайный гит (T2→T3)
   nudge_fullenv_cta            — G: 30+ дней + гид открыт → явный гит, VS Code (T3→T4)
   nudge_onboarding_gap_t2      — WP-117: T2 застрял (1-13 дней), не подключил AI-клиент
@@ -30,9 +26,8 @@ import logging
 import os
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery
 
-from config import PLATFORM_URLS
 from db.queries import get_intern
 from db.queries.events import log_event
 from i18n import t
@@ -42,176 +37,6 @@ from core.notification_service import enqueue, CLASS_CAPPED
 logger = logging.getLogger(__name__)
 
 tier_upgrade_router = Router(name="tier_upgrade")
-
-
-# ═══════════════════════════════════════════════════════════
-# ВСПОМОГАТЕЛЬНЫЕ
-# ═══════════════════════════════════════════════════════════
-
-def _subscription_url() -> str:
-    """URL страницы подписки из PLATFORM_URLS или env."""
-    env_val = os.getenv("SUBSCRIPTION_WEB_URL", "").strip()
-    if env_val:
-        return env_val
-    return PLATFORM_URLS.get("subscription", "https://system-school.ru/open-endedness")
-
-
-def _lr_url() -> str:
-    """URL программы личного развития (S0/Марафон)."""
-    return PLATFORM_URLS.get("lr", "https://system-school.ru/programs/intro")
-
-
-def _later_keyboard(snooze_key: str) -> InlineKeyboardMarkup:
-    """Кнопка «Позже» для любого CTA-нуджа."""
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
-            text="Позже",
-            callback_data=f"tier_upgrade_snooze:{snooze_key}",
-        )
-    ]])
-
-
-# ═══════════════════════════════════════════════════════════
-# ПУБЛИЧНЫЕ ФУНКЦИИ-НУДЖИ (вызываются из scheduler)
-# ═══════════════════════════════════════════════════════════
-
-async def nudge_post_diagnosis_s0(bot, chat_id: int, lang: str = "ru") -> bool:
-    """B-low: пилот ступень 1 — предложить начать с Марафона (S0).
-
-    Returns True если сообщение отправлено, False при ошибке.
-    """
-    text = (
-        "Вы на ступени 1. Начните с Марафона — 14 дней, каждый день 20 минут. "
-        "Это самый быстрый способ встроить практику в расписание."
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Начать Марафон",
-                callback_data="tier_upgrade_start_marathon",
-            ),
-            InlineKeyboardButton(
-                text="Позже",
-                callback_data="tier_upgrade_snooze:b_low",
-            ),
-        ]
-    ])
-    try:
-        await bot.send_message(chat_id, text, reply_markup=keyboard)
-        logger.info(f"[TierUpgrade] nudge_post_diagnosis_s0 sent to {chat_id}")
-        return True
-    except Exception as e:
-        logger.warning(f"[TierUpgrade] nudge_post_diagnosis_s0 failed for {chat_id}: {e}")
-        return False
-
-
-async def nudge_post_diagnosis_sN(bot, chat_id: int, cp_stage: int, lang: str = "ru") -> bool:
-    """B-high: пилот ступень 2+ — предложить поток S{cp_stage}.
-
-    Returns True если сообщение отправлено, False при ошибке.
-    """
-    n = max(1, cp_stage)  # S1 минимум
-    text = (
-        f"Ваша ступень {cp_stage}. Рекомендуем поток S{n} — "
-        f"материалы и темп подобраны именно под ваш уровень."
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=f"Попробовать S{n}",
-                callback_data=f"tier_upgrade_start_stream:{n}",
-            ),
-            InlineKeyboardButton(
-                text="Позже",
-                callback_data="tier_upgrade_snooze:b_high",
-            ),
-        ]
-    ])
-    try:
-        await bot.send_message(chat_id, text, reply_markup=keyboard)
-        logger.info(f"[TierUpgrade] nudge_post_diagnosis_sN (stage={cp_stage}) sent to {chat_id}")
-        return True
-    except Exception as e:
-        logger.warning(f"[TierUpgrade] nudge_post_diagnosis_sN failed for {chat_id}: {e}")
-        return False
-
-
-async def nudge_subscription_cta(
-    bot,
-    chat_id: int,
-    activity_days: int,
-    lang: str = "ru",
-) -> bool:
-    """C/E: пилот активен N дней или ступень ≥2 — предложить подписку.
-
-    Returns True если сообщение отправлено, False при ошибке.
-    """
-    text = (
-        f"Вы уже {activity_days} дней активны. "
-        "Подписка открывает: личная база знаний, персональный план, больше инструментов."
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Узнать о подписке",
-                url=_subscription_url(),
-            ),
-            InlineKeyboardButton(
-                text="Позже",
-                callback_data="tier_upgrade_snooze:subscription_cta",
-            ),
-        ]
-    ])
-    try:
-        await bot.send_message(chat_id, text, reply_markup=keyboard)
-        logger.info(f"[TierUpgrade] nudge_subscription_cta (days={activity_days}) sent to {chat_id}")
-        return True
-    except Exception as e:
-        logger.warning(f"[TierUpgrade] nudge_subscription_cta failed for {chat_id}: {e}")
-        return False
-
-
-async def nudge_tier_suggest_t2(
-    bot,
-    chat_id: int,
-    cp_stage: int,
-    lang: str = "ru",
-) -> bool:
-    """D: ступень выросла — предложить перейти на T2.
-
-    Returns True если сообщение отправлено, False при ошибке.
-    """
-    # Список возможностей T2
-    t2_features = [
-        "расширенная лента материалов",
-        "персональный план развития",
-        "доступ к клубу",
-    ]
-    features_text = ", ".join(t2_features)
-
-    text = (
-        f"Ваша ступень выросла до {cp_stage}. "
-        f"На T2 открывается: {features_text}."
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Перейти на T2",
-                url=_subscription_url(),
-            ),
-            InlineKeyboardButton(
-                text="Позже",
-                callback_data="tier_upgrade_snooze:t2",
-            ),
-        ]
-    ])
-    try:
-        await bot.send_message(chat_id, text, reply_markup=keyboard)
-        logger.info(f"[TierUpgrade] nudge_tier_suggest_t2 (stage={cp_stage}) sent to {chat_id}")
-        return True
-    except Exception as e:
-        logger.warning(f"[TierUpgrade] nudge_tier_suggest_t2 failed for {chat_id}: {e}")
-        return False
 
 
 # ═══════════════════════════════════════════════════════════
@@ -361,7 +186,9 @@ async def nudge_personal_guide_cta(
                 logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
         else:
             logger.info("[TierUpgrade] nudge_personal_guide_cta suppressed for %d: %s", chat_id, result.get("reason"))
-        return accepted
+        # Already in the journal = sent earlier: report it as sent, so the
+        # scheduler does not fall through to another nudge this tick.
+        return accepted or result.get("reason") == "already-sent"
     except Exception as e:
         logger.warning("[TierUpgrade] nudge_personal_guide_cta failed for %d: %s", chat_id, e)
         return False
@@ -412,7 +239,9 @@ async def nudge_fullenv_cta(
                 logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
         else:
             logger.info("[TierUpgrade] nudge_fullenv_cta suppressed for %d: %s", chat_id, result.get("reason"))
-        return accepted
+        # Already in the journal = sent earlier: report it as sent, so the
+        # scheduler does not fall through to another nudge this tick.
+        return accepted or result.get("reason") == "already-sent"
     except Exception as e:
         logger.warning("[TierUpgrade] nudge_fullenv_cta failed for %d: %s", chat_id, e)
         return False
@@ -458,7 +287,9 @@ async def nudge_onboarding_gap_t2(
                 "[TierUpgrade] nudge_onboarding_gap_t2 suppressed for %d: %s",
                 chat_id, result.get("reason"),
             )
-        return accepted
+        # Already in the journal = sent earlier: report it as sent, so the
+        # scheduler does not fall through to another nudge this tick.
+        return accepted or result.get("reason") == "already-sent"
     except Exception as e:
         logger.warning("[TierUpgrade] nudge_onboarding_gap_t2 failed for %d: %s", chat_id, e)
         return False
