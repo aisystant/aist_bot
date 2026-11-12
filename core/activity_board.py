@@ -1,0 +1,68 @@
+"""Activity board across the ecosystem (WP-417 Ф7).
+
+The twin server tool ``read_activity`` returns days x places (iwe, club, lms, bot) from the
+platform event journal. This module folds that answer into the /progress overview cache:
+the calendar shows which places each day came from, and the counters never go below what the
+bot already knew. Streak, record and all-time totals over the whole history are the
+Profiler's job (3_derived); until they are wired in, the numbers here are lower bounds taken
+from the 4-week window.
+"""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+# Bit per place; the widget colours a calendar cell by the bits set in its mask.
+CHANNEL_BITS: dict[str, int] = {"iwe": 1, "club": 2, "lms": 4, "bot": 8}
+
+
+def day_masks(days: list[dict]) -> dict[str, int]:
+    """ISO date -> bit mask of places active that day. Unknown places ('other') never count."""
+    masks: dict[str, int] = {}
+    for row in days:
+        bit = CHANNEL_BITS.get(row.get("channel"))
+        if bit and int(row.get("events") or 0) > 0:
+            masks[row["day"]] = masks.get(row["day"], 0) | bit
+    return masks
+
+
+def _runs(active: list[bool]) -> tuple[int, int]:
+    """(current streak, longest streak). Today still open: a run ending yesterday stays current."""
+    longest = run = 0
+    for flag in active:
+        run = run + 1 if flag else 0
+        longest = max(longest, run)
+    tail = active[:-1] if active and not active[-1] else active
+    current = 0
+    for flag in reversed(tail):
+        if not flag:
+            break
+        current += 1
+    return current, longest
+
+
+def apply_ecosystem(cache: dict, days: list[dict]) -> None:
+    """Fold the ecosystem answer into the overview cache in place.
+
+    A day is active when the bot or any place says so. Counters take the larger of the bot's
+    own value and the window value, so the numbers people already have never drop.
+    """
+    calendar = cache.get("calendar") or []
+    if not calendar:
+        return
+    masks = day_masks(days)
+    for entry in calendar:
+        mask = masks.get(entry["date"], 0)
+        entry["mask"] = mask
+        entry["active"] = bool(entry.get("active")) or mask > 0
+
+    active = [bool(entry["active"]) for entry in calendar]
+    current, longest = _runs(active)
+    today = date.fromisoformat(calendar[-1]["date"])
+    monday = today - timedelta(days=today.weekday())
+    cache["days_active_week"] = sum(1 for e in calendar if e["active"] and date.fromisoformat(e["date"]) >= monday)
+    cache["streak"] = max(int(cache.get("streak") or 0), current)
+    cache["longest_streak"] = max(int(cache.get("longest_streak") or 0), longest)
+    cache["active_days_total"] = max(int(cache.get("active_days_total") or 0), sum(active))
+    cache["calendar_active_count"] = sum(active)
+    cache["ecosystem"] = True
