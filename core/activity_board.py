@@ -4,8 +4,8 @@ The twin server tool ``read_activity`` returns days x places (iwe, club, lms, bo
 platform event journal. This module folds that answer into the /progress overview cache:
 the calendar shows which places each day came from, and the counters never go below what the
 bot already knew. Streak, record and all-time totals over the whole history are the
-Profiler's job (3_derived); until they are wired in, the numbers here are lower bounds taken
-from the 4-week window.
+Profiler's job (3_derived.3_15_activity, nightly); ``apply_totals`` folds them in, and without
+them the numbers stay lower bounds taken from the 4-week window.
 """
 
 from __future__ import annotations
@@ -66,3 +66,30 @@ def apply_ecosystem(cache: dict, days: list[dict]) -> None:
     cache["active_days_total"] = max(int(cache.get("active_days_total") or 0), sum(active))
     cache["calendar_active_count"] = sum(active)
     cache["ecosystem"] = True
+
+
+def apply_totals(cache: dict, totals: dict) -> None:
+    """Lift streak, record and all-time days with the Profiler's nightly totals (3_15_activity).
+
+    The nightly values stop at their last_day; the calendar (already folded with the ecosystem
+    days) covers the days after it up to today. Those later days are added to the total, and
+    the nightly run continues while every one of them is active (today may still be empty).
+    Counters still never go below what the bot or the window know.
+    """
+    calendar = cache.get("calendar") or []
+    overall = (totals.get("channels") or {}).get("all")
+    if not calendar or not isinstance(overall, dict):
+        return
+    last_day = date.fromisoformat(overall["last_day"])
+    later = [bool(e["active"]) for e in calendar if date.fromisoformat(e["date"]) > last_day]
+    if len(later) > len(calendar) - 1:
+        return  # night totals older than the whole calendar: the gap cannot be checked
+
+    gap = later[:-1] if later and not later[-1] else later  # today may still be empty
+    streak = int(overall.get("current_streak") or 0) + sum(later) if all(gap) else 0
+    days_total = int(overall.get("active_days") or 0) + sum(later)
+    record = max(int(overall.get("record") or 0), streak)
+
+    cache["streak"] = max(int(cache.get("streak") or 0), streak)
+    cache["longest_streak"] = max(int(cache.get("longest_streak") or 0), record, cache["streak"])
+    cache["active_days_total"] = max(int(cache.get("active_days_total") or 0), days_total)

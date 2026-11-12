@@ -1,11 +1,12 @@
 """Ecosystem activity folded into the /progress overview (WP-417 Ф7)."""
 
+import asyncio
 import json
 from datetime import date, timedelta
 from unittest.mock import AsyncMock, patch
 
 from clients.gateway_mcp import gateway_mcp
-from core.activity_board import CHANNEL_BITS, apply_ecosystem, day_masks
+from core.activity_board import CHANNEL_BITS, apply_ecosystem, apply_totals, day_masks
 from integrations.telegram.widgets import build_progress_chat_data
 from states.utilities.progress import ProgressState
 
@@ -107,7 +108,8 @@ async def test_gateway_tool_returns_days_and_passes_the_period():
         got = await gateway_mcp.dt_read_activity(42, "2026-10-15", "2026-11-12")
 
     assert got == answer
-    call.assert_awaited_once_with("dt_read_activity", {"from": "2026-10-15", "to": "2026-11-12"}, 42, timeout=5)
+    call.assert_awaited_once_with("dt_read_activity", {"from": "2026-10-15", "to": "2026-11-12"}, 42, timeout=5,
+                                 best_effort=True)
 
 
 async def test_gateway_tool_returns_none_on_errors_and_odd_answers():
@@ -132,3 +134,138 @@ async def test_progress_fetch_asks_for_the_calendar_period_and_degrades_to_none(
     with patch("db.queries.users.moscow_today", return_value=TODAY), \
          patch.object(gateway_mcp, "dt_read_activity", AsyncMock(side_effect=RuntimeError("down"))):
         assert await state._fetch_ecosystem_days(42) is None
+
+
+# ─── Nightly all-time totals (3_derived.3_15_activity) ──────────────────────
+
+def _totals(last_day: date, days: int, current: int, record: int) -> dict:
+    return {"channels": {"all": {"active_days": days, "first_day": "2026-04-01", "last_day": last_day.isoformat(),
+                                 "current_streak": current, "longest_streak": record, "record": record}}}
+
+
+def _window_cache(today_active: bool) -> dict:
+    cache = {"calendar": _calendar(29, bot_active=set(range(28)) | ({28} if today_active else set())),
+             "streak": 3, "longest_streak": 5, "active_days_total": 10}
+    apply_ecosystem(cache, [])
+    return cache
+
+
+def test_totals_lift_counters_above_the_window():
+    cache = _window_cache(today_active=False)
+    assert cache["streak"] == 28  # window cap before the nightly totals
+
+    apply_totals(cache, _totals(TODAY - timedelta(days=1), days=180, current=45, record=60))
+
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (45, 60, 180)
+
+
+def test_today_extends_a_run_the_night_did_not_see():
+    cache = _window_cache(today_active=True)
+
+    apply_totals(cache, _totals(TODAY - timedelta(days=1), days=180, current=60, record=60))
+
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (61, 61, 181)
+
+
+def test_today_already_counted_by_the_night_is_not_added_twice():
+    cache = _window_cache(today_active=True)
+
+    apply_totals(cache, _totals(TODAY, days=181, current=61, record=61))
+
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (61, 61, 181)
+
+
+def test_days_after_the_night_run_continue_its_streak():
+    # night run of D-1 saw days up to D-2; D-1 is active in the calendar, today not yet (00:00-04:30)
+    cache = {"calendar": _calendar(5, bot_active={3}), "streak": 1, "longest_streak": 1, "active_days_total": 1}
+
+    apply_totals(cache, _totals(TODAY - timedelta(days=2), days=180, current=60, record=60))
+
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (61, 61, 181)
+
+
+def test_night_totals_older_than_the_calendar_change_nothing():
+    cache = {"calendar": _calendar(5), "streak": 2, "longest_streak": 3, "active_days_total": 4}
+
+    apply_totals(cache, _totals(TODAY - timedelta(days=30), days=90, current=30, record=40))
+
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (2, 3, 4)
+
+
+def test_stale_run_is_not_shown_as_current_but_record_stays():
+    cache = {"calendar": _calendar(5), "streak": 0, "longest_streak": 2, "active_days_total": 3}
+
+    apply_totals(cache, _totals(TODAY - timedelta(days=3), days=90, current=30, record=40))
+
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (0, 40, 90)
+
+
+def test_totals_never_lower_bot_counters_and_ignore_missing_data():
+    cache = {"calendar": _calendar(5), "streak": 7, "longest_streak": 99, "active_days_total": 500}
+    apply_totals(cache, _totals(TODAY, days=12, current=2, record=9))
+    assert (cache["streak"], cache["longest_streak"], cache["active_days_total"]) == (7, 99, 500)
+
+    before = dict(cache)
+    apply_totals(cache, {"channels": {}})
+    assert cache == before
+
+
+async def test_totals_read_uses_the_derived_path_best_effort():
+    block = _totals(TODAY, days=1, current=1, record=1)
+    result = {"content": [{"type": "text", "text": json.dumps(block)}]}
+    with patch.object(gateway_mcp, "_call", AsyncMock(return_value=result)) as call:
+        assert await gateway_mcp.dt_read_activity_totals(42) == block
+    call.assert_awaited_once_with("dt_read_digital_twin", {"path": "3_derived.3_15_activity"}, 42,
+                                  timeout=5, best_effort=True)
+
+    with patch.object(gateway_mcp, "_call", AsyncMock(return_value=None)):
+        assert await gateway_mcp.dt_read_activity_totals(42) is None
+
+
+async def test_progress_totals_give_up_after_the_bound(monkeypatch):
+    from states.utilities import progress
+
+    async def hang(_chat_id):
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(progress, "OPTIONAL_GATEWAY_READ_SECONDS", 0.05)
+    state = ProgressState.__new__(ProgressState)
+    with patch.object(gateway_mcp, "dt_read_activity_totals", side_effect=hang):
+        assert await state._fetch_activity_totals(42) is None
+
+
+# ─── Gateway best-effort calls: no retry, shared breaker untouched ─────────
+
+class _HangingPost:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append(kwargs.get("timeout"))
+        return self
+
+    async def __aenter__(self):
+        raise TimeoutError
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+async def _timeout_call(best_effort: bool) -> tuple[int, int]:
+    calls: list = []
+    session = type("S", (), {"post": _HangingPost(calls)})()
+    with patch.object(gateway_mcp, "_get_session", AsyncMock(return_value=session)), \
+         patch.object(gateway_mcp, "_get_access_token", return_value="token"), \
+         patch("asyncio.sleep", AsyncMock()):
+        gateway_mcp._failures, gateway_mcp._circuit_open = 0, False
+        assert await gateway_mcp._do_call("dt_read_activity", {}, 42, timeout=5,
+                                          best_effort=best_effort) is None
+        return len(calls), gateway_mcp._failures
+
+
+async def test_best_effort_timeout_is_one_attempt_and_not_a_breaker_failure():
+    assert await _timeout_call(best_effort=True) == (1, 0)
+
+
+async def test_regular_timeout_still_retries_and_counts():
+    assert await _timeout_call(best_effort=False) == (2, 1)
