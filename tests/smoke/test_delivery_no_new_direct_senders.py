@@ -156,7 +156,6 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
     ("core/scheduler.py", "_process_marathon_queue"),
     ("core/scheduler.py", "_send_marathon_weekly_digest"),
     ("core/scheduler.py", "_send_mentorship_disclaimer"),
-    ("core/scheduler.py", "_send_slot_daily_prompt"),
     ("core/scheduler.py", "_smart_publisher_scan_unlocked"),
     ("core/scheduler.py", "pre_generate_feed_digest"),
     ("core/scheduler.py", "scheduled_check"),
@@ -180,10 +179,6 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
     ("handlers/legacy/learning.py", "send_topic"),
     ("handlers/mentorship.py", "cmd_mentor_invite"),
     ("handlers/showcase.py", "_send_seminar_access"),
-    ("handlers/tier_upgrade.py", "nudge_post_diagnosis_s0"),
-    ("handlers/tier_upgrade.py", "nudge_post_diagnosis_sN"),
-    ("handlers/tier_upgrade.py", "nudge_subscription_cta"),
-    ("handlers/tier_upgrade.py", "nudge_tier_suggest_t2"),
     ("handlers/workshop.py", "_send_direct_masterskaya_invite"),
     ("handlers/workshop.py", "_send_invite_by_count"),
     ("oauth_server.py", "_ory_already_linked_response"),
@@ -201,7 +196,7 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
 })
 
 # Ratchet: lower this number in the same commit that moves a sender to the queue.
-INITIATIVE_PENDING_CEILING = 50
+INITIATIVE_PENDING_CEILING = 45
 
 ALLOWED_DIRECT_SENDERS = REPLY_SENDERS | OPS_SENDERS | INITIATIVE_PENDING
 

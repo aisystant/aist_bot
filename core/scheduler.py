@@ -2529,33 +2529,41 @@ async def _send_slot_daily_prompt():
             logger.info("[SlotPrompt] Все пилоты уже залогировали сегодня — prompt не нужен")
             return
 
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="30 мин", callback_data="slot_daily:0.5"),
-            InlineKeyboardButton(text="1 ч", callback_data="slot_daily:1.0"),
-            InlineKeyboardButton(text="2 ч", callback_data="slot_daily:2.0"),
-        ], [
-            InlineKeyboardButton(text="Своё время", callback_data="slot_daily:custom"),
-            InlineKeyboardButton(text="Не учился сегодня", callback_data="slot_daily:skip"),
-        ]])
+        # WP-568 F16 step 1b: optional prompt → delivery layer (capped class:
+        # daily cap, opt-out, blocked users skipped before the queue).
+        from core.notification_service import enqueue, CLASS_CAPPED
 
-        bot = Bot(token=_bot_token)
-        try:
-            sent = skipped = 0
-            for row in rows:
-                try:
-                    await bot.send_message(
-                        row["user_id"],
-                        "Учился сегодня? Запиши время — оно идёт в твою ступень.",
-                        reply_markup=kb,
-                    )
-                    sent += 1
-                except Exception as e:
-                    skipped += 1
-                    logger.debug(f"[SlotPrompt] user_id={row['user_id']}: {e}")
-            logger.info(f"[SlotPrompt] 22:00 МСК: sent={sent} skipped={skipped}")
-        finally:
-            await bot.session.close()
+        content = {
+            "text": "Учился сегодня? Запиши время — оно идёт в твою ступень.",
+            "format": "plain",
+            "actions": [
+                {"label": "30 мин", "action": "slot_daily:0.5"},
+                {"label": "1 ч", "action": "slot_daily:1.0"},
+                {"label": "2 ч", "action": "slot_daily:2.0"},
+                {"label": "Своё время", "action": "slot_daily:custom"},
+                {"label": "Не учился сегодня", "action": "slot_daily:skip"},
+            ],
+        }
+        today = moscow_now().date().isoformat()
+        queued = suppressed = failed = 0
+        for row in rows:
+            key = f"slot_daily_prompt:{row['user_id']}:{today}"
+            try:
+                res = await enqueue(
+                    row["user_id"], CLASS_CAPPED, content,
+                    dedup_key=key, journal_key=key, journal_type="slot_daily_prompt",
+                )
+            except Exception as e:
+                failed += 1
+                logger.warning(f"[SlotPrompt] enqueue failed user_id={row['user_id']}: {e}")
+                continue
+            if res["status"] == "queued":
+                queued += 1
+            else:
+                suppressed += 1
+        logger.info(
+            f"[SlotPrompt] 22:00 МСК: queued={queued} suppressed={suppressed} failed={failed}"
+        )
     except Exception as e:
         logger.exception(f"[SlotPrompt] Error in _send_slot_daily_prompt: {e}")
 

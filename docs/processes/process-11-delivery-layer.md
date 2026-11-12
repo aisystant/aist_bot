@@ -33,6 +33,8 @@
 ```
 in-bot отправитель → enqueue(chat_id, klass, content_spec, priority, dedup_key,
                               journal_key, journal_type)
+   ├─ journal_key уже в журнале → suppressed: already-sent, строка НЕ создаётся
+   │    (сбой чтения журнала → пропускаем дальше, дренаж проверит ещё раз; РП-568 Ф16 1б)
    ├─ advisory_xact_lock(delivery_lock_key)  # (chat, московский день); тот же ключ у nudge_delivery
    ├─ capped + заблокировал бота (user_state.bot_blocked) → suppressed: blocked
    │    (остальные классы пробуют: отметка снимается только когда человек напишет)
@@ -92,7 +94,7 @@ drain (cron раз в минуту, при DELIVERY_LAYER_ENABLED)
 диалог. Ограничение обещания: потолок DP.SC.177 не покрывает диалоговые серии.
 
 Волны: **1** ✅ `_send_marathon_nudges`, `send_engagement_nudges` (текст) ·
-**1б** ✅ `_send_practice_nudges` (+ `actions`-кнопка) · **1в** ⏳ upgrade-нудж F/G
+**1б** ✅ `_send_practice_nudges` (+ `actions`-кнопка), `_send_slot_daily_prompt` (capped, ключ `slot_daily_prompt:{chat}:{московский день}`, пять кнопок столбиком; РП-568 Ф16 шаг 1б, 12.11) · **1в** ⏳ upgrade-нудж F/G
 внутри `send_engagement_nudges` (rich CTA, зона РП349/406) · **2** ⏳ transactional
 (oauth_server, tier_upgrade) · **3** ⏳ ops-alert (autofix/health → класс + canary) ·
 **4** ⏳ must-deliver (марафон-контент, дайджесты — кнопки/pregen/catch-up, самая рискованная).
@@ -103,6 +105,7 @@ drain (cron раз в минуту, при DELIVERY_LAYER_ENABLED)
 - ✅ Ф4 волны 1+1б — нудж-отправители на `enqueue`; рендер `format`/`actions` в `deliver_fn`; семантический журнал (`journal_key`/`journal_type`); сторож очереди.
 - ✅ Включено в проде (`DELIVERY_LAYER_ENABLED=true`, проверено 07.09.2026, см. `core/scheduler.py` у оплаты стажировки).
 - ✅ РП-568 Ф16 шаг 1а — исходы доставки, повторы временных ошибок, журнал после отправки, блокировка до очереди, московские сутки; правило напоминаний о пропущенном чек-ине (`core/checkin_nudge.py`, ниже).
+- ✅ РП-568 Ф16 шаг 1б, первая волна (12.11): журнал проверяется до очереди (повтор не плодит строк); напоминание о практике отбирается и по ключу последнего слота `marathon_practice_nudge:{chat}:{day}:150m`; приглашение к слоту через очередь; четыре прямые функции `handlers/tier_upgrade.nudge_*` без вызовов удалены. Непереведённых инициативных отправителей 45 (`INITIATIVE_PENDING_CEILING`).
 - ⏳ Заглушки/следующие шаги: предпочтения per-user (нет store), мультиканальность через Apprise (Ф5). Поле `format` — компромисс одного канала; при Ф5 пересмотр на структурированные блоки.
 
 ## Напоминания о пропущенном чек-ине (РП-568 Ф16, DP.SC.116)
@@ -119,6 +122,7 @@ drain (cron раз в минуту, при DELIVERY_LAYER_ENABLED)
 ## Тесты
 
 `tests/smoke/test_notification_service.py` — потолок подавляет третий `capped`, `critical` обходит лимит, дедуп подавляет, блокировка отсекает до очереди, очередь принимает; дренаж: каждый исход (sent/blocked/failed_permanent/повтор с отсрочкой/исчерпание попыток/unknown/сбой проверки журнала), журнал только после доставки — семантический ключ/тип + fallback.
+`tests/smoke/test_slot_daily_prompt.py` — приглашение к слоту идёт в `enqueue` классом `capped` с дневным ключом и пятью кнопками, сбой одного не останавливает остальных.
 `tests/test_checkin_nudge.py` — сценарии правила чек-ина (пн → вт и пт, пропущенный запуск, поздняя первая ступень, тишина, нет ночного подсчёта).
 `tests/smoke/test_delivery_wave1.py` — рендер markdown→HTML/plain/actions; сторож fail-open; инвариант «в мигрированных функциях нет прямых `bot.send_*`, есть `enqueue`».
 
