@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 commands_router = Router(name="commands")
 
 
-_HEAVY_SOFT_TIMEOUT = 3.0
-_HEAVY_HARD_TIMEOUT = 30.0
+_HEAVY_SOFT_TIMEOUT = 3.0   # "updating..." notice
+_HEAVY_HARD_TIMEOUT = 30.0  # "taking longer, will send when ready" notice; work goes on
+# Final cap: on-demand digest generation is itself bounded by 90 s (states/feed/digest.py).
+_HEAVY_FINAL_TIMEOUT = 120.0
 
 
 async def _safe_route(message: Message, state: FSMContext, intern: dict, route_coro):
@@ -46,28 +48,53 @@ async def _safe_route(message: Message, state: FSMContext, intern: dict, route_c
         })
 
 
+# chat_ids with a heavy command still running: a repeated /feed must not build a second digest.
+_heavy_in_flight: set[int] = set()
+
+
 async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, route_coro, command: str):
-    """Circuit breaker для тяжёлых команд (/feed). Защита от Neon pool contention + retry storms."""
+    """Circuit breaker для тяжёлых команд (/feed). Защита от Neon pool contention + retry storms.
+
+    WP-5 F77: after the hard timeout the work is no longer dropped silently. The reader is told
+    it takes longer and the result arrives when ready; only the final cap cancels it, with a
+    visible error message. One heavy command per chat at a time.
+    """
     lang = intern.get('language', 'ru') or 'ru'
+    chat_id = message.chat.id
+    if chat_id in _heavy_in_flight:
+        route_coro.close()  # never started; close to avoid "coroutine was never awaited"
+        logger.info(f"[CMD] /{command} chat_id={chat_id}: previous run still in progress, skipped")
+        await message.answer(t('feed.slow_generation', lang))
+        return
+
+    _heavy_in_flight.add(chat_id)
     task = asyncio.create_task(route_coro)
     try:
         await state.clear()
-        await asyncio.wait_for(asyncio.shield(task), timeout=_HEAVY_SOFT_TIMEOUT)
-    except asyncio.TimeoutError:
-        await message.answer(t('feed.updating', lang))
         try:
-            await asyncio.wait_for(task, timeout=_HEAVY_HARD_TIMEOUT - _HEAVY_SOFT_TIMEOUT)
+            await asyncio.wait_for(asyncio.shield(task), timeout=_HEAVY_SOFT_TIMEOUT)
         except asyncio.TimeoutError:
-            logger.error(f"[CMD] HARD TIMEOUT for /{command} chat_id={message.chat.id}")
-            from db.queries.events import log_event
-            await log_event(message.chat.id, 'error_shown', {
-                'error_key': f'heavy_timeout:{command}',
-                'handler': '_safe_route_heavy',
-            })
+            await message.answer(t('feed.updating', lang))
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=_HEAVY_HARD_TIMEOUT - _HEAVY_SOFT_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning(f"[CMD] SLOW /{command} chat_id={chat_id}: still working after {_HEAVY_HARD_TIMEOUT:.0f}s")
+                await message.answer(t('feed.slow_generation', lang))
+                try:
+                    await asyncio.wait_for(task, timeout=_HEAVY_FINAL_TIMEOUT - _HEAVY_HARD_TIMEOUT)
+                except asyncio.TimeoutError:
+                    logger.error(f"[CMD] HARD TIMEOUT for /{command} chat_id={chat_id}")
+                    await message.answer(t('errors.generation_timeout', lang))
+                    from db.queries.events import log_event
+                    await log_event(chat_id, 'error_shown', {
+                        'error_key': f'heavy_timeout:{command}',
+                        'handler': '_safe_route_heavy',
+                    })
     except Exception as e:
-        logger.error(f"[CMD] SM routing error: {e}")
+        logger.error(f"[CMD] SM routing error for /{command} chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
     finally:
+        _heavy_in_flight.discard(chat_id)
         if task and not task.done():
             task.cancel()
 

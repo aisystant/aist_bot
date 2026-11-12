@@ -767,6 +767,7 @@ feed:
   digest_already_completed: "El resumen de hoy ya está completo."
   digest_completed_today: "El resumen de hoy ya está completo. ¡Hasta mañana!"
   digest_skipped: "Resumen omitido. ¡Mañana habrá uno nuevo!"
+  slow_generation: "⏳ El resumen tarda más de lo habitual. Lo enviaré en cuanto esté listo, no hace falta repetir /feed."
   paused_confirm: "⏸ El feed está en pausa: el resumen diario ya no llegará. Tus temas y progreso se conservan.\nPara reanudarlo, pulsa el botón de abajo o usa el menú del feed (/feed)."
   resumed_confirm: "▶️ El feed se ha reanudado: el resumen diario volverá a llegar según el horario."
   paused_notice: "⏸ El feed está en pausa: el resumen diario no llega. Aun así puedes leer ahora."
