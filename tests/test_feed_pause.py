@@ -127,7 +127,7 @@ async def test_resume_tap_confirms_and_offers_pause_again(db):
     await pause.handle_toggle(callback, make_intern(FeedStatus.PAUSED))
 
     assert callback.message.answer.await_args.args[0] == t("feed.resumed_confirm", "ru")
-    assert callbacks_of(callback.message.answer.await_args.kwargs["reply_markup"]) == [pause.PAUSE_CALLBACK]
+    assert callbacks_of(callback.message.answer.await_args.kwargs["reply_markup"]) == ["feed_get_digest"]
 
 
 @pytest.mark.asyncio
@@ -219,10 +219,11 @@ async def test_entering_feed_while_paused_shows_notice_and_writes_nothing():
          patch.object(FeedDigestState, "_show_digest", new=AsyncMock()) as show_digest:
         await state.enter(make_intern(FeedStatus.PAUSED))
 
-    notice = state.send.await_args_list[0]
+    assert state.send.await_count == 1  # only the notice
+    notice = state.send.await_args
     assert notice.args[1] == t("feed.paused_notice", "ru")
-    assert "reply_markup" not in notice.kwargs  # resume button lives under the digest
-    show_digest.assert_awaited_once()  # reading on demand still works while paused
+    assert callbacks_of(notice.kwargs["reply_markup"]) == [pause.RESUME_CALLBACK]
+    show_digest.assert_not_awaited()  # paused feed shows no digest (pilot decision 12.11)
     update_intern.assert_not_awaited()
 
 

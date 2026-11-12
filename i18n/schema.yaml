@@ -3676,8 +3676,8 @@ feed:
     en: "Digest skipped. A new one will be ready tomorrow!"
 
   paused_confirm:
-    ru: "⏸ Лента на паузе: ежедневный дайджест больше не придёт. Темы и прогресс сохранены.\nВернуть можно кнопкой ниже или в меню ленты (/feed)."
-    en: "⏸ The feed is paused: the daily digest will no longer arrive. Your topics and progress are kept.\nTo bring it back, tap the button below or use the feed menu (/feed)."
+    ru: "⏸ Лента на паузе: ежедневный дайджест больше не придёт. Темы и прогресс сохранены.\nВернуть можно кнопкой ниже или командой /feed."
+    en: "⏸ The feed is paused: the daily digest will no longer arrive. Your topics and progress are kept.\nTo bring it back, tap the button below or send /feed."
     description: "Confirmation after the reader pauses the feed"
 
   resumed_confirm:
@@ -3686,8 +3686,8 @@ feed:
     description: "Confirmation after the reader resumes a paused feed"
 
   paused_notice:
-    ru: "⏸ Лента на паузе: ежедневный дайджест не приходит. Читать можно и сейчас."
-    en: "⏸ The feed is paused: the daily digest does not arrive. You can still read now."
+    ru: "⏸ Лента на паузе: ежедневный дайджест не приходит. Чтобы снова читать дайджесты, нажмите «Возобновить ленту»."
+    en: "⏸ The feed is paused: the daily digest does not arrive. To read digests again, tap “Resume the feed”."
     description: "Shown on entering the feed while it is paused"
 
   pause_already_paused:
