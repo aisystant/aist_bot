@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 commands_router = Router(name="commands")
 
 
-_HEAVY_SOFT_TIMEOUT = 3.0   # "updating..." notice
+_HEAVY_SOFT_TIMEOUT = 6.0   # "updating..." notice; 3 s fired on a ready digest (WP-5 F76, 12.11)
 _HEAVY_HARD_TIMEOUT = 30.0  # "taking longer, will send when ready" notice; work goes on
 # Final cap: on-demand digest generation is itself bounded by 90 s (states/feed/digest.py).
 _HEAVY_FINAL_TIMEOUT = 120.0

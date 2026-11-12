@@ -53,7 +53,7 @@ async def test_soft_timeout_answers_immediately(mock_message, mock_state, mock_i
     background task (continuation через shield).
     """
     async def slow_coro():
-        await asyncio.sleep(4.0)
+        await asyncio.sleep(_HEAVY_SOFT_TIMEOUT + 1.0)
         return "done"
 
     start = asyncio.get_event_loop().time()
@@ -153,7 +153,7 @@ async def test_shield_allows_continuation(mock_message, mock_state, mock_intern)
     counter = {'n': 0}
 
     async def side_effect_coro():
-        await asyncio.sleep(4.0)
+        await asyncio.sleep(_HEAVY_SOFT_TIMEOUT + 1.0)
         counter['n'] += 1
         return "done"
 
