@@ -3289,6 +3289,11 @@ feed:
     ru: "⏳ Обновляю данные..."
     en: "⏳ Updating data..."
 
+  slow_generation:
+    ru: "⏳ Дайджест готовится дольше обычного. Пришлю, как только будет готов, повторять /feed не нужно."
+    en: "⏳ The digest is taking longer than usual. I will send it as soon as it is ready, no need to repeat /feed."
+    description: "Shown when on-demand digest generation passes 30 s (WP-5 F77)"
+
   suggested_topics:
     ru: "Предлагаемые темы"
     en: "Suggested Topics"

@@ -764,6 +764,7 @@ feed:
   digest_already_completed: "Le résumé d'aujourd'hui est déjà terminé."
   digest_completed_today: "Le résumé d'aujourd'hui est déjà terminé. À demain !"
   digest_skipped: "Résumé passé. Un nouveau sera prêt demain !"
+  slow_generation: "⏳ Le digest prend plus de temps que d'habitude. Je l'enverrai dès qu'il sera prêt, inutile de relancer /feed."
   fixation_saved: "Fixation enregistrée ! À demain."
   incomplete_digest: "Tu as un résumé non terminé. Écris une fixation pour continuer."
   no_active_week: "Pas de semaine active. Utilise /feed pour commencer."

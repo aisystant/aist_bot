@@ -764,6 +764,7 @@ feed:
   digest_already_completed: "今天的摘要已完成。"
   digest_completed_today: "今天的摘要已完成。明天见！"
   digest_skipped: "摘要已跳过。明天会有新的！"
+  slow_generation: "⏳ 摘要生成比平时慢。准备好后我会立即发送，无需重复 /feed。"
   fixation_saved: "感悟已保存！明天见。"
   incomplete_digest: "你有一个未完成的摘要。请写下感悟以继续。"
   no_active_week: "没有活跃的周。使用 /feed 开始。"
