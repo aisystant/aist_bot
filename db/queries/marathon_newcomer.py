@@ -660,13 +660,19 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
                  AND mq.sent_at::date = CURRENT_DATE
                  AND mq.sent_at <= NOW() - INTERVAL '30 minutes'
                  AND mp.status = 'active'
+                 -- Skip once the day's last reminder is journaled: the current
+                 -- key is marathon_practice_nudge:<chat>:<day>:150m (scheduler),
+                 -- marathon_practice:<chat>:<day> is the pre-queue key.
                  AND NOT EXISTS (
                    SELECT 1 FROM public.domain_event de
                    WHERE de.source = 'aist-bot'
                      AND de.event_type = 'notification_sent'
-                     AND de.external_id =
+                     AND de.external_id IN (
                        'notification-marathon_practice:' || mq.user_id::text
-                       || ':' || mq.day_number::text
+                         || ':' || mq.day_number::text,
+                       'notification-marathon_practice_nudge:' || mq.user_id::text
+                         || ':' || mq.day_number::text || ':150m'
+                     )
                  )
                  AND NOT EXISTS (
                    SELECT 1 FROM learning.marathon_state ms
