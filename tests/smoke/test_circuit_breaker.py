@@ -10,7 +10,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from handlers.commands import _safe_route_heavy, _HEAVY_SOFT_TIMEOUT, _HEAVY_HARD_TIMEOUT
+from handlers.commands import _safe_route_heavy, _HEAVY_SOFT_TIMEOUT
 
 
 @pytest.fixture
@@ -78,27 +78,55 @@ async def test_soft_timeout_answers_immediately(mock_message, mock_state, mock_i
     )
 
 
-@pytest.mark.asyncio
-async def test_hard_timeout_aborts_and_logs(mock_message, mock_state, mock_intern, monkeypatch):
-    """
-    P0: route_coro > hard_timeout → abort + error log.
-    Используем укороченные таймауты для скорости теста.
-    """
-    monkeypatch.setattr('handlers.commands._HEAVY_SOFT_TIMEOUT', 0.5)
-    monkeypatch.setattr('handlers.commands._HEAVY_HARD_TIMEOUT', 1.5)
+@pytest.fixture
+def short_timeouts(monkeypatch):
+    """Shortened soft / hard / final thresholds for fast tests."""
+    monkeypatch.setattr('handlers.commands._HEAVY_SOFT_TIMEOUT', 0.2)
+    monkeypatch.setattr('handlers.commands._HEAVY_HARD_TIMEOUT', 0.6)
+    monkeypatch.setattr('handlers.commands._HEAVY_FINAL_TIMEOUT', 1.5)
 
+
+@pytest.fixture
+def no_event_log():
+    with patch('db.queries.events.log_event', new=AsyncMock()) as log_event:
+        yield log_event
+
+
+@pytest.mark.asyncio
+async def test_slow_work_is_not_dropped(mock_message, mock_state, mock_intern, short_timeouts):
+    """
+    WP-5 F77: work passing the hard timeout is told to the reader and allowed to finish;
+    before F77 it was cancelled at the hard timeout and the reader got nothing.
+    """
+    finished = {'flag': False}
+
+    async def slow_coro():
+        await asyncio.sleep(1.0)  # between hard (0.6) and final (1.5)
+        finished['flag'] = True
+
+    await _safe_route_heavy(mock_message, mock_state, mock_intern, slow_coro(), 'feed')
+
+    texts = [c['text'] for c in mock_message.answer_calls]
+    assert texts == ['feed.updating', 'feed.slow_generation']
+    assert finished['flag'], "work past the hard timeout must not be cancelled"
+
+
+@pytest.mark.asyncio
+async def test_final_cap_reports_error(mock_message, mock_state, mock_intern, short_timeouts, no_event_log):
+    """
+    WP-5 F77: past the final cap the reader gets an explicit error, not silence.
+    """
     async def very_slow_coro():
         await asyncio.sleep(10.0)
-        return "done"
 
     with patch('handlers.commands.logger') as mock_logger:
         await _safe_route_heavy(mock_message, mock_state, mock_intern, very_slow_coro(), 'feed')
 
-        assert mock_logger.error.called
-        error_calls = [str(call) for call in mock_logger.error.call_args_list]
-        assert any('HARD TIMEOUT' in c for c in error_calls), (
-            f"Ожидался лог 'HARD TIMEOUT', получили: {error_calls}"
-        )
+    texts = [c['text'] for c in mock_message.answer_calls]
+    assert texts == ['feed.updating', 'feed.slow_generation', 'errors.generation_timeout']
+    error_calls = [str(call) for call in mock_logger.error.call_args_list]
+    assert any('HARD TIMEOUT' in c for c in error_calls), error_calls
+    assert no_event_log.await_args.args[1] == 'error_shown'
 
 
 @pytest.mark.asyncio
@@ -140,14 +168,10 @@ async def test_shield_allows_continuation(mock_message, mock_state, mock_intern)
 
 
 @pytest.mark.asyncio
-async def test_hard_timeout_cancels_background_task(mock_message, mock_state, mock_intern, monkeypatch):
+async def test_final_cap_cancels_task(mock_message, mock_state, mock_intern, short_timeouts, no_event_log):
     """
-    P0: При hard timeout background task должен быть отменён.
-    Используем укороченные таймауты для скорости теста.
+    P0 (kept by WP-5 F77): past the final cap the background task is cancelled.
     """
-    monkeypatch.setattr('handlers.commands._HEAVY_SOFT_TIMEOUT', 0.5)
-    monkeypatch.setattr('handlers.commands._HEAVY_HARD_TIMEOUT', 1.5)
-
     cancelled = {'flag': False}
 
     async def cancellable_coro():
@@ -163,5 +187,53 @@ async def test_hard_timeout_cancels_background_task(mock_message, mock_state, mo
     await asyncio.sleep(0.2)
 
     assert cancelled['flag'], (
-        "Background task не был отменён при hard timeout"
+        "Background task не был отменён при final timeout"
     )
+
+
+@pytest.mark.asyncio
+async def test_repeated_command_while_running_is_skipped(mock_state, mock_intern, short_timeouts):
+    """
+    WP-5 F77: a second /feed while the first is still building must not start a second build.
+    """
+    first, second = AsyncMock(), AsyncMock()
+    first.chat.id = second.chat.id = 4242
+    starts = {'n': 0}
+
+    async def slow_coro():
+        starts['n'] += 1
+        await asyncio.sleep(0.4)
+
+    running = asyncio.create_task(_safe_route_heavy(first, mock_state, mock_intern, slow_coro(), 'feed'))
+    await asyncio.sleep(0.05)
+    await _safe_route_heavy(second, mock_state, mock_intern, slow_coro(), 'feed')
+    await running
+
+    assert starts['n'] == 1
+    second.answer.assert_awaited_once_with('feed.slow_generation')
+
+
+@pytest.mark.asyncio
+async def test_error_after_soft_timeout_reaches_reader(mock_message, mock_state, mock_intern, short_timeouts):
+    """
+    WP-5 F77: an exception raised after the soft notice is reported, not lost.
+    """
+    async def failing_coro():
+        await asyncio.sleep(0.4)  # past soft (0.2), before hard (0.6)
+        raise RuntimeError("boom")
+
+    await _safe_route_heavy(mock_message, mock_state, mock_intern, failing_coro(), 'feed')
+
+    texts = [c['text'] for c in mock_message.answer_calls]
+    assert texts == ['feed.updating', 'errors.processing_error']
+
+
+@pytest.mark.asyncio
+async def test_chat_is_released_after_run(mock_message, mock_state, mock_intern):
+    async def fast_coro():
+        return None
+
+    await _safe_route_heavy(mock_message, mock_state, mock_intern, fast_coro(), 'feed')
+
+    from handlers.commands import _heavy_in_flight
+    assert mock_message.chat.id not in _heavy_in_flight
