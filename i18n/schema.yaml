@@ -826,6 +826,21 @@ buttons:
     en: "Get digest"
     max_length: 25
 
+  feed_pause:
+    ru: "⏸ Поставить ленту на паузу"
+    en: "⏸ Pause the feed"
+    max_length: 30
+
+  feed_resume:
+    ru: "▶️ Возобновить ленту"
+    en: "▶️ Resume the feed"
+    max_length: 30
+
+  feed_disable_digest:
+    ru: "⏸ Отключить дайджест"
+    en: "⏸ Turn off digest"
+    max_length: 30
+
   get_lesson:
     ru: "Получить занятие"
     en: "Get lesson"
@@ -3654,6 +3669,33 @@ feed:
   digest_skipped:
     ru: "Дайджест пропущен. Завтра будет новый!"
     en: "Digest skipped. A new one will be ready tomorrow!"
+
+  paused_confirm:
+    ru: "⏸ Лента на паузе: ежедневный дайджест больше не придёт. Темы и прогресс сохранены.\nВернуть можно кнопкой ниже или в меню ленты (/feed)."
+    en: "⏸ The feed is paused: the daily digest will no longer arrive. Your topics and progress are kept.\nTo bring it back, tap the button below or use the feed menu (/feed)."
+    description: "Confirmation after the reader pauses the feed"
+
+  resumed_confirm:
+    ru: "▶️ Лента возобновлена: ежедневный дайджест снова будет приходить по расписанию."
+    en: "▶️ The feed is resumed: the daily digest will arrive on schedule again."
+    description: "Confirmation after the reader resumes a paused feed"
+
+  paused_notice:
+    ru: "⏸ Лента на паузе: ежедневный дайджест не приходит. Читать можно и сейчас."
+    en: "⏸ The feed is paused: the daily digest does not arrive. You can still read now."
+    description: "Shown on entering the feed while it is paused"
+
+  pause_already_paused:
+    ru: "Лента уже на паузе"
+    en: "The feed is already paused"
+    max_length: 200
+    description: "Toast on a repeated pause tap"
+
+  pause_already_active:
+    ru: "Лента уже включена"
+    en: "The feed is already on"
+    max_length: 200
+    description: "Toast on a repeated resume tap"
 
   daily_digest_ready:
     ru: "Ваш ежедневный дайджест готов!"

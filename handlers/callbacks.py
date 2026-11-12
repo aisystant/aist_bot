@@ -14,6 +14,8 @@ from aiogram.fsm.context import FSMContext
 
 from db.queries import get_intern
 from i18n import t
+from states.feed.pause import PAUSE_CALLBACK, RESUME_CALLBACK
+from states.feed.pause import handle_toggle as handle_feed_toggle
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +359,11 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
     try:
         current_state = intern.get('current_state', '')
 
-        if data == "feed_get_digest":
+        if data in (PAUSE_CALLBACK, RESUME_CALLBACK):
+            # WP-5 F76: the toggle works from any state (digest notification, feed menus).
+            await handle_feed_toggle(callback, intern)
+
+        elif data == "feed_get_digest":
             await callback.answer()
             await callback.message.edit_reply_markup()
             await state.clear()
