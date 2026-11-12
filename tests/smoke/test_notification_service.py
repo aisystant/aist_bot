@@ -485,6 +485,10 @@ async def test_enqueue_rejects_oversize_callback_data():
 async def test_enqueue_persists_journal_fields(monkeypatch):
     conn = FakeConn(cap_count=0)
     _patch_pool(monkeypatch, conn)
+
+    async def _not_sent(key):
+        return False
+    monkeypatch.setattr(ns, "was_notification_sent", _not_sent)
     res = await ns.enqueue(
         123, ns.CLASS_CAPPED, {"text": "nudge", "format": "markdown"},
         dedup_key="k1", journal_key="nudge:123:2026-06-12:k1", journal_type="nudge",
@@ -493,3 +497,56 @@ async def test_enqueue_persists_journal_fields(monkeypatch):
     insert_args = conn.inserts[-1]
     assert "nudge:123:2026-06-12:k1" in insert_args   # journal_key дошёл до очереди
     assert "nudge" in insert_args                      # journal_type дошёл до очереди
+
+
+# ─────────────── журнал до очереди (WP-568 Ф16, шаг 1б) ───────────────
+
+@pytest.mark.asyncio
+async def test_enqueue_refuses_journaled_key_without_queue_row(monkeypatch):
+    # A sender polling every 10 min re-offers a key the journal already holds:
+    # no queue row may appear (12.11: one user got a suppressed row every tick).
+    conn = FakeConn(cap_count=0)
+    _patch_pool(monkeypatch, conn)
+
+    async def _sent(key):
+        return key == "marathon_practice_nudge:555:7:30m"
+    monkeypatch.setattr(ns, "was_notification_sent", _sent)
+
+    res = await ns.enqueue(555, ns.CLASS_CAPPED, {"text": "practice"},
+                           dedup_key="marathon_practice_nudge:555:7:30m",
+                           journal_key="marathon_practice_nudge:555:7:30m",
+                           journal_type="marathon_practice_nudge")
+    assert res == {"notification_id": None, "status": "suppressed", "reason": "already-sent"}
+    assert conn.inserts == []
+
+
+@pytest.mark.asyncio
+async def test_enqueue_queues_key_absent_from_journal(monkeypatch):
+    conn = FakeConn(cap_count=0)
+    _patch_pool(monkeypatch, conn)
+
+    async def _not_sent(key):
+        return False
+    monkeypatch.setattr(ns, "was_notification_sent", _not_sent)
+
+    res = await ns.enqueue(555, ns.CLASS_CAPPED, {"text": "practice"},
+                           journal_key="marathon_practice_nudge:555:7:150m",
+                           journal_type="marathon_practice_nudge")
+    assert res["status"] == "queued"
+    assert len(conn.inserts) == 1
+
+
+@pytest.mark.asyncio
+async def test_enqueue_journal_outage_still_queues(monkeypatch):
+    # Journal unreachable before the queue: the row goes in, the drain re-checks.
+    conn = FakeConn(cap_count=0)
+    _patch_pool(monkeypatch, conn)
+
+    async def _down(key):
+        raise ConnectionError("learning pool down")
+    monkeypatch.setattr(ns, "was_notification_sent", _down)
+
+    res = await ns.enqueue(555, ns.CLASS_CAPPED, {"text": "practice"},
+                           journal_key="k-outage", journal_type="nudge")
+    assert res["status"] == "queued"
+    assert len(conn.inserts) == 1
