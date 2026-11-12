@@ -221,7 +221,7 @@ async def test_entering_feed_while_paused_shows_notice_and_writes_nothing():
 
     notice = state.send.await_args_list[0]
     assert notice.args[1] == t("feed.paused_notice", "ru")
-    assert callbacks_of(notice.kwargs["reply_markup"]) == [pause.RESUME_CALLBACK]
+    assert "reply_markup" not in notice.kwargs  # resume button lives under the digest
     show_digest.assert_awaited_once()  # reading on demand still works while paused
     update_intern.assert_not_awaited()
 
@@ -305,3 +305,57 @@ def test_pause_toasts_do_not_override_existing_feed_texts():
     for lang in ("ru", "en", "es", "fr", "zh"):
         for key in ("feed.pause_already_paused", "feed.pause_already_active", "feed.paused_notice"):
             assert t(key, lang) != key, (lang, key)
+
+
+# =============================================================================
+# Under the digest itself: toggle button and a clean bold header
+# =============================================================================
+
+def make_digest_session(topics: list) -> dict:
+    return {
+        "id": 5, "day_number": 3,
+        "content": {
+            "topics_list": topics,
+            "topics_detail": [{"title": topics[0], "summary": "кратко", "detail": "подробно"}],
+            "depth_level": 3,
+        },
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, toggle", [(FeedStatus.ACTIVE, pause.PAUSE_CALLBACK), (FeedStatus.PAUSED, pause.RESUME_CALLBACK)])
+async def test_digest_message_has_toggle_button(status, toggle):
+    state = make_state()
+    state._user_data = {}
+
+    await state._show_digest(make_intern(status), make_digest_session(["Непрерывное развитие"]), {"id": 1})
+
+    keyboard = state.send.await_args_list[-1].kwargs["reply_markup"]
+    assert toggle in callbacks_of(keyboard)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("topics", [["Непрерывное развитие"], ["Роли", "Системное мышление"]])
+async def test_digest_header_has_no_stray_asterisks(topics):
+    state = make_state()
+    state._user_data = {}
+
+    await state._show_digest(make_intern(FeedStatus.ACTIVE), make_digest_session(topics), {"id": 1})
+
+    first_part = state.send.await_args_list[0].args[1]
+    header = first_part.splitlines()[0]
+    assert "*" not in header
+    assert f"<b>Дайджест: {', '.join(topics)}</b>" in header
+
+
+@pytest.mark.asyncio
+async def test_topics_of_week_screen_has_toggle_button():
+    state = make_state()
+    callback = make_callback("feed_whats_next")
+    week = {"id": 1, "accepted_topics": ["Роли"]}
+
+    with patch("states.feed.digest.get_current_feed_week", new=AsyncMock(return_value=week)):
+        await state.handle_callback(make_intern(FeedStatus.ACTIVE), callback)
+
+    keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
+    assert callbacks_of(keyboard) == ["feed_topics_menu", pause.PAUSE_CALLBACK]
