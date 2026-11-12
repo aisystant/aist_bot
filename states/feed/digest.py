@@ -160,10 +160,12 @@ class FeedDigestState(BaseState):
             await self.send(user, t('feed.select_topics_first', lang))
             return "change_topics"
 
-        # WP-5 F76: a paused reader may still read on demand; only remind about the pause
-        # (the resume button is under the digest). Nothing is written here.
+        # WP-5 F76: a paused feed shows no digest; reading starts again via the resume button
+        # (pilot decision 12.11). Nothing is written here.
         if self._get_feed_status(user) == FeedStatus.PAUSED:
-            await self.send(user, t('feed.paused_notice', lang))
+            await self.send(user, t('feed.paused_notice', lang),
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=toggle_row(FeedStatus.PAUSED, lang)))
+            return None
 
         # Continuous mode: re-activate completed weeks
         if week.get('status') == FeedWeekStatus.COMPLETED:

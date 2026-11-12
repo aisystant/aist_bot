@@ -69,7 +69,11 @@ async def handle_toggle(callback: CallbackQuery, intern: dict) -> None:
 
     # The tapped message keeps its keyboard (menus stay usable); a stale toggle there is a no-op.
     await callback.answer()
+    if pause:
+        rows = toggle_row(FeedStatus.PAUSED, lang)
+    else:
+        rows = [[InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")]]
     await callback.message.answer(
         t('feed.paused_confirm' if pause else 'feed.resumed_confirm', lang),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=toggle_row(target, lang)),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
