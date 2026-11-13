@@ -38,7 +38,15 @@ async def get_or_create_session(chat_id: int, command: str):
     Сессия продолжается, если с последнего запроса прошло меньше timeout.
     ended_at всегда означает последний запрос, поэтому duration не включает
     часы отсутствия пользователя и не требует поздней финализации.
+
+    Команды удаления данных сюда не попадают: список команд и session_start
+    хранят название действия рядом с номером человека.
     """
+    from core.erasure_trace import is_erasure_trace_command
+
+    if is_erasure_trace_command(command):
+        return
+
     pool = await get_health_pool()
     async with pool.acquire() as conn:
         # Последняя сессия может быть продолжена, если пользователь вернулся

@@ -83,6 +83,12 @@ def langfuse_trace(
     Вызывается из TracingMiddleware при начале обработки сообщения.
     Возвращает span object или None если Langfuse не настроен.
     """
+    from core.erasure_trace import OMITTED_USER_ID, is_erasure_trace_command
+
+    if is_erasure_trace_command(name):
+        user_id = OMITTED_USER_ID
+        session_id = str(OMITTED_USER_ID)
+
     lf = _get_langfuse()
     if not lf:
         return None
