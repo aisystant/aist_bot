@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from db.connection import get_learning_pool
@@ -24,6 +24,9 @@ CP_TTL_DAYS = 180
 STAGE_NAMES = {
     "ru": {1: "Случайный", 2: "Практикующий", 3: "Систематический", 4: "Дисциплинированный", 5: "Проактивный"},
     "en": {1: "Casual", 2: "Practicing", 3: "Systematic", 4: "Disciplined", 5: "Proactive"},
+    "es": {1: "Ocasional", 2: "Practicante", 3: "Sistemático", 4: "Disciplinado", 5: "Proactivo"},
+    "fr": {1: "Occasionnel", 2: "Pratiquant", 3: "Systématique", 4: "Discipliné", 5: "Proactif"},
+    "zh": {1: "随机", 2: "实践", 3: "系统", 4: "自律", 5: "主动"},
 }
 
 # Человекочитаемые имена слотов (bottleneck_slot). Единственный источник перевода

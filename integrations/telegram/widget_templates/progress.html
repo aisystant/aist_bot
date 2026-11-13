@@ -42,23 +42,23 @@ function cellStyle(m){
 function tile(v,l){return '<div class="tile"><b>'+v+'</b><span class="mut">'+l+'</span></div>'}
 function tab(n){T=n;draw()}
 function week(d,l){
- var c=d.c||"",m=d.m||"",n=Math.min(7,c.length),a=c.length-n,o=d.o||0,h='<div class="mut" style="margin-bottom:6px">'+l.wk+(d.h?' · '+d.h:'')+'</div>';
+ var q=d.q||"",n=q.length,o=d.o||0,a=(d.c||"").length-n,h='<div class="mut" style="margin-bottom:6px">'+l.wk+(d.h?' · '+d.h:'')+'</div>';
  if(!n)return h+'<div class="mut">'+l.nd+'</div>';
  h+='<div class="wk"><span></span>';
  for(var j=0;j<n;j++)h+='<span>'+l.d[(o+a+j)%7]+'</span>';
  h+='<span></span>';
  var other=0;
- for(var p=m?0:3;p<4;p++){
+ for(var p=d.m?0:3;p<4;p++){
   var row='',cnt=0;
-  for(j=a;j<a+n;j++){
-   var mk=m?parseInt(m[j],16)||0:0,on=(mk&(1<<p))||(p==3&&c[j]=="1"&&!mk);
+  for(j=0;j<n;j++){
+   var on=(parseInt(q[j],16)||0)&(1<<p);
    if(on){cnt++;if(p<3)other++}
    row+='<i'+(on?' style="background:'+G[p]+'"':'')+'></i>';
   }
   h+='<span class="k">'+l.g[p]+'</span>'+row+'<span>'+cnt+'</span>';
  }
  h+='</div>';
- if(!m)h+='<div class="mut row">'+l.na+'</div>';else if(!other)h+='<div class="mut row">'+l.nz+'</div>';
+ if(!d.m)h+='<div class="mut row">'+l.na+'</div>';else if(!other)h+='<div class="mut row">'+l.nz+'</div>';
  return h;
 }
 function growth(d,l){

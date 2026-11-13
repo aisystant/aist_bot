@@ -1670,6 +1670,42 @@ progress:
     ru: "Вы с нами с"
     en: "With us since"
 
+  week_places:
+    ru: "Последние 7 дней"
+    en: "Last 7 days"
+
+  place_club:
+    ru: "клуб"
+    en: "club"
+
+  place_bot:
+    ru: "бот"
+    en: "bot"
+
+  places_unavailable:
+    ru: "недоступны"
+    en: "unavailable"
+
+  stage_line:
+    ru: "Ступень"
+    en: "Stage"
+
+  assessed_on:
+    ru: "оценка от"
+    en: "assessed"
+
+  no_stage:
+    ru: "Ступень: диагностика не пройдена или устарела — /diagnose"
+    en: "Stage: no valid diagnostic yet — /diagnose"
+
+  earned_total:
+    ru: "Всего баллов"
+    en: "Total points"
+
+  bonuses:
+    ru: "Бонусы"
+    en: "Bonuses"
+
   # Кнопки секций
   sec_calendar:
     ru: "Календарь"
