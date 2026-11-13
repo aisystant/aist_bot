@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 MANDATORY_SLOTS = ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]  # WP-370: align with PD.FORM.089 v5.0 (17 мая 2026) — cp.iwe → informational
 CP_TTL_DAYS = 180
 
+# Stage names by language: single source for /progress, /diagnose and the progress widget.
+STAGE_NAMES = {
+    "ru": {1: "Случайный", 2: "Практикующий", 3: "Систематический", 4: "Дисциплинированный", 5: "Проактивный"},
+    "en": {1: "Casual", 2: "Practicing", 3: "Systematic", 4: "Disciplined", 5: "Proactive"},
+}
+
 # Человекочитаемые имена слотов (bottleneck_slot). Единственный источник перевода
 # cp.* → текст для пилота — используется handlers/diagnose.py и core/onboarder/x3.py,
 # не дублировать словарь в UI-коде.
