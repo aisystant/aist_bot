@@ -22,6 +22,7 @@ from config.settings import (
     ALLOWED_TESTERS,
     MAINTENANCE_REDIRECT_BOT,
 )
+from core.erasure_trace import OMITTED_USER_ID, is_erasure_trace_command
 from core.tracing import start_trace, finish_trace
 
 logger = logging.getLogger(__name__)
@@ -175,10 +176,18 @@ class LoggingMiddleware(BaseMiddleware):
             current_state = data.get('raw_state')
             # Security: НЕ логируем текст сообщения (PII, пароли, личные данные)
             msg_type = "command" if (event.text and event.text.startswith("/")) else "text" if event.text else "media"
-            logger.info(f"[MIDDLEWARE] Получено сообщение: chat_id={event.chat.id}, "
-                       f"user_id={event.from_user.id if event.from_user else None}, "
-                       f"type={msg_type}, "
-                       f"state={current_state}")
+            command_token = event.text.split()[0] if event.text and event.text.startswith("/") else ""
+            # В личке chat_id совпадает с номером человека. Для удаления не пишем ни то, ни другое.
+            if is_erasure_trace_command(command_token):
+                logger.info(
+                    f"[MIDDLEWARE] Получено сообщение: user_id=omitted, "
+                    f"type={msg_type}, state={current_state}"
+                )
+            else:
+                logger.info(f"[MIDDLEWARE] Получено сообщение: chat_id={event.chat.id}, "
+                           f"user_id={event.from_user.id if event.from_user else None}, "
+                           f"type={msg_type}, "
+                           f"state={current_state}")
 
             # Typing indicator — fire-and-forget, не блокируем обработку запроса
             async def _send_typing():
@@ -281,9 +290,12 @@ class TracingMiddleware(BaseMiddleware):
         # data['raw_state'] — aiogram кэширует FSM state до middleware; избегаем второго get_state()
         sm_state = data.get('raw_state') or "unknown"
 
+        # Команды удаления пишутся без номера. Отметка активности ниже остаётся.
+        traced_user_id = OMITTED_USER_ID if is_erasure_trace_command(command) else user_id
+
         # Создаём trace (Neon DB)
         trace = start_trace(
-            user_id=user_id,
+            user_id=traced_user_id,
             command=command,
             state=sm_state or "unknown",
         )
@@ -291,7 +303,7 @@ class TracingMiddleware(BaseMiddleware):
         # Langfuse trace (dual-write, graceful)
         from core.langfuse_client import langfuse_trace, langfuse_end_trace
         langfuse_trace(
-            user_id=user_id,
+            user_id=traced_user_id,
             name=command,
             trace_id=trace.trace_id,
             metadata={"state": sm_state or "unknown"},
@@ -306,16 +318,16 @@ class TracingMiddleware(BaseMiddleware):
             except Exception as e:
                 logger.warning(f"[TracingMiddleware] Failed to finish trace: {e}")
             langfuse_end_trace()
-            # Session tracking (fire-and-forget, не блокирует запрос)
-            if user_id:
+            # Сессия хранит список команд рядом с номером. Для удаления список
+            # не пополняем и session_start с этой командой не пишем.
+            # Отметка «был активен сегодня» названия команды не содержит.
+            if user_id and not is_erasure_trace_command(command):
                 try:
                     from db.queries.sessions import get_or_create_session
                     asyncio.create_task(get_or_create_session(user_id, command))
                 except Exception:
                     pass
-                # DAU fix (WP-7): touch_last_active_date обновляет last_active_date
-                # для ЛЮБОГО взаимодействия. record_active_day теперь проверяет
-                # activity_log (не last_active_date) — конфликт устранён.
+            if user_id:
                 try:
                     from db.queries.activity import touch_last_active_date
                     asyncio.create_task(touch_last_active_date(user_id))
