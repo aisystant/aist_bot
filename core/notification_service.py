@@ -79,11 +79,13 @@ class ClassPolicy:
     opt_out: bool              # применять ли hard-gate предпочтений
 
 
-# The delivery day of a queue row: the daily cap and the suppression audit
-# (_record_suppressed) must share one boundary, or a repeat would resolve to a
-# row the cap no longer counts. {tz} is the placeholder of DELIVERY_TZ.
-SAME_DELIVERY_DAY_SQL = (
-    "(created_at AT TIME ZONE 'UTC' AT TIME ZONE {tz})::date = (NOW() AT TIME ZONE {tz})::date"
+# The delivery day of a queue row: the daily cap (here and in nudge_delivery)
+# and the suppression audit (_record_suppressed) must share one boundary, or a
+# repeat would resolve to a row the cap no longer counts. The queries stay
+# static strings (no SQL assembled at runtime); a smoke test checks that every
+# one of them carries this boundary, with $N standing for DELIVERY_TZ.
+DELIVERY_DAY_BOUNDARY = (
+    "(created_at AT TIME ZONE 'UTC' AT TIME ZONE $N)::date = (NOW() AT TIME ZONE $N)::date"
 )
 
 # Queue rows of user reminders (WP-568 F16 step 1b): the drain writes the
@@ -205,9 +207,9 @@ async def enqueue(
 
             if policy.daily_cap is not None:
                 used = await conn.fetchval(
-                    f"""SELECT count(*) FROM development.notification_queue
+                    """SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = $2
-                         AND {SAME_DELIVERY_DAY_SQL.format(tz='$3')}
+                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $3)::date = (NOW() AT TIME ZONE $3)::date
                          AND status IN ('queued', 'sending', 'sent', 'unknown')""",
                     chat_id, klass, DELIVERY_TZ,
                 )
@@ -566,10 +568,10 @@ async def _record_suppressed(
     """
     if dedup_key:
         existing = await conn.fetchval(
-            f"""SELECT id FROM development.notification_queue
+            """SELECT id FROM development.notification_queue
                WHERE chat_id = $1 AND notification_class = $2 AND dedup_key = $3
                  AND status = 'suppressed' AND reason = $4
-                 AND {SAME_DELIVERY_DAY_SQL.format(tz='$5')}
+                 AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $5)::date = (NOW() AT TIME ZONE $5)::date
                ORDER BY id LIMIT 1""",
             chat_id, klass, dedup_key, reason, DELIVERY_TZ,
         )
