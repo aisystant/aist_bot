@@ -17,11 +17,21 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 .cal span.k{text-align:left}
 .lg{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:8px;font-size:11px;color:var(--mut)}
 .lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs button{flex:1}
+.wk{display:grid;grid-template-columns:44px repeat(7,1fr) 22px;gap:3px;align-items:center}
+.wk i{display:block;height:16px;border-radius:3px;background:rgba(128,128,128,.2)}
+.wk span{font-size:10px;text-align:center;color:var(--mut)}
+.wk span.k{text-align:left;font-size:11px;color:var(--fg)}
+.row{margin:6px 0}
 </style>
 <div class="w" id="root"></div>
 <script>
-var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активные действия по неделям",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],g:["IWE","клуб","LMS","бот"]},
-en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Active days by week",d:["Mo","Tu","We","Th","Fr","Sa","Su"],g:["IWE","club","LMS","bot"]}};
+var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активные действия по неделям",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],g:["IWE","клуб","LMS","бот"],
+ tb:["Календарь","7 дней","Рост"],wk:"Последние 7 дней по местам",na:"Другие места недоступны",nz:"В других местах активности нет",nd:"Данных пока нет",st:"Ступень",at:"оценка от",ns:"Диагностика не пройдена или устарела — /diagnose",e:"всего баллов"},
+en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Active days by week",d:["Mo","Tu","We","Th","Fr","Sa","Su"],g:["IWE","club","LMS","bot"],
+ tb:["Calendar","7 days","Growth"],wk:"Last 7 days by place",na:"Other places unavailable",nz:"No activity in other places",nd:"No data yet",st:"Stage",at:"assessed",ns:"No valid diagnostic yet — /diagnose",e:"total points"}};
+var T=0;
 var G=["#2b8a3e","#1971c2","#e8590c","#9c36b5"];
 function cellStyle(m){
  var c=[],i;for(i=0;i<4;i++)if(m&(1<<i))c.push(G[i]);
@@ -30,10 +40,38 @@ function cellStyle(m){
  return 'background:linear-gradient(90deg,'+st.join(',')+')';
 }
 function tile(v,l){return '<div class="tile"><b>'+v+'</b><span class="mut">'+l+'</span></div>'}
+function tab(n){T=n;draw()}
+function week(d,l){
+ var q=d.q||"",n=q.length,o=d.o||0,a=(d.c||"").length-n,h='<div class="mut" style="margin-bottom:6px">'+l.wk+(d.h?' · '+d.h:'')+'</div>';
+ if(!n)return h+'<div class="mut">'+l.nd+'</div>';
+ h+='<div class="wk"><span></span>';
+ for(var j=0;j<n;j++)h+='<span>'+l.d[(o+a+j)%7]+'</span>';
+ h+='<span></span>';
+ var other=0;
+ for(var p=d.m?0:3;p<4;p++){
+  var row='',cnt=0;
+  for(j=0;j<n;j++){
+   var on=(parseInt(q[j],16)||0)&(1<<p);
+   if(on){cnt++;if(p<3)other++}
+   row+='<i'+(on?' style="background:'+G[p]+'"':'')+'></i>';
+  }
+  h+='<span class="k">'+l.g[p]+'</span>'+row+'<span>'+cnt+'</span>';
+ }
+ h+='</div>';
+ if(!d.m)h+='<div class="mut row">'+l.na+'</div>';else if(!other)h+='<div class="mut row">'+l.nz+'</div>';
+ return h;
+}
+function growth(d,l){
+ var h='<div class="row">'+(d.g?'<b>'+l.st+' '+d.g+' — '+d.n+'</b>'+(d.d?' <span class="mut">· '+l.at+' '+d.d+'</span>':''):'<span class="mut">'+l.ns+'</span>')+'</div>';
+ if(d.e!=null)h+='<div class="tiles">'+tile(d.e,l.e)+'</div>';
+ return h;
+}
 function draw(){
  var d={};try{d=JSON.parse(TelegramWidget.chatData||"{}")}catch(e){}
  var l=L[d.l]||L.ru,h='';
  h+='<div class="hero"><span class="big">'+(d.s||0)+'</span><span class="mut">'+l.s+' · '+l.r+' '+(d.r||0)+'</span></div>';
+ h+='<div class="tabs">';for(var b=0;b<3;b++)h+='<button onclick="tab('+b+')"'+(b==T?' disabled':'')+'>'+l.tb[b]+'</button>';h+='</div>';
+ if(T==1){h+=week(d,l)}else if(T==2){h+=growth(d,l)}else{
  h+='<div class="tiles">'+tile((d.w||0)+'/7',l.w)+tile(d.t||0,l.t)+(d.p==null?'':tile(d.p,l.p))+'</div>';
  h+='<div class="mut" style="margin-bottom:6px">'+l.c+'</div><div class="cal"><span></span>';
  for(var i=0;i<7;i++)h+='<span>'+l.d[i]+'</span>';
@@ -44,6 +82,7 @@ function draw(){
  }
  h+='</div>';
  if(m){h+='<div class="lg">';for(i=0;i<4;i++)h+='<span><i style="background:'+G[i]+'"></i>'+l.g[i]+'</span>';h+='</div>'}
+ }
  document.getElementById("root").innerHTML=h;
 }
 draw();TelegramWidget.onEvent("chatDataChanged",draw);

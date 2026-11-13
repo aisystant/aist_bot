@@ -46,6 +46,23 @@ async def get_points_balance(account_id: Optional[str]) -> Optional[Decimal]:
         return None
 
 
+async def get_point_totals(account_id: Optional[str]) -> Optional[Dict[str, Decimal]]:
+    """Balance and earned-total from one ``point_balances`` row (one query, WP-417 Ф8).
+
+    Returns ``{"points": ..., "earned_total": ...}``; None when the account is not
+    linked or has no row. Errors propagate: the caller decides what to show.
+    """
+    if not account_id:
+        return None
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT points, earned_total FROM public.point_balances WHERE account_id = $1",
+            account_id,
+        )
+    return {"points": row["points"], "earned_total": row["earned_total"]} if row else None
+
+
 async def get_recent_applied_events(
     account_id: Optional[str],
     limit: int = 10,
