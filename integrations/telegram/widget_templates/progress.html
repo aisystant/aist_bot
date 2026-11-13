@@ -70,7 +70,7 @@ function draw(){
  var d={};try{d=JSON.parse(TelegramWidget.chatData||"{}")}catch(e){}
  var l=L[d.l]||L.ru,h='';
  h+='<div class="hero"><span class="big">'+(d.s||0)+'</span><span class="mut">'+l.s+' · '+l.r+' '+(d.r||0)+'</span></div>';
- h+='<div class="tabs">';for(var b=0;b<3;b++)h+='<button data-t="'+b+'"'+(b==T?' disabled':'')+'>'+l.tb[b]+'</button>';h+='</div>';
+ h+='<div class="tabs">';for(var b=0;b<3;b++)h+='<button onclick="tab('+b+')"'+(b==T?' disabled':'')+'>'+l.tb[b]+'</button>';h+='</div>';
  if(T==1){h+=week(d,l)}else if(T==2){h+=growth(d,l)}else{
  h+='<div class="tiles">'+tile((d.w||0)+'/7',l.w)+tile(d.t||0,l.t)+(d.p==null?'':tile(d.p,l.p))+'</div>';
  h+='<div class="mut" style="margin-bottom:6px">'+l.c+'</div><div class="cal"><span></span>';
@@ -85,6 +85,5 @@ function draw(){
  }
  document.getElementById("root").innerHTML=h;
 }
-document.getElementById("root").addEventListener("click",function(e){var b=e.target.closest("button[data-t]");if(b)tab(+b.getAttribute("data-t"))});
 draw();TelegramWidget.onEvent("chatDataChanged",draw);
 </script>

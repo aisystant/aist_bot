@@ -212,6 +212,40 @@ async def test_fetch_points_reads_balance_and_earned_total_in_one_query(monkeypa
     assert calls == ["acc"]
 
 
+async def test_get_point_totals_reads_both_fields_from_one_row(monkeypatch):
+    from db.queries import rewards
+
+    queries = []
+
+    class Conn:
+        async def fetchrow(self, sql, account_id):
+            queries.append((sql, account_id))
+            return {"points": Decimal("40"), "earned_total": Decimal("90")} if account_id == "acc" else None
+
+    class Pool:
+        def acquire(self):
+            conn = Conn()
+
+            class Ctx:
+                async def __aenter__(self):
+                    return conn
+
+                async def __aexit__(self, *exc):
+                    return False
+
+            return Ctx()
+
+    async def pool():
+        return Pool()
+
+    monkeypatch.setattr(rewards, "get_rewards_pool", pool)
+
+    assert await rewards.get_point_totals("acc") == {"points": Decimal("40"), "earned_total": Decimal("90")}
+    assert await rewards.get_point_totals("nobody") is None
+    assert await rewards.get_point_totals(None) is None
+    assert len(queries) == 2 and "points, earned_total" in queries[0][0]
+
+
 async def test_fetch_points_degrades_to_empty_on_error(monkeypatch):
     from db.queries import rewards
     from states.utilities.progress import ProgressState
@@ -232,13 +266,14 @@ const script = html.split("<script>")[1].split("</script>")[0];
 const cases = JSON.parse(fs.readFileSync(0, "utf8"));
 const out = [];
 for (const c of cases) {
-  const root = {innerHTML: "", addEventListener: (n, f) => { root[n] = f; }};
+  const root = {innerHTML: ""};
   const handlers = {};
   global.document = {getElementById: () => root};
   global.TelegramWidget = {chatData: c, onEvent: (n, f) => { handlers[n] = f; }};
   (0, eval)(script);
   const views = [root.innerHTML];
-  const press = (t) => root.click({target: {closest: (sel) => sel === "button[data-t]" ? {getAttribute: () => String(t)} : null}});
+  // press = run the inline onclick of the rendered button, as the widget sandbox does
+  const press = (t) => { const m = root.innerHTML.match(new RegExp('<button onclick="(tab\\(' + t + '\\))"')); if (!m) throw new Error("no tab button " + t); (0, eval)(m[1]); };
   for (const t of [1, 2]) { press(t); views.push(root.innerHTML); }
   handlers.chatDataChanged();
   views.push(root.innerHTML);
@@ -265,8 +300,8 @@ def _cells(view: str, place: str) -> list[bool]:
 
 
 def test_template_tabs_render_for_every_data_shape():
-    full = {"s": 5, "r": 9, "w": 3, "t": 40, "c": "0" * 22 + "1101111", "o": 2, "k": [], "l": "ru",
-            "h": "07.11–13.11", "m": "0" * 22 + "3100208", "g": 4, "n": "Дисциплинированный", "d": "02.11", "e": 250}
+    full = {"s": 5, "r": 9, "w": 3, "t": 40, "c": "0" * 22 + "1111111", "o": 2, "k": [], "l": "ru",
+            "h": "07.11–13.11", "m": "0" * 22 + "3140208", "g": 4, "n": "Дисциплинированный", "d": "02.11", "e": 250}
     cases = [
         full,
         {k: v for k, v in full.items() if k != "m"},                  # gateway unavailable: bot row only
@@ -282,15 +317,18 @@ def test_template_tabs_render_for_every_data_shape():
     calendar, week, growth, redrawn = views[0]
     assert "Активные действия по неделям" in calendar and "Последние 7 дней по местам · 07.11–13.11" in week
     assert redrawn == growth  # chatDataChanged keeps the selected tab
-    # last 7 masks "3100208": IWE days 0, 1; club days 0, 4; bot day 6; days 3 and 5 are bot-only (c=1, mask=0)
+    # last 7 masks "3140208": IWE days 0, 1; LMS day 2; club days 0, 4; bot day 6; days 3 and 5 are bot-only (c=1, mask=0)
     assert _cells(week, "IWE") == [True, True, False, False, False, False, False]
     assert _cells(week, "клуб") == [True, False, False, False, True, False, False]
     assert _cells(week, "бот") == [False, False, False, True, False, True, True]
+    assert _cells(week, "LMS") == [False, False, True, False, False, False, False]
+    # 29-day calendar starting on Wednesday (o=2): the last 7 days run Thursday..Wednesday
+    assert "".join(f"<span>{d}</span>" for d in ["Чт", "Пт", "Сб", "Вс", "Пн", "Вт", "Ср"]) in week
     assert "Ступень 4 — Дисциплинированный" in growth and "оценка от 02.11" in growth and "250" in growth
 
     no_gateway = views[1][1]
     assert "Другие места недоступны" in no_gateway and '<span class="k">IWE</span>' not in no_gateway
-    assert _cells(no_gateway, "бот") == [True, True, False, True, True, True, True]
+    assert _cells(no_gateway, "бот") == [True] * 7
     assert "В других местах активности нет" in views[2][1]
     assert "No data yet" in views[3][1] and "No valid diagnostic yet" in views[3][2]
     assert _cells(views[4][1], "бот") == [True] and "<span>Пн</span>" in views[4][1]
