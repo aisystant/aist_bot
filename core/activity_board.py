@@ -17,11 +17,21 @@ CHANNEL_BITS: dict[str, int] = {"iwe": 1, "club": 2, "lms": 4, "bot": 8}
 
 
 def day_masks(days: list[dict]) -> dict[str, int]:
-    """ISO date -> bit mask of places active that day. Unknown places ('other') never count."""
+    """ISO date -> bit mask of places active that day. Unknown places ('other') never count.
+
+    Malformed rows (not a dict, no day, non-numeric events) are skipped, so one bad row from
+    the server cannot turn /progress into an error screen.
+    """
     masks: dict[str, int] = {}
     for row in days:
+        if not isinstance(row, dict) or not isinstance(row.get("day"), str):
+            continue
         bit = CHANNEL_BITS.get(row.get("channel"))
-        if bit and int(row.get("events") or 0) > 0:
+        try:
+            events = int(row.get("events") or 0)
+        except (TypeError, ValueError):
+            continue
+        if bit and events > 0:
             masks[row["day"]] = masks.get(row["day"], 0) | bit
     return masks
 
