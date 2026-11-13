@@ -28,7 +28,7 @@ from config import MARATHON_DAYS, Mode
 from core.activity_board import apply_ecosystem, apply_totals, last_7_days
 from db.queries.cp_assessment import STAGE_NAMES
 from i18n import t
-from integrations.telegram.widgets import stage_fields
+from integrations.telegram.widgets import growth_fields
 from states.base import BaseState
 
 logger = logging.getLogger(__name__)
@@ -61,17 +61,19 @@ def overview_week_line(calendar: list[dict], lang: str) -> str | None:
 
 
 def overview_growth_line(cache: dict, lang: str) -> str:
-    """Text-card line for growth: stage of the latest valid diagnostic and total points earned."""
-    stage = stage_fields(cache.get('cp_profile'), lang)
-    if stage:
-        line = f"📈 {t('progress.stage_line', lang)} {stage['g']} — {stage['n']}"
-        if 'd' in stage:
-            line += f" ({t('progress.assessed_on', lang)} {stage['d']})"
+    """Text-card lines for growth: qualification (Работник+) or diagnostic stage, then total points."""
+    growth = growth_fields(cache, lang)
+    if 'f' in growth:
+        line = f"🎓 {t('progress.qualification', lang)}: {growth['f']}"
+    elif growth:
+        line = f"📈 {t('progress.stage_line', lang)} {growth['g']} — {growth['n']}"
+        if 'd' in growth:
+            line += f" ({t('progress.assessed_on', lang)} {growth['d']})"
     else:
         line = f"📈 {t('progress.no_stage', lang)}"
     earned = whole_number(cache.get('earned_total'))
     if earned is not None:
-        line += f" · {t('progress.earned_total', lang)}: {earned}"
+        line += f"\n🏅 {t('progress.earned_total', lang)}: {earned}"
     return line
 
 class ProgressState(BaseState):
@@ -175,6 +177,22 @@ class ProgressState(BaseState):
             logger.warning(f"[Progress] activity totals failed for chat {chat_id}: {e!r}")
             return None
 
+    async def _fetch_degree(self, chat_id: int, account_id: Optional[str]) -> Optional[dict]:
+        """Current qualification from the twin (WP-417 Ф8: stage only inside «Ученик»).
+
+        None without a linked account (no gateway call), when the twin has none, or when the
+        gateway is slow or down; the growth line then shows the diagnostic stage.
+        """
+        if not account_id:
+            return None
+        from clients.gateway_mcp import gateway_mcp
+
+        try:
+            return await asyncio.wait_for(gateway_mcp.dt_read_degree(chat_id), OPTIONAL_GATEWAY_READ_SECONDS)
+        except Exception as e:
+            logger.warning(f"[Progress] qualification read failed for chat {chat_id}: {e!r}")
+            return None
+
     async def _prefetch(self, chat_id: int) -> dict:
         """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
         from core.topics import TOPICS, get_display_day, get_marathon_day
@@ -205,6 +223,7 @@ class ProgressState(BaseState):
             point_totals,
             ecosystem_days,
             activity_totals,
+            degree,
         ) = await asyncio.gather(
             get_activity_stats(chat_id),
             get_activity_calendar(chat_id, weeks=4),
@@ -216,6 +235,7 @@ class ProgressState(BaseState):
             self._fetch_points(intern.get('dt_user_id')),
             self._fetch_ecosystem_days(chat_id, intern.get('dt_user_id')),
             self._fetch_activity_totals(chat_id, intern.get('dt_user_id')),
+            self._fetch_degree(chat_id, intern.get('dt_user_id')),
             return_exceptions=True,
         )
 
@@ -391,6 +411,8 @@ class ProgressState(BaseState):
             'last_assessment': last_assessment,
             # CP-профиль (WP-318 Ф10)
             'cp_profile': cp_profile,
+            # Qualification from the twin; a stage is shown only below «Работник» (WP-417 Ф8)
+            'degree': degree if isinstance(degree, dict) else None,
             # GitHub
             'github': {
                 'connected': github is not None,

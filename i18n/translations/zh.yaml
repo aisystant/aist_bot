@@ -340,6 +340,7 @@ progress:
   place_bot: "机器人"
   places_unavailable: "不可用"
   stage_line: "阶段"
+  qualification: "资格"
   assessed_on: "评估于"
   no_stage: "阶段：暂无有效诊断 — /diagnose"
   earned_total: "总积分"
