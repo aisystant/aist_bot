@@ -23,14 +23,14 @@ from core.scheduler import send_reminder  # noqa: E402
 @pytest.mark.asyncio
 async def test_reminder_suppressed_for_newcomer_marathon():
     """Пользователь на новом движке → legacy-напоминание погашено до любой отправки."""
-    bot = AsyncMock()
     with patch("core.scheduler.get_intern", new=AsyncMock(return_value={"language": "ru"})), \
          patch("core.scheduler.get_topics_today") as mock_topics, \
+         patch("core.scheduler._enqueue_reminder", new=AsyncMock()) as mock_enqueue, \
          patch("db.queries.marathon_newcomer.is_on_newcomer_marathon",
                new=AsyncMock(return_value=True)):
-        await send_reminder(12345, "+1h", bot)
+        assert await send_reminder(12345, "+1h") is None
 
-    bot.send_message.assert_not_called()
+    mock_enqueue.assert_not_called()
     # Гейт стоит ДО проверки topics_today — короткое замыкание.
     mock_topics.assert_not_called()
 
@@ -38,13 +38,13 @@ async def test_reminder_suppressed_for_newcomer_marathon():
 @pytest.mark.asyncio
 async def test_reminder_flows_through_for_legacy_user():
     """Legacy-пользователь (нет строки в marathon_progress) проходит гейт дальше."""
-    bot = AsyncMock()
     with patch("core.scheduler.get_intern", new=AsyncMock(return_value={"language": "ru"})), \
          patch("core.scheduler.get_topics_today", return_value=1) as mock_topics, \
+         patch("core.scheduler._enqueue_reminder", new=AsyncMock()) as mock_enqueue, \
          patch("db.queries.marathon_newcomer.is_on_newcomer_marathon",
                new=AsyncMock(return_value=False)) as mock_gate:
-        await send_reminder(12345, "+1h", bot)
+        assert await send_reminder(12345, "+1h") is None
 
     mock_gate.assert_awaited_once()
     mock_topics.assert_called_once()       # legacy-пользователь прошёл гейт
-    bot.send_message.assert_not_called()   # но остановлен на «topics_today > 0»
+    mock_enqueue.assert_not_called()       # но остановлен на «topics_today > 0»

@@ -29,7 +29,7 @@ from enum import Enum
 from typing import Optional
 
 from db.connection import get_pool
-from core.notification_service import DELIVERY_TZ, delivery_lock_key
+from core.notification_service import SAME_DELIVERY_DAY_SQL, DELIVERY_TZ, delivery_lock_key
 from db.queries.notifications import fetch_recent_nudges_by_type
 
 logger = logging.getLogger(__name__)
@@ -189,10 +189,9 @@ async def _try_enqueue_one(user_id: int, candidate: NudgeCandidate) -> EnqueueRe
 
             if config.class_cap == ClassCap.CLASS_CAPPED:
                 used = await conn.fetchval(
-                    """SELECT count(*) FROM development.notification_queue
+                    f"""SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = 'capped'
-                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date
-                             = (NOW() AT TIME ZONE $2)::date
+                         AND {SAME_DELIVERY_DAY_SQL.format(tz='$2')}
                          AND status IN ('queued', 'sending', 'sent', 'unknown')""",
                     user_id, DELIVERY_TZ,
                 )

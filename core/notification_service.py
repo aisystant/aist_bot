@@ -79,6 +79,18 @@ class ClassPolicy:
     opt_out: bool              # применять ли hard-gate предпочтений
 
 
+# The delivery day of a queue row: the daily cap and the suppression audit
+# (_record_suppressed) must share one boundary, or a repeat would resolve to a
+# row the cap no longer counts. {tz} is the placeholder of DELIVERY_TZ.
+SAME_DELIVERY_DAY_SQL = (
+    "(created_at AT TIME ZONE 'UTC' AT TIME ZONE {tz})::date = (NOW() AT TIME ZONE {tz})::date"
+)
+
+# Queue rows of user reminders (WP-568 F16 step 1b): the drain writes the
+# reminder_delivered event only after Telegram accepted the message.
+REMINDER_JOURNAL_TYPE = "reminder"
+
+
 # daily_cap у capped = 2/день СУММАРНО по классу (гарантия, которую один отправитель дать не может).
 CLASS_POLICY: dict[str, ClassPolicy] = {
     CLASS_CRITICAL:      ClassPolicy(daily_cap=None, priority=1, dedup_hours=24, channel="user", opt_out=False),
@@ -193,10 +205,9 @@ async def enqueue(
 
             if policy.daily_cap is not None:
                 used = await conn.fetchval(
-                    """SELECT count(*) FROM development.notification_queue
+                    f"""SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = $2
-                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $3)::date
-                             = (NOW() AT TIME ZONE $3)::date
+                         AND {SAME_DELIVERY_DAY_SQL.format(tz='$3')}
                          AND status IN ('queued', 'sending', 'sent', 'unknown')""",
                     chat_id, klass, DELIVERY_TZ,
                 )
@@ -383,7 +394,24 @@ async def _deliver_row_unguarded(conn, row, deliver_fn) -> str:
         raise _RowAfterSendError() from e
     await _journal_sent(row, klass, journal_key)
     await _settle_receipt(conn, queue_id)
+    if row["journal_type"] == REMINDER_JOURNAL_TYPE:
+        await _log_reminder_delivered(chat_id, content_spec)
     return "sent"
+
+
+async def _log_reminder_delivered(chat_id: int, content_spec: dict) -> None:
+    """Keep the reminder_delivered event meaning «reached Telegram».
+
+    Its readers (activity stats) count deliveries; the sender only knows that
+    the reminder was queued. The event fields travel in content_spec["meta"].
+    A failure here does not undo the delivery: the row is already 'sent'.
+    """
+    from db.queries.events import log_event
+
+    try:
+        await log_event(chat_id, "reminder_delivered", content_spec.get("meta") or {})
+    except Exception as e:
+        logger.error("[Delivery] reminder_delivered event failed chat=%s: %s", chat_id, e)
 
 
 async def _retry_or_give_up(conn, row, error: Exception) -> str:
@@ -495,6 +523,23 @@ async def _is_opted_out(conn, chat_id: int, klass: str) -> bool:
     return False
 
 
+async def was_queue_row_sent(dedup_key: str) -> bool:
+    """True if a queue row with this key was ever delivered (no time window).
+
+    For senders whose key is unique per message (a reminder id or a date): the
+    journal may miss a delivery when its write failed after the send, and the
+    dedup window of the class is too short to cover a retry hours later.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT 1 FROM development.notification_queue
+               WHERE dedup_key = $1 AND status = 'sent' LIMIT 1""",
+            dedup_key,
+        )
+    return row is not None
+
+
 async def _is_duplicate(conn, dedup_key: str, window_hours: int) -> bool:
     row = await conn.fetchrow(
         """SELECT 1 FROM development.notification_queue
@@ -510,7 +555,31 @@ async def _record_suppressed(
     conn, chat_id: int, klass: str, content_spec: dict,
     priority: int, dedup_key: Optional[str], reason: str,
 ) -> dict:
-    """Записать подавление в очередь (аудит, не молчать) + лог."""
+    """Записать подавление в очередь (аудит, не молчать) + лог.
+
+    A sender that polls (practice nudges every 10 minutes) hits the same
+    suppression on every tick. One audit row per (chat, class, key, reason) and
+    delivery day is enough: a repeat returns that row instead of adding another
+    (WP-568 F16 step 1b, second wave). The day boundary is the one the daily cap
+    uses, so a repeat never resolves to yesterday's row. The caller holds the
+    per-chat advisory lock, so two ticks cannot both miss the existing row.
+    """
+    if dedup_key:
+        existing = await conn.fetchval(
+            f"""SELECT id FROM development.notification_queue
+               WHERE chat_id = $1 AND notification_class = $2 AND dedup_key = $3
+                 AND status = 'suppressed' AND reason = $4
+                 AND {SAME_DELIVERY_DAY_SQL.format(tz='$5')}
+               ORDER BY id LIMIT 1""",
+            chat_id, klass, dedup_key, reason, DELIVERY_TZ,
+        )
+        if existing is not None:
+            logger.debug(
+                "[Delivery] suppressed again chat=%s class=%s reason=%s (row %s)",
+                chat_id, klass, reason, existing,
+            )
+            return {"notification_id": existing, "status": "suppressed",
+                    "reason": reason, "deduped": True}
     row = await conn.fetchrow(
         """INSERT INTO development.notification_queue
            (chat_id, notification_class, payload, priority, dedup_key, status, reason)
