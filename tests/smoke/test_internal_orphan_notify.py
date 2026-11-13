@@ -171,6 +171,8 @@ async def test_timeout_is_unknown_and_never_demands_manual_reindex(notify):
     assert "Результат пока неизвестен" in text
     assert "Повторный запуск до проверки не нужен" in text
     assert "&lt;source&gt;&amp;" in text
+    assert "Результат пока неизвестен: сервер знаний." in text
+    assert "knowledge" not in text
     assert "Провал" not in text
     assert "нужна ручная" not in text
     assert "Запросы завершились с ошибкой" not in text
