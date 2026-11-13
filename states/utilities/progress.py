@@ -85,12 +85,17 @@ class ProgressState(BaseState):
             logger.error(f"[Progress] _fetch_points error: {e}")
             return None
 
-    async def _fetch_ecosystem_days(self, chat_id: int, weeks: int = 4) -> Optional[list]:
+    async def _fetch_ecosystem_days(self, chat_id: int, account_id: Optional[str],
+                                    weeks: int = 4) -> Optional[list]:
         """Дни активности по местам (IWE, клуб, LMS, бот) из журнала платформы (WP-417 Ф7).
 
-        Тот же период, что у календаря бота (сегодня по Москве и 4 недели назад). Шлюз сам
-        проверяет подписку; любой отказ или сбой возвращает None, и табло остаётся на данных бота.
+        Тот же период, что у календаря бота (сегодня по Москве и 4 недели назад). Без привязанного
+        аккаунта платформы (account_id = intern['dt_user_id']) шлюз не вызывается: токена всё равно
+        нет. Шлюз сам проверяет подписку; любой отказ или сбой возвращает None, и табло остаётся
+        на данных бота.
         """
+        if not account_id:
+            return None
         from clients.gateway_mcp import gateway_mcp
         from db.queries.users import moscow_today
 
@@ -107,12 +112,15 @@ class ProgressState(BaseState):
             return None
         return answer["days"] if answer else None
 
-    async def _fetch_activity_totals(self, chat_id: int) -> Optional[dict]:
+    async def _fetch_activity_totals(self, chat_id: int, account_id: Optional[str]) -> Optional[dict]:
         """All-time days, streak and record from the Profiler's nightly run (WP-417 Ф7).
 
-        None when the night run has not produced them yet or the gateway is slow or down;
-        the overview then keeps the bot's own counters.
+        None without a linked platform account (no gateway call at all), when the night run has
+        not produced them yet, or when the gateway is slow or down; the overview then keeps the
+        bot's own counters.
         """
+        if not account_id:
+            return None
         from clients.gateway_mcp import gateway_mcp
 
         try:
@@ -159,8 +167,8 @@ class ProgressState(BaseState):
             get_user_qa_stats(chat_id),
             get_github_connection(chat_id),
             self._fetch_points(intern.get('dt_user_id')),
-            self._fetch_ecosystem_days(chat_id),
-            self._fetch_activity_totals(chat_id),
+            self._fetch_ecosystem_days(chat_id, intern.get('dt_user_id')),
+            self._fetch_activity_totals(chat_id, intern.get('dt_user_id')),
             return_exceptions=True,
         )
 

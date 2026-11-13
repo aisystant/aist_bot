@@ -635,7 +635,10 @@ class GatewayMCPClient:
                     if resp.status == 200:
                         data = await resp.json()
                         if "result" in data:
-                            self._record_success()
+                            # best_effort reads neither open nor close the shared breaker:
+                            # frequent cheap successes must not hide failures of other tools
+                            if not best_effort:
+                                self._record_success()
                             return data["result"]
                         if "error" in data:
                             error_msg = data["error"].get("message", str(data["error"]))
