@@ -19,11 +19,16 @@ from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
+from core.activity_board import apply_ecosystem, apply_totals
 from states.base import BaseState
 from i18n import t
 from config import MARATHON_DAYS, Mode
 
 logger = logging.getLogger(__name__)
+
+# Optional gateway reads on /progress (WP-417 Ф7): one 5 s attempt plus the wait for a free
+# gateway slot; past this the overview is shown with the bot's own data.
+OPTIONAL_GATEWAY_READ_SECONDS = 8
 
 
 class ProgressState(BaseState):
@@ -80,6 +85,51 @@ class ProgressState(BaseState):
             logger.error(f"[Progress] _fetch_points error: {e}")
             return None
 
+    async def _fetch_ecosystem_days(self, chat_id: int, account_id: Optional[str],
+                                    weeks: int = 4) -> Optional[list]:
+        """Дни активности по местам (IWE, клуб, LMS, бот) из журнала платформы (WP-417 Ф7).
+
+        Тот же период, что у календаря бота (сегодня по Москве и 4 недели назад). Без привязанного
+        аккаунта платформы (account_id = intern['dt_user_id']) шлюз не вызывается: токена всё равно
+        нет. Шлюз сам проверяет подписку; любой отказ или сбой возвращает None, и табло остаётся
+        на данных бота.
+        """
+        if not account_id:
+            return None
+        from clients.gateway_mcp import gateway_mcp
+        from db.queries.users import moscow_today
+
+        today = moscow_today()
+        try:
+            answer = await asyncio.wait_for(
+                gateway_mcp.dt_read_activity(
+                    chat_id, (today - timedelta(weeks=weeks)).isoformat(), today.isoformat()
+                ),
+                OPTIONAL_GATEWAY_READ_SECONDS,
+            )
+        except Exception as e:
+            logger.warning(f"[Progress] ecosystem activity failed for chat {chat_id}: {e!r}")
+            return None
+        return answer["days"] if answer else None
+
+    async def _fetch_activity_totals(self, chat_id: int, account_id: Optional[str]) -> Optional[dict]:
+        """All-time days, streak and record from the Profiler's nightly run (WP-417 Ф7).
+
+        None without a linked platform account (no gateway call at all), when the night run has
+        not produced them yet, or when the gateway is slow or down; the overview then keeps the
+        bot's own counters.
+        """
+        if not account_id:
+            return None
+        from clients.gateway_mcp import gateway_mcp
+
+        try:
+            return await asyncio.wait_for(gateway_mcp.dt_read_activity_totals(chat_id),
+                                          OPTIONAL_GATEWAY_READ_SECONDS)
+        except Exception as e:
+            logger.warning(f"[Progress] activity totals failed for chat {chat_id}: {e!r}")
+            return None
+
     async def _prefetch(self, chat_id: int) -> dict:
         """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
         from db.queries import get_intern
@@ -106,6 +156,8 @@ class ProgressState(BaseState):
             qa_stats,
             github,
             points_balance,
+            ecosystem_days,
+            activity_totals,
         ) = await asyncio.gather(
             get_activity_stats(chat_id),
             get_activity_calendar(chat_id, weeks=4),
@@ -115,6 +167,8 @@ class ProgressState(BaseState):
             get_user_qa_stats(chat_id),
             get_github_connection(chat_id),
             self._fetch_points(intern.get('dt_user_id')),
+            self._fetch_ecosystem_days(chat_id, intern.get('dt_user_id')),
+            self._fetch_activity_totals(chat_id, intern.get('dt_user_id')),
             return_exceptions=True,
         )
 
@@ -244,7 +298,7 @@ class ProgressState(BaseState):
         complexity_level = intern.get('complexity_level', 1)
         topics_at_level = await get_theory_count_at_level(chat_id, complexity_level)
 
-        return {
+        cache = {
             'name': self._get_user_name(intern),
             'reg_date': reg_date_str,
             'complexity_level': complexity_level,
@@ -296,6 +350,16 @@ class ProgressState(BaseState):
                 'notes_path': github.get('notes_path', '') if github else '',
             },
         }
+        # WP-417 Ф7: places other than the bot (IWE, club, LMS) mark days too; None/Exception = bot-only
+        if isinstance(ecosystem_days, list):
+            apply_ecosystem(cache, ecosystem_days)
+        # Nightly all-time totals after the calendar, so today's activity is already marked
+        if isinstance(activity_totals, dict):
+            try:
+                apply_totals(cache, activity_totals)
+            except (KeyError, TypeError, ValueError) as e:
+                logger.warning(f"[Progress] malformed activity totals for chat {chat_id}: {e!r}")
+        return cache
 
     # ─── ENTER ────────────────────────────────────────────────
 

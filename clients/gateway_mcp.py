@@ -461,13 +461,17 @@ class GatewayMCPClient:
 
     async def _call(self, tool_name: str, arguments: dict,
                     telegram_user_id: Optional[int] = None,
-                    timeout: Optional[int] = None) -> Optional[dict]:
+                    timeout: Optional[int] = None,
+                    best_effort: bool = False) -> Optional[dict]:
         """Вызов инструмента Gateway MCP через JSON-RPC.
 
         Args:
             tool_name: имя инструмента (с prefix, напр. 'knowledge_search')
             arguments: аргументы вызова
             telegram_user_id: ID пользователя для Bearer token
+            best_effort: optional read with its own fallback (WP-417 Ф7): no retry after a
+                timeout or HTTP error, and its failures do not count towards the shared
+                circuit breaker, so one slow optional read cannot switch off every tool.
 
         Returns:
             Результат вызова или None при ошибке
@@ -482,12 +486,18 @@ class GatewayMCPClient:
         # WP-209 Ф4: сериализуем запросы к Gateway через global semaphore.
         # Защита от Cloudflare 429 (burst от scheduler pre-gen fan-out).
         async with self._call_semaphore:
-            return await self._do_call(tool_name, arguments, telegram_user_id, timeout=timeout)
+            return await self._do_call(tool_name, arguments, telegram_user_id, timeout=timeout,
+                                       best_effort=best_effort)
 
     async def _do_call(self, tool_name: str, arguments: dict,
                        telegram_user_id: Optional[int] = None,
-                       timeout: Optional[int] = None) -> Optional[dict]:
+                       timeout: Optional[int] = None,
+                       best_effort: bool = False) -> Optional[dict]:
         """Фактический HTTP call. Вызывается только из _call под semaphore."""
+
+        def record_failure() -> None:
+            if not best_effort:
+                self._record_failure()
 
         payload = {
             "jsonrpc": "2.0",
@@ -527,7 +537,9 @@ class GatewayMCPClient:
                     # иначе непрерывный трафик от одного user'а (интервал < TTL) на каждом вызове
                     # переписывает no_token_since вперёд → окно подавления никогда не истекает
                     # (найдено независимой code-review проверкой, 2026-07-23).
-                    if await self._refresh_single_token(telegram_user_id):
+                    # shield: a caller's wait_for must not cut a refresh between Ory rotating
+                    # the refresh token and the database storing it (WP-417 Ф7 review)
+                    if await asyncio.shield(self._refresh_single_token(telegram_user_id)):
                         token = self._get_access_token(telegram_user_id)
                     if token:
                         self._no_token_users.pop(telegram_user_id, None)
@@ -573,7 +585,7 @@ class GatewayMCPClient:
                     if resp.status == 401 and telegram_user_id and attempt == 0:
                         # Token expired — try refresh
                         logger.info(f"Gateway: 401 for user {telegram_user_id}, attempting refresh")
-                        refreshed = await self._refresh_single_token(telegram_user_id)
+                        refreshed = await asyncio.shield(self._refresh_single_token(telegram_user_id))
                         if refreshed:
                             # Update header and retry
                             new_token = self._get_access_token(telegram_user_id)
@@ -618,12 +630,15 @@ class GatewayMCPClient:
                     elif resp.status == 429:
                         logger.warning(f"Gateway: 429 after retry (user={telegram_user_id})")
                         self._last_call_error = "rate_limited"
-                        self._record_failure()
+                        record_failure()
                         return None
                     if resp.status == 200:
                         data = await resp.json()
                         if "result" in data:
-                            self._record_success()
+                            # best_effort reads neither open nor close the shared breaker:
+                            # frequent cheap successes must not hide failures of other tools
+                            if not best_effort:
+                                self._record_success()
                             return data["result"]
                         if "error" in data:
                             error_msg = data["error"].get("message", str(data["error"]))
@@ -638,19 +653,23 @@ class GatewayMCPClient:
                         logger.error(f"Gateway HTTP {resp.status}: {error[:200]}")
                         last_error = f"HTTP {resp.status}"
                         self._last_call_error = "http_error"
-                        self._record_failure()
+                        record_failure()
+                        if best_effort:
+                            break
             except asyncio.TimeoutError:
                 last_error = "timeout"
                 self._last_call_error = "timeout"
-                if attempt < self.MAX_RETRIES:
+                if attempt < self.MAX_RETRIES and not best_effort:
                     logger.warning(f"Gateway timeout ({timeout}s), retry {attempt + 1}")
                     await asyncio.sleep(1)
                     continue
-                self._record_failure()
+                record_failure()
+                if best_effort:
+                    break
             except Exception as e:
                 logger.error(f"Gateway exception: {e}")
                 self._last_call_error = "http_error"
-                self._record_failure()
+                record_failure()
                 return None
 
         logger.warning("Gateway: unavailable, continuing without MCP")
@@ -768,6 +787,36 @@ class GatewayMCPClient:
         """Записать данные в ЦД через Gateway."""
         result = await self._call("dt_write_digital_twin", {"path": path, "data": data}, telegram_user_id)
         return self._parse_text_content(result)
+
+    async def dt_read_activity(
+        self, telegram_user_id: int, date_from: Optional[str] = None, date_to: Optional[str] = None
+    ) -> Optional[dict]:
+        """Дни активности по местам (IWE, клуб, LMS, бот) из журнала событий платформы.
+
+        Moscow dates, inclusive; the server defaults to the last 28 days. Returns
+        {"days": [{"day", "channel", "events"}], "period", "as_of", "source"} or None
+        (no subscription, circuit open, server error), so callers fall back to bot-only data.
+        """
+        args: dict = {}
+        if date_from:
+            args["from"] = date_from
+        if date_to:
+            args["to"] = date_to
+        result = await self._call("dt_read_activity", args, telegram_user_id, timeout=5, best_effort=True)
+        parsed = self._parse_text_content(result)
+        return parsed if isinstance(parsed, dict) and isinstance(parsed.get("days"), list) else None
+
+    async def dt_read_activity_totals(self, telegram_user_id: int) -> Optional[dict]:
+        """All-time active days, streak and record per place (3_derived.3_15_activity).
+
+        Written nightly by the Profiler from learning.activity_summary (WP-417 Ф7). Returns
+        {"channels": {place: {...}}, "as_of", "source"} or None (not computed yet, no
+        subscription, gateway down), so callers keep the bot's own counters.
+        """
+        result = await self._call("dt_read_digital_twin", {"path": "3_derived.3_15_activity"},
+                                  telegram_user_id, timeout=5, best_effort=True)
+        parsed = self._parse_text_content(result)
+        return parsed if isinstance(parsed, dict) and isinstance(parsed.get("channels"), dict) else None
 
     async def dt_describe(self, path: str, telegram_user_id: Optional[int] = None) -> Optional[str]:
         """Описание метамодели ЦД."""

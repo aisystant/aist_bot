@@ -15,11 +15,20 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 .cal i.td{box-shadow:inset 0 0 0 2px var(--fg)}
 .cal span{font-size:10px;text-align:center;color:var(--mut)}
 .cal span.k{text-align:left}
+.lg{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:8px;font-size:11px;color:var(--mut)}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 </style>
 <div class="w" id="root"></div>
 <script>
-var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активность за 4 недели, в рамке — сегодня",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]},
-en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Activity, last 4 weeks, today outlined",d:["Mo","Tu","We","Th","Fr","Sa","Su"]}};
+var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активные действия по неделям",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],g:["IWE","клуб","LMS","бот"]},
+en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Active days by week",d:["Mo","Tu","We","Th","Fr","Sa","Su"],g:["IWE","club","LMS","bot"]}};
+var G=["#2b8a3e","#1971c2","#e8590c","#9c36b5"];
+function cellStyle(m){
+ var c=[],i;for(i=0;i<4;i++)if(m&(1<<i))c.push(G[i]);
+ if(c.length<2)return c.length?'background:'+c[0]:'';
+ var st=[];for(i=0;i<c.length;i++)st.push(c[i]+' '+(100*i/c.length)+'% '+(100*(i+1)/c.length)+'%');
+ return 'background:linear-gradient(90deg,'+st.join(',')+')';
+}
 function tile(v,l){return '<div class="tile"><b>'+v+'</b><span class="mut">'+l+'</span></div>'}
 function draw(){
  var d={};try{d=JSON.parse(TelegramWidget.chatData||"{}")}catch(e){}
@@ -28,12 +37,14 @@ function draw(){
  h+='<div class="tiles">'+tile((d.w||0)+'/7',l.w)+tile(d.t||0,l.t)+(d.p==null?'':tile(d.p,l.p))+'</div>';
  h+='<div class="mut" style="margin-bottom:6px">'+l.c+'</div><div class="cal"><span></span>';
  for(var i=0;i<7;i++)h+='<span>'+l.d[i]+'</span>';
- var c=d.c||"",o=d.o||0,k=d.k||[];
+ var c=d.c||"",o=d.o||0,k=d.k||[],m=d.m||"";
  for(i=0;i<o+c.length;i++){
   if(i%7==0)h+='<span class="k">'+(k[i/7]||"")+'</span>';
-  var j=i-o;h+=j<0?'<i class="x"></i>':'<i class="'+(c[j]=="1"?"on":"")+(j==c.length-1?" td":"")+'"></i>';
+  var j=i-o,mk=m?parseInt(m[j],16)||0:0;h+=j<0?'<i class="x"></i>':'<i class="'+(c[j]=="1"&&!mk?"on":"")+(j==c.length-1?" td":"")+'"'+(mk?' style="'+cellStyle(mk)+'"':'')+'></i>';
  }
- document.getElementById("root").innerHTML=h+'</div>';
+ h+='</div>';
+ if(m){h+='<div class="lg">';for(i=0;i<4;i++)h+='<span><i style="background:'+G[i]+'"></i>'+l.g[i]+'</span>';h+='</div>'}
+ document.getElementById("root").innerHTML=h;
 }
 draw();TelegramWidget.onEvent("chatDataChanged",draw);
 </script>

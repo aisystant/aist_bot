@@ -52,7 +52,9 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
     s streak, r record, w active days this week, t active days total,
     p points (omitted when unknown), c calendar bits oldest->newest,
     o weekday offset of the first calendar day (0 = Monday), k "dd.mm" of the
-    Monday that starts each calendar row, l language. The last calendar day is today.
+    Monday that starts each calendar row, l language, m places per day (hex digit per
+    calendar day, bits iwe 1 / club 2 / lms 4 / bot 8; omitted without ecosystem data).
+    The last calendar day is today.
     """
     calendar = cache.get("calendar") or []
     offset, week_labels = 0, []
@@ -72,6 +74,9 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
         "k": week_labels,
         "l": lang if lang in {"ru", "en"} else "en",
     }
+    if any("mask" in day for day in calendar):
+        # one hex digit per day: which places the day came from (core/activity_board.py bits)
+        payload["m"] = "".join(format(int(day.get("mask") or 0), "x") for day in calendar)
     points = cache.get("points_balance")
     if points is not None:
         payload["p"] = int(float(points))
