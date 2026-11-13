@@ -654,3 +654,22 @@ async def test_drain_blocked_reminder_logs_no_delivery_event(monkeypatch):
 
     assert conn.status_by_id[12] == "blocked"
     assert logged == []
+
+
+def test_cap_and_suppression_audit_share_one_day_boundary():
+    # The queries are static strings (bandit B608); this keeps their day
+    # boundary from drifting apart: two daily caps and the suppression audit.
+    import pathlib
+    import re
+
+    root = pathlib.Path(ns.__file__).resolve().parent
+    sources = {
+        "notification_service": (root / "notification_service.py").read_text(encoding="utf-8"),
+        "nudge_delivery": (root / "nudge_delivery.py").read_text(encoding="utf-8"),
+    }
+    found = {
+        name: len(re.findall(re.escape(ns.DELIVERY_DAY_BOUNDARY), re.sub(r"\$\d+", "$N", text)))
+        for name, text in sources.items()
+    }
+    # notification_service: the DELIVERY_DAY_BOUNDARY definition + the cap + the audit.
+    assert found == {"notification_service": 3, "nudge_delivery": 1}
