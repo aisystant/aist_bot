@@ -15,8 +15,9 @@ import core.notification_service as ns
 
 class FakeConn:
     def __init__(self, cap_count=0, duplicate=False, drain_rows=None, receipt_fails=False,
-                 bot_blocked=False):
+                 bot_blocked=False, suppressed_row_id=None):
         self._cap_count = cap_count
+        self._suppressed_row_id = suppressed_row_id  # today's audit row for the same key+reason
         self._duplicate = duplicate
         self._drain_rows = drain_rows or []
         self._receipt_fails = receipt_fails
@@ -63,6 +64,9 @@ class FakeConn:
     async def fetchval(self, sql, *args):
         if "bot_blocked" in sql:
             return self._bot_blocked
+        if "status = 'suppressed'" in sql:
+            self.suppressed_lookup = (sql, args)
+            return self._suppressed_row_id
         return self._cap_count  # COUNT для потолка класса
 
     async def fetchrow(self, sql, *args):
@@ -550,3 +554,122 @@ async def test_enqueue_journal_outage_still_queues(monkeypatch):
                            journal_key="k-outage", journal_type="nudge")
     assert res["status"] == "queued"
     assert len(conn.inserts) == 1
+
+
+# ──────────── РП-568 Ф16 шаг 1б, вторая волна: повтор отсечения ────────────
+# A sender polling every 10 minutes must not add an audit row per tick once the
+# daily cap is full: one row per (chat, class, key, reason) and delivery day.
+
+@pytest.mark.asyncio
+async def test_repeated_cap_suppression_adds_no_row(monkeypatch):
+    conn = FakeConn(cap_count=2, suppressed_row_id=41)
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+
+    res = await ns.enqueue(123, ns.CLASS_CAPPED, {"text": "practice"},
+                           dedup_key="practice:123:5:150m")
+
+    assert res == {"notification_id": 41, "status": "suppressed",
+                   "reason": "cap-exceeded", "deduped": True}
+    assert conn.inserts == []
+    # Same day boundary as the cap, bound to the last of five arguments.
+    sql, args = conn.suppressed_lookup
+    assert "AT TIME ZONE 'UTC' AT TIME ZONE $5)::date = (NOW() AT TIME ZONE $5)::date" in sql
+    assert args == (123, ns.CLASS_CAPPED, "practice:123:5:150m", "cap-exceeded", ns.DELIVERY_TZ)
+
+
+@pytest.mark.asyncio
+async def test_first_cap_suppression_of_a_key_is_recorded(monkeypatch):
+    conn = FakeConn(cap_count=2, suppressed_row_id=None)
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+
+    res = await ns.enqueue(123, ns.CLASS_CAPPED, {"text": "practice"},
+                           dedup_key="practice:123:5:150m")
+
+    assert res["reason"] == "cap-exceeded"
+    assert "deduped" not in res
+    assert len(conn.inserts) == 1
+    assert conn.inserts[0][-1] == "cap-exceeded"
+
+
+@pytest.mark.asyncio
+async def test_suppression_without_key_is_recorded_every_time(monkeypatch):
+    # No key to recognise a repeat by: one audit row per call, as before.
+    conn = FakeConn(cap_count=2, suppressed_row_id=41)
+    _patch_pool(monkeypatch, conn)
+
+    await ns.enqueue(123, ns.CLASS_CAPPED, {"text": "nudge"})
+    await ns.enqueue(123, ns.CLASS_CAPPED, {"text": "nudge"})
+
+    assert len(conn.inserts) == 2
+
+
+# ──────────── reminder_delivered пишется только после доставки ────────────
+
+def _patch_events(monkeypatch):
+    import db.queries.events as events
+    logged = []
+
+    async def _log_event(chat_id, event_type, data):
+        logged.append((chat_id, event_type, data))
+    monkeypatch.setattr(events, "log_event", _log_event)
+    return logged
+
+
+def _reminder_row(queue_id=12):
+    return {"id": queue_id, "chat_id": 555, "notification_class": ns.CLASS_TRANSACTIONAL,
+            "payload": '{"text": "позвонить", "meta": {"reminder_type": "custom", "reminder_id": 9}}',
+            "priority": 3, "journal_key": "user_remind:555:9",
+            "journal_type": ns.REMINDER_JOURNAL_TYPE, "attempts": 0}
+
+
+@pytest.mark.asyncio
+async def test_drain_logs_reminder_delivered_after_send(monkeypatch):
+    conn = FakeConn(drain_rows=[_reminder_row()])
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+    logged = _patch_events(monkeypatch)
+
+    async def deliver(_chat_id, _content_spec):
+        assert logged == []  # not before Telegram accepted it
+
+    await ns.drain(deliver)
+
+    assert conn.status_by_id[12] == "sent"
+    assert logged == [(555, "reminder_delivered", {"reminder_type": "custom", "reminder_id": 9})]
+
+
+@pytest.mark.asyncio
+async def test_drain_blocked_reminder_logs_no_delivery_event(monkeypatch):
+    conn = FakeConn(drain_rows=[_reminder_row()])
+    _patch_pool(monkeypatch, conn)
+    _patch_journal(monkeypatch)
+    logged = _patch_events(monkeypatch)
+
+    async def deliver(_chat_id, _content_spec):
+        raise ns.DeliveryBlocked("bot was blocked by the user")
+
+    await ns.drain(deliver)
+
+    assert conn.status_by_id[12] == "blocked"
+    assert logged == []
+
+
+def test_cap_and_suppression_audit_share_one_day_boundary():
+    # The queries are static strings (bandit B608); this keeps their day
+    # boundary from drifting apart: two daily caps and the suppression audit.
+    import pathlib
+    import re
+
+    root = pathlib.Path(ns.__file__).resolve().parent
+    sources = {
+        "notification_service": (root / "notification_service.py").read_text(encoding="utf-8"),
+        "nudge_delivery": (root / "nudge_delivery.py").read_text(encoding="utf-8"),
+    }
+    found = {
+        name: len(re.findall(re.escape(ns.DELIVERY_DAY_BOUNDARY), re.sub(r"\$\d+", "$N", text)))
+        for name, text in sources.items()
+    }
+    # notification_service: the DELIVERY_DAY_BOUNDARY definition + the cap + the audit.
+    assert found == {"notification_service": 3, "nudge_delivery": 1}
