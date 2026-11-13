@@ -191,8 +191,7 @@ async def _try_enqueue_one(user_id: int, candidate: NudgeCandidate) -> EnqueueRe
                 used = await conn.fetchval(
                     """SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = 'capped'
-                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date
-                             = (NOW() AT TIME ZONE $2)::date
+                         AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date
                          AND status IN ('queued', 'sending', 'sent', 'unknown')""",
                     user_id, DELIVERY_TZ,
                 )

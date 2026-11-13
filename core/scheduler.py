@@ -1779,35 +1779,30 @@ async def _get_blocked_chat_ids() -> set[int]:
     return {r['chat_id'] for r in rows}
 
 
-async def send_user_reminder(chat_id: int, text: str, reminder_id: int, bot: Bot):
-    """WP-320 Ф2: доставка пользователь-инициированного напоминания (DP.SC.134).
-    see DP.SC.134, DP.ROLE.044
+async def send_user_reminder(chat_id: int, text: str, reminder_id: int) -> dict:
+    """WP-320 Ф2: пользовательское напоминание (DP.SC.134) — через очередь доставки.
+
+    see DP.SC.134, DP.ROLE.044. The user asked for it, so the class is
+    transactional (no daily cap). The drain writes the journal and the
+    reminder_delivered event only after Telegram accepted it (WP-568 F16 step 1b).
     """
-    from db.queries.notifications import try_insert_notification
-    from db.queries.events import log_event
+    from core.notification_service import CLASS_TRANSACTIONAL
 
-    idempotency_key = f"user_remind:{chat_id}:{reminder_id}"
-    try:
-        inserted = await try_insert_notification(chat_id, 'reminder', idempotency_key)
-        if not inserted:
-            logger.info("[Scheduler] user_reminder %s already sent to %s, skip", reminder_id, chat_id)
-            return
-    except Exception as e:
-        logger.warning("[Scheduler] idempotency check failed for reminder %s: %s — proceeding", reminder_id, e)
-
-    try:
-        await bot.send_message(chat_id, f"🔔 {text}", parse_mode="Markdown")
-        logger.info("[Scheduler] user_reminder %s delivered to %s", reminder_id, chat_id)
-    except Exception:
-        logger.exception("[Scheduler] user_reminder %s failed for %s", reminder_id, chat_id)
-        raise
-
-    await log_event(chat_id, 'reminder_delivered', {'reminder_type': 'custom', 'reminder_id': reminder_id})
+    key = f"user_remind:{chat_id}:{reminder_id}"
+    return await _enqueue_reminder(
+        chat_id, CLASS_TRANSACTIONAL, key,
+        {"text": f"🔔 {text}", "format": "markdown",
+         "meta": {"reminder_type": "custom", "reminder_id": reminder_id}},
+    )
 
 
-async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
-    """Отправляет напоминание с кнопкой «Получить урок»."""
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+async def send_reminder(chat_id: int, reminder_type: str) -> Optional[dict]:
+    """Legacy-напоминание «Получить урок» (+1h/+3h) — через очередь доставки.
+
+    Returns None when nothing is due (new marathon engine, lesson already taken,
+    marathon not started). An optional nudge: class capped, under the daily cap.
+    """
+    from core.notification_service import CLASS_CAPPED
     from core.topics import get_marathon_day, get_display_day
 
     intern = await get_intern(chat_id)
@@ -1817,77 +1812,85 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     from db.queries.marathon_newcomer import is_on_newcomer_marathon
     if await is_on_newcomer_marathon(chat_id):
         logger.info(f"[Scheduler] {chat_id}: на новом движке марафона, гашу legacy-напоминание {reminder_type}")
-        return
+        return None
 
-    topics_today = get_topics_today(intern)
-
-    if topics_today > 0:
-        return
+    if get_topics_today(intern) > 0:
+        return None
 
     marathon_day = get_marathon_day(intern)
     if marathon_day == 0:
-        return
+        return None
     display_day = get_display_day(intern)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"📚 {t('buttons.get_lesson', lang)}",
-            callback_data="marathon_get_lesson"
-        )]
-    ])
-
-    from db.queries.notifications import try_insert_notification
-    today_str = moscow_now().strftime('%Y-%m-%d')
-    reminder_key = f"reminder:{chat_id}:{today_str}:{reminder_type}"
-    inserted = await try_insert_notification(chat_id, 'reminder', reminder_key)
-    if not inserted:
-        logger.info(f"[Scheduler] Reminder {reminder_type} already sent to {chat_id} today, skip")
-        return
-
-    from db.queries.events import log_event
-    await log_event(chat_id, 'reminder_delivered', {
-        'reminder_type': reminder_type,
-        'marathon_day': marathon_day,
-    })
-
     if reminder_type == '+1h':
-        await bot.send_message(
-            chat_id,
+        text = (
             f"⏰ *{t('reminders.title', lang)}*\n\n"
             f"{t('reminders.day_waiting', lang, day=display_day)}\n\n"
-            f"{t('reminders.two_topics_today', lang)}",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+            f"{t('reminders.two_topics_today', lang)}"
         )
     elif reminder_type == '+3h':
-        await bot.send_message(
-            chat_id,
+        text = (
             f"🔔 *{t('reminders.last_reminder', lang)}*\n\n"
             f"{t('reminders.day_not_started', lang, day=display_day)}\n\n"
             f"{t('reminders.regularity_tip', lang)}\n"
-            f"{t('reminders.even_15_min', lang)}",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+            f"{t('reminders.even_15_min', lang)}"
         )
+    else:
+        logger.warning(f"[Scheduler] unknown reminder type {reminder_type!r} for {chat_id}")
+        return None
+
+    key = f"reminder:{chat_id}:{moscow_now().strftime('%Y-%m-%d')}:{reminder_type}"
+    return await _enqueue_reminder(
+        chat_id, CLASS_CAPPED, key,
+        {"text": text, "format": "markdown",
+         "actions": [{"label": f"📚 {t('buttons.get_lesson', lang)}",
+                      "action": "marathon_get_lesson"}],
+         "meta": {"reminder_type": reminder_type, "marathon_day": marathon_day}},
+    )
+
+
+async def _enqueue_reminder(chat_id: int, klass: str, key: str, content_spec: dict) -> dict:
+    """Queue one reminder under its stable key (the journal key of the old code).
+
+    The key is unique per reminder, so a delivery the journal missed (its write
+    failed after the send) still blocks a resend however late the retry comes.
+    """
+    from core.notification_service import (
+        REMINDER_JOURNAL_TYPE, enqueue, was_queue_row_sent,
+    )
+
+    if await was_queue_row_sent(key):
+        return {"notification_id": None, "status": "suppressed", "reason": "already-sent"}
+    return await enqueue(
+        chat_id, klass, content_spec,
+        dedup_key=key, journal_key=key, journal_type=REMINDER_JOURNAL_TYPE,
+    )
 
 
 async def check_reminders():
-    """Проверяет и отправляет запланированные напоминания.
+    """Передать наступившие напоминания в очередь доставки.
 
-    Использует SELECT FOR UPDATE SKIP LOCKED для предотвращения дублей:
-    если предыдущий scheduled_check ещё обрабатывает напоминания,
-    следующий цикл (через 1 мин) пропустит уже залоченные строки.
+    Order per reminder (WP-568 F16 step 1b): lock the row (FOR UPDATE SKIP LOCKED,
+    so a concurrent scheduled_check skips it), queue it, then set sent = TRUE and
+    commit. A crash after queueing leaves sent = FALSE; the retry hits the same
+    key and is suppressed, so nothing is sent twice and nothing is lost.
+    sent = TRUE means «handled»: queued, or finally suppressed (daily cap,
+    opt-out, blocked) — the outcome of the delivery lives in the queue row.
 
     WP-253 lift-and-shift: таблица reminder в learning БД, user_state — в bot_data.
-    Cross-DB JOIN невозможен → pre-fetch blocked chat_ids отдельным запросом
-    и фильтруем через ANY(...) на уровне learning pool.
+    Cross-DB JOIN невозможен → pre-fetch blocked chat_ids отдельным запросом.
     """
     from db.connection import get_learning_pool
+
+    if not DELIVERY_LAYER_ENABLED:
+        # Without the drain a queued reminder would be marked handled and never
+        # leave; keep it unsent until the delivery layer is switched on.
+        logger.error("[Scheduler] check_reminders: DELIVERY_LAYER_ENABLED is off, reminders held")
+        return
 
     # scheduled_for is stored as UTC naive — compare with UTC, not Moscow time.
     now_naive = datetime.utcnow()
 
-    # Pre-fetch заблокированных пользователей из user_state pool (bot_data).
     try:
         blocked_ids = await _get_blocked_chat_ids()
     except Exception as e:
@@ -1897,71 +1900,71 @@ async def check_reminders():
 
     pool = await get_learning_pool()
     bot_data_pool = await get_pool()
-    bot = Bot(token=_bot_token)
+    # Rows left unsent in this call (user blocked meanwhile, queueing failed):
+    # without excluding them the loop would pick the same row again at once.
+    skipped: list[int] = []
 
-    logger.debug("[Scheduler] check_reminders: now_naive=%s, blocked=%d", now_naive, len(blocked_list))
-
-    try:
-        async with pool.acquire() as conn:
-            # Обрабатываем по одному в транзакции: claim → send → mark sent
-            while True:
+    async with pool.acquire() as conn:
+        while True:
+            async with conn.transaction():
                 row = await conn.fetchrow(
-                    '''UPDATE public.reminder SET sent = TRUE
-                       WHERE id = (
-                           SELECT r.id FROM public.reminder r
-                           WHERE r.sent = FALSE AND r.scheduled_for <= $1
-                             AND NOT (r.chat_id = ANY($2::bigint[]))
-                             AND r.bot_id = $3
-                           ORDER BY r.scheduled_for
-                           LIMIT 1
-                           FOR UPDATE OF r SKIP LOCKED
-                       )
-                       RETURNING id, chat_id, reminder_type, text''',
-                    now_naive, blocked_list, _bot_id
+                    '''SELECT r.id, r.chat_id, r.reminder_type, r.text,
+                              COALESCE(r.fail_count, 0) AS fail_count
+                       FROM public.reminder r
+                       WHERE r.sent = FALSE AND r.scheduled_for <= $1
+                         AND NOT (r.chat_id = ANY($2::bigint[]))
+                         AND r.bot_id = $3
+                         AND NOT (r.id = ANY($4::int[]))
+                       ORDER BY r.scheduled_for
+                       LIMIT 1
+                       FOR UPDATE OF r SKIP LOCKED''',
+                    now_naive, blocked_list, _bot_id, skipped or [0],
                 )
                 if not row:
-                    break
+                    return
 
-                # P0: TOCTOU guard — re-check bot_blocked right before sending.
-                # If blocked: revert sent=TRUE so the reminder isn't silently lost.
+                # TOCTOU guard: the user may have blocked the bot after the pre-fetch.
+                # The reminder stays unsent for when they come back.
                 is_blocked_now = await bot_data_pool.fetchval(
                     "SELECT bot_blocked FROM development.user_state WHERE chat_id = $1",
                     row['chat_id']
                 )
                 if is_blocked_now:
-                    await conn.execute("UPDATE public.reminder SET sent = FALSE WHERE id = $1", row['id'])
-                    logger.info(f"[Scheduler] Reverted reminder {row['id']} — user {row['chat_id']} blocked (TOCTOU)")
+                    skipped.append(row['id'])
+                    logger.info(f"[Scheduler] Reminder {row['id']} kept — user {row['chat_id']} blocked")
                     continue
 
                 try:
-                    # WP-320 Ф2: custom text reminders (DP.SC.134)
-                    if row['reminder_type'] == 'custom' and row.get('text'):
-                        await send_user_reminder(row['chat_id'], row['text'], row['id'], bot)
+                    if row['reminder_type'] == 'custom' and row['text']:
+                        res = await send_user_reminder(row['chat_id'], row['text'], row['id'])
                     else:
-                        await send_reminder(row['chat_id'], row['reminder_type'], bot)
-                    logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
+                        res = await send_reminder(row['chat_id'], row['reminder_type'])
                 except Exception as e:
-                    if _is_user_unavailable(e):
-                        logger.warning(f"User {row['chat_id']} blocked bot, marking reminder {row['id']} as sent")
-                        await _handle_unavailable_user(row['chat_id'], f"reminder {row['reminder_type']}")
-                    else:
-                        # Retry limit: increment fail_count, give up after 3 attempts
-                        fail_count = await conn.fetchval(
-                            'SELECT COALESCE(fail_count, 0) FROM public.reminder WHERE id = $1',
-                            row['id']
-                        )
-                        if fail_count is not None and fail_count >= 2:
-                            # 3rd failure — give up, leave sent=TRUE
-                            logger.error(f"Reminder {row['id']} to {row['chat_id']} failed 3 times, giving up: {e}")
-                        else:
-                            # Откатываем sent=TRUE и инкрементируем fail_count для retry
-                            await conn.execute(
-                                'UPDATE public.reminder SET sent = FALSE, fail_count = COALESCE(fail_count, 0) + 1 WHERE id = $1',
-                                row['id']
-                            )
-                            logger.error(f"Failed to send reminder to {row['chat_id']} (attempt {(fail_count or 0) + 1}/3): {e}")
-    finally:
-        await bot.session.close()
+                    # Queueing failed (database): nothing was handed over, retry later.
+                    skipped.append(row['id'])
+                    await _record_reminder_queue_failure(conn, row, e)
+                    continue
+
+                await conn.execute('UPDATE public.reminder SET sent = TRUE WHERE id = $1', row['id'])
+                outcome = "nothing due" if res is None else f"{res['status']} {res.get('reason', '')}".rstrip()
+                logger.info(f"Reminder {row['id']} ({row['reminder_type']}) to {row['chat_id']}: {outcome}")
+
+
+async def _record_reminder_queue_failure(conn, row, error: Exception) -> None:
+    """Count a failed hand-over; give up after the third one (as before the queue)."""
+    attempt = row['fail_count'] + 1
+    if attempt >= 3:
+        await conn.execute(
+            'UPDATE public.reminder SET sent = TRUE, fail_count = $2 WHERE id = $1',
+            row['id'], attempt,
+        )
+        logger.error(f"Reminder {row['id']} to {row['chat_id']} failed 3 times, giving up: {error}")
+    else:
+        await conn.execute(
+            'UPDATE public.reminder SET fail_count = $2 WHERE id = $1', row['id'], attempt,
+        )
+        logger.error(f"Failed to queue reminder {row['id']} for {row['chat_id']} "
+                     f"(attempt {attempt}/3): {error}")
 
 
 async def scheduled_check():
@@ -2012,8 +2015,12 @@ async def scheduled_check():
         finally:
             await bot.session.close()
 
-    # Проверяем напоминания
-    await check_reminders()
+    # Проверяем напоминания. A lost database connection here must not skip the
+    # feedback digests below; the next minute retries, the keys prevent duplicates.
+    try:
+        await check_reminders()
+    except Exception as e:
+        logger.exception(f"[Scheduler] check_reminders failed: {e}")
 
     # Дайджесты обратной связи для разработчика
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")

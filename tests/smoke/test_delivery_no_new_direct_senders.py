@@ -161,8 +161,6 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
     ("core/scheduler.py", "scheduled_check"),
     ("core/scheduler.py", "send_event_notifications"),
     ("core/scheduler.py", "send_milestone_notifications"),
-    ("core/scheduler.py", "send_reminder"),
-    ("core/scheduler.py", "send_user_reminder"),
     ("core/tier_detector.py", "_notify_downgrade"),
     ("core/tier_detector.py", "_notify_external_client_available"),
     ("core/unstick.py", "recover_user"),
@@ -196,7 +194,7 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
 })
 
 # Ratchet: lower this number in the same commit that moves a sender to the queue.
-INITIATIVE_PENDING_CEILING = 45
+INITIATIVE_PENDING_CEILING = 43
 
 ALLOWED_DIRECT_SENDERS = REPLY_SENDERS | OPS_SENDERS | INITIATIVE_PENDING
 
