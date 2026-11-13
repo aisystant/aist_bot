@@ -20,6 +20,7 @@ from typing import Optional
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from core.activity_board import apply_ecosystem, apply_totals
+from db.queries.cp_assessment import STAGE_NAMES
 from states.base import BaseState
 from i18n import t
 from config import MARATHON_DAYS, Mode
@@ -70,20 +71,22 @@ class ProgressState(BaseState):
 
     # ─── PREFETCH ─────────────────────────────────────────────
 
-    async def _fetch_points(self, account_id: Optional[str]):
-        """Баланс баллов через rewards.point_balances. Read-only.
+    async def _fetch_points(self, account_id: Optional[str]) -> dict:
+        """Баланс и всего начисленных баллов из rewards.point_balances одним запросом. Read-only.
 
         account_id = intern['dt_user_id'] (Ory UUID, хранится в public.users).
-        Возвращает Decimal или None (нет dt_user_id / нет начислений / ошибка).
+        Возвращает {'points', 'earned_total'}; значения None, если нет dt_user_id,
+        нет начислений или чтение упало (ошибка пишется в журнал).
         """
+        empty = {'points': None, 'earned_total': None}
         if not account_id:
-            return None
+            return empty
         try:
-            from db.queries.rewards import get_points_balance
-            return await get_points_balance(account_id)
+            from db.queries.rewards import get_point_totals
+            return await get_point_totals(account_id) or empty
         except Exception as e:
             logger.error(f"[Progress] _fetch_points error: {e}")
-            return None
+            return empty
 
     async def _fetch_ecosystem_days(self, chat_id: int, account_id: Optional[str],
                                     weeks: int = 4) -> Optional[list]:
@@ -155,7 +158,7 @@ class ProgressState(BaseState):
             total_stats,
             qa_stats,
             github,
-            points_balance,
+            point_totals,
             ecosystem_days,
             activity_totals,
         ) = await asyncio.gather(
@@ -194,9 +197,9 @@ class ProgressState(BaseState):
         if isinstance(github, Exception):
             logger.error(f"[Progress] github error: {github}")
             github = None
-        if isinstance(points_balance, Exception):
-            logger.error(f"[Progress] points_balance error: {points_balance}")
-            points_balance = None
+        if not isinstance(point_totals, dict):  # gather may hand back a BaseException (cancel)
+            logger.error(f"[Progress] point_totals error: {point_totals!r}")
+            point_totals = {'points': None, 'earned_total': None}
 
         # Марафон
         completed_topics = intern.get('completed_topics', [])
@@ -309,7 +312,9 @@ class ProgressState(BaseState):
             'active_days_total': activity_stats.get('total', 0),
             'days_active_week': activity_stats.get('days_active_this_week', 0),
             # Rewards (WP-253 Ф9.3 проекция)
-            'points_balance': points_balance,
+            'points_balance': point_totals['points'],
+            # Never decreases on bonus redemption; "total points" on the growth tab (WP-417 Ф8)
+            'earned_total': point_totals['earned_total'],
             # Calendar
             'calendar': cal_data,
             'most_active_wd': most_active_wd,
@@ -670,13 +675,7 @@ class ProgressState(BaseState):
         ])
         await self._show_section(user, text, keyboard, callback)
 
-    _CP_STAGE_LABELS = {
-        1: "Случайный",
-        2: "Практикующий",
-        3: "Систематический",
-        4: "Дисциплинированный",
-        5: "Проактивный",
-    }
+    _CP_STAGE_LABELS = STAGE_NAMES["ru"]
 
     _CP_SLOT_LABELS = {
         "cp.rhy": "Ритм",

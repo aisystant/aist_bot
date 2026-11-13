@@ -28,6 +28,7 @@ from aiogram.types import (
 from db.queries.cp_assessment import (
     MANDATORY_SLOTS,
     CP_TTL_DAYS,
+    STAGE_NAMES as CP_STAGE_NAMES,
     get_latest_cp_assessment,
     compute_cp_stage,
     describe_bottleneck,
@@ -242,14 +243,8 @@ _DEFAULT_CP = {s: 2 for s in MANDATORY_SLOTS}
 # WP-370: минимум якорных вопросов для валидного stage. Если меньше — показываем «диагностика не завершена».
 MIN_ANCHORS = 4  # все 4 mandatory якорных в PHASE1 (cp.rhy, cp.wld, cp.int, cp.agt); cp.iwe — informational
 
-# Человеко-читаемые имена ступеней
-STAGE_NAMES = {
-    1: "Случайный",
-    2: "Практикующий",
-    3: "Систематический",
-    4: "Дисциплинированный",
-    5: "Проактивный",
-}
+# Человеко-читаемые имена ступеней (единый словарь — db/queries/cp_assessment.py)
+STAGE_NAMES = CP_STAGE_NAMES["ru"]
 
 STREAM_LABELS = {
     "S1": "Фундамент — начать с основ",
