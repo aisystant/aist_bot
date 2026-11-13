@@ -5,6 +5,18 @@ import re
 
 _UNKNOWN_TIMEOUT = re.compile(r"^timeout \d+(?:ms|s): result unknown\b", re.IGNORECASE)
 
+# Target ids sent by github-integration-service (src/routes/webhook.ts, callReindexTarget);
+# the pilot reads names, not service ids (WP-538 F24). Unknown ids pass through escaped.
+_TARGET_NAMES = {
+    "knowledge": "сервер знаний",
+    "personal": "личный индекс знаний",
+    "bot_workbook": "рабочая тетрадь в боте",
+}
+
+
+def _target_name(value: object) -> str:
+    return _TARGET_NAMES.get(str(value)) or _escaped(value, 60)
+
 
 def _escaped(value: object, limit: int) -> str:
     text = str(value)
@@ -23,7 +35,7 @@ def render_reindex_alert(body: dict) -> str:
         if not isinstance(entry, dict):
             continue
         error = str(entry.get("error", "?"))
-        target = _escaped(entry.get("target", "?"), 60)
+        target = _target_name(entry.get("target", "?"))
         if _UNKNOWN_TIMEOUT.match(error):
             unknown.append(target)
         else:
