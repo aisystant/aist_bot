@@ -11,6 +11,7 @@ from integrations.telegram.widgets import build_progress_chat_data
 from states.utilities.progress import ProgressState
 
 TODAY = date(2026, 11, 12)  # Thursday
+ACCOUNT = "00000000-0000-0000-0000-000000000042"  # linked platform account (intern dt_user_id)
 
 
 def _calendar(days: int, bot_active: set[int] = frozenset()) -> list[dict]:
@@ -125,15 +126,15 @@ async def test_progress_fetch_asks_for_the_calendar_period_and_degrades_to_none(
     days = [_row(TODAY, "iwe")]
     with patch("db.queries.users.moscow_today", return_value=TODAY), \
          patch.object(gateway_mcp, "dt_read_activity", AsyncMock(return_value={"days": days})) as read:
-        assert await state._fetch_ecosystem_days(42) == days
+        assert await state._fetch_ecosystem_days(42, ACCOUNT) == days
     read.assert_awaited_once_with(42, "2026-10-15", "2026-11-12")
 
     with patch("db.queries.users.moscow_today", return_value=TODAY), \
          patch.object(gateway_mcp, "dt_read_activity", AsyncMock(return_value=None)):
-        assert await state._fetch_ecosystem_days(42) is None
+        assert await state._fetch_ecosystem_days(42, ACCOUNT) is None
     with patch("db.queries.users.moscow_today", return_value=TODAY), \
          patch.object(gateway_mcp, "dt_read_activity", AsyncMock(side_effect=RuntimeError("down"))):
-        assert await state._fetch_ecosystem_days(42) is None
+        assert await state._fetch_ecosystem_days(42, ACCOUNT) is None
 
 
 # ─── Nightly all-time totals (3_derived.3_15_activity) ──────────────────────
@@ -231,7 +232,7 @@ async def test_progress_totals_give_up_after_the_bound(monkeypatch):
     monkeypatch.setattr(progress, "OPTIONAL_GATEWAY_READ_SECONDS", 0.05)
     state = ProgressState.__new__(ProgressState)
     with patch.object(gateway_mcp, "dt_read_activity_totals", side_effect=hang):
-        assert await state._fetch_activity_totals(42) is None
+        assert await state._fetch_activity_totals(42, ACCOUNT) is None
 
 
 # ─── Gateway best-effort calls: no retry, shared breaker untouched ─────────
@@ -269,3 +270,74 @@ async def test_best_effort_timeout_is_one_attempt_and_not_a_breaker_failure():
 
 async def test_regular_timeout_still_retries_and_counts():
     assert await _timeout_call(best_effort=False) == (2, 1)
+
+
+# ─── Production hardening (review of the prod port, 13.11) ──────────────────
+
+def test_day_masks_skip_malformed_rows_and_keep_the_good_ones():
+    masks = day_masks([
+        "not a row", None, {"channel": "iwe", "events": 3},
+        {"day": TODAY.isoformat(), "channel": "club", "events": "many"},
+        {"day": TODAY.isoformat(), "channel": "bot", "events": [1]},
+        _row(TODAY, "iwe", 2),
+    ])
+
+    assert masks == {TODAY.isoformat(): CHANNEL_BITS["iwe"]}
+
+
+def test_apply_with_malformed_rows_still_marks_the_good_days():
+    cache = {"calendar": _calendar(3), "streak": 0, "longest_streak": 0, "active_days_total": 0}
+
+    apply_ecosystem(cache, [None, {"day": TODAY.isoformat(), "events": "x", "channel": "iwe"},
+                            _row(TODAY, "club")])
+
+    assert cache["calendar"][-1]["mask"] == CHANNEL_BITS["club"]
+    assert cache["calendar"][-1]["active"] is True
+
+
+async def test_no_linked_account_means_no_gateway_call():
+    state = ProgressState.__new__(ProgressState)
+    with patch.object(gateway_mcp, "dt_read_activity", AsyncMock()) as days, \
+         patch.object(gateway_mcp, "dt_read_activity_totals", AsyncMock()) as totals:
+        assert await state._fetch_ecosystem_days(42, None) is None
+        assert await state._fetch_activity_totals(42, "") is None
+    days.assert_not_awaited()
+    totals.assert_not_awaited()
+
+
+class _OkResponse:
+    status = 200
+
+    async def json(self):
+        return {"result": {"content": []}}
+
+
+class _OkPost:
+    def __call__(self, *args, **kwargs):
+        return self
+
+    async def __aenter__(self):
+        return _OkResponse()
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+async def _success_call(best_effort: bool) -> int:
+    session = type("S", (), {"post": _OkPost()})()
+    with patch.object(gateway_mcp, "_get_session", AsyncMock(return_value=session)), \
+         patch.object(gateway_mcp, "_get_access_token", return_value="token"):
+        gateway_mcp._failures, gateway_mcp._circuit_open = 2, False
+        assert await gateway_mcp._do_call("dt_read_activity", {}, 42, timeout=5,
+                                          best_effort=best_effort) == {"content": []}
+        failures = gateway_mcp._failures
+        gateway_mcp._failures = 0
+        return failures
+
+
+async def test_best_effort_success_does_not_reset_the_shared_breaker():
+    assert await _success_call(best_effort=True) == 2
+
+
+async def test_regular_success_still_resets_the_shared_breaker():
+    assert await _success_call(best_effort=False) == 0
