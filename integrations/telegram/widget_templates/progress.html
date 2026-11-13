@@ -28,9 +28,9 @@ body{margin:0;font-family:system-ui,sans-serif;color:var(--fg);background:transp
 <div class="w" id="root"></div>
 <script>
 var L={ru:{s:"дней подряд",r:"рекорд",w:"на неделе",t:"всего дней",p:"бонусы",c:"Активные действия по неделям",d:["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],g:["IWE","клуб","LMS","бот"],
- tb:["Календарь","7 дней","Рост"],wk:"Последние 7 дней по местам",na:"Другие места недоступны",nz:"В других местах активности нет",nd:"Данных пока нет",st:"Ступень",at:"оценка от",ns:"Диагностика не пройдена или устарела — /diagnose",e:"всего баллов"},
+ tb:["Календарь","7 дней","Рост"],wk:"Последние 7 дней по местам",na:"Другие места недоступны",nz:"В других местах активности нет",nd:"Данных пока нет",st:"Ступень",q:"Квалификация",at:"оценка от",ns:"Диагностика не пройдена или устарела — /diagnose",e:"всего баллов"},
 en:{s:"day streak",r:"record",w:"this week",t:"total days",p:"points",c:"Active days by week",d:["Mo","Tu","We","Th","Fr","Sa","Su"],g:["IWE","club","LMS","bot"],
- tb:["Calendar","7 days","Growth"],wk:"Last 7 days by place",na:"Other places unavailable",nz:"No activity in other places",nd:"No data yet",st:"Stage",at:"assessed",ns:"No valid diagnostic yet — /diagnose",e:"total points"}};
+ tb:["Calendar","7 days","Growth"],wk:"Last 7 days by place",na:"Other places unavailable",nz:"No activity in other places",nd:"No data yet",st:"Stage",q:"Qualification",at:"assessed",ns:"No valid diagnostic yet — /diagnose",e:"total points"}};
 var T=0;
 var G=["#2b8a3e","#1971c2","#e8590c","#9c36b5"];
 function cellStyle(m){
@@ -62,7 +62,7 @@ function week(d,l){
  return h;
 }
 function growth(d,l){
- var h='<div class="row">'+(d.g?'<b>'+l.st+' '+d.g+' — '+d.n+'</b>'+(d.d?' <span class="mut">· '+l.at+' '+d.d+'</span>':''):'<span class="mut">'+l.ns+'</span>')+'</div>';
+ var h='<div class="row">'+(d.f?'<b>'+l.q+': '+d.f+'</b>':d.g?'<b>'+l.st+' '+d.g+' — '+d.n+'</b>'+(d.d?' <span class="mut">· '+l.at+' '+d.d+'</span>':''):'<span class="mut">'+l.ns+'</span>')+'</div>';
  if(d.e!=null)h+='<div class="tiles">'+tile(d.e,l.e)+'</div>';
  return h;
 }

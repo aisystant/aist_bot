@@ -1690,6 +1690,10 @@ progress:
     ru: "Ступень"
     en: "Stage"
 
+  qualification:
+    ru: "Квалификация"
+    en: "Qualification"
+
   assessed_on:
     ru: "оценка от"
     en: "assessed"
