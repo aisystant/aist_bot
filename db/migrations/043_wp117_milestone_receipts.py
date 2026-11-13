@@ -38,8 +38,12 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
         existed = await conn.fetchval(
             """SELECT to_regclass('development.nudge_receipt') IS NOT NULL"""
         )
+        # The prod bot role has no CREATE on schema development; PostgreSQL checks
+        # that privilege before IF NOT EXISTS, so re-running the DDL fails there.
+        if existed:
+            return False
         await conn.execute(DDL)
-    return not bool(existed)
+    return True
 
 
 if __name__ == "__main__":
