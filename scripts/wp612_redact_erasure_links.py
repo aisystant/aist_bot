@@ -34,6 +34,7 @@ from core.erasure_trace import (  # noqa: E402
     REDACTED_POINT,
     bot_count_sql,
     erasure_command_list,
+    fill_sql,
     health_count_sql,
     learning_count_sql,
     sensitive_match_sql,
@@ -97,8 +98,8 @@ async def _control(conn, sql: str) -> dict[str, int]:
 
 
 def _health_control_sql() -> str:
-    other = sensitive_match_sql("elem")
-    return f"""
+    return fill_sql(
+        """
         SELECT
           (SELECT count(*)::int FROM public.request_traces) AS request_traces_rows,
           (SELECT count(*)::int FROM public.user_sessions) AS user_sessions_rows,
@@ -108,9 +109,11 @@ def _health_control_sql() -> str:
             SELECT count(*)::int
             FROM public.user_sessions AS s,
                  jsonb_array_elements_text(s.commands) AS elem
-            WHERE NOT {other}
+            WHERE NOT %%MATCH%%
           ) AS other_session_commands
-    """
+        """,
+        MATCH=sensitive_match_sql("elem"),
+    )
 
 
 def _bot_control_sql() -> str:
@@ -139,7 +142,8 @@ def _learning_control_sql() -> str:
 
 def _write_local_backup(store: str, rows) -> None:
     """Файл остаётся у пилота: в нём ещё есть номера, в репозиторий он не входит."""
-    path = Path(f"/tmp/wp612-erasure-{store}-backup.json")
+    # Путь фиксированный: эти два файла пилот снимет после повторного нуля.
+    path = Path(f"/tmp/wp612-erasure-{store}-backup.json")  # nosec B108
     payload = []
     for row in rows:
         snapshot = row["snapshot"]
@@ -188,121 +192,156 @@ async def _apply_health(conn) -> None:
     use_table = await _backup_table_allowed(conn)
     if not use_table:
         rows = await conn.fetch(
-            f"""
-            SELECT 'request_traces' AS store, trace_id::text AS row_key, to_jsonb(t) AS snapshot
-            FROM public.request_traces AS t
-            WHERE {match_command} AND user_id IS DISTINCT FROM 0
-            UNION ALL
-            SELECT 'user_sessions', id::text, to_jsonb(s)
-            FROM public.user_sessions AS s
-            WHERE EXISTS (
-                    SELECT 1 FROM jsonb_array_elements_text(s.commands) AS elem
-                    WHERE {match_elem}
-                  )
-               OR {match_entry}
-               OR {match_exit}
-            UNION ALL
-            SELECT 'error_logs', id::text, to_jsonb(e)
-            FROM public.error_logs AS e
-            WHERE jsonb_typeof(context) = 'object'
-              AND {match_ctx}
-              AND COALESCE(context->>'user_id', '0') <> '0'
-            """,
+            fill_sql(
+                """
+                SELECT 'request_traces' AS store, trace_id::text AS row_key, to_jsonb(t) AS snapshot
+                FROM public.request_traces AS t
+                WHERE %%COMMAND%% AND user_id IS DISTINCT FROM 0
+                UNION ALL
+                SELECT 'user_sessions', id::text, to_jsonb(s)
+                FROM public.user_sessions AS s
+                WHERE EXISTS (
+                        SELECT 1 FROM jsonb_array_elements_text(s.commands) AS elem
+                        WHERE %%ELEM%%
+                      )
+                   OR %%ENTRY%%
+                   OR %%EXIT%%
+                UNION ALL
+                SELECT 'error_logs', id::text, to_jsonb(e)
+                FROM public.error_logs AS e
+                WHERE jsonb_typeof(context) = 'object'
+                  AND %%CTX%%
+                  AND COALESCE(context->>'user_id', '0') <> '0'
+                """,
+                COMMAND=match_command,
+                ELEM=match_elem,
+                ENTRY=match_entry,
+                EXIT=match_exit,
+                CTX=match_ctx,
+            ),
             commands,
         )
         _write_local_backup("health", rows)
     if use_table:
         await conn.execute(
-            f"""
-            INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
-            SELECT 'request_traces', trace_id::text, to_jsonb(t)
-            FROM public.request_traces AS t
-            WHERE {match_command} AND user_id IS DISTINCT FROM 0
-            ON CONFLICT (store, row_key) DO NOTHING
-            """,
+            fill_sql(
+                """
+                INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
+                SELECT 'request_traces', trace_id::text, to_jsonb(t)
+                FROM public.request_traces AS t
+                WHERE %%COMMAND%% AND user_id IS DISTINCT FROM 0
+                ON CONFLICT (store, row_key) DO NOTHING
+                """,
+                COMMAND=match_command,
+            ),
             commands,
         )
         await conn.execute(
-            f"""
-            INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
-            SELECT 'user_sessions', id::text, to_jsonb(s)
-            FROM public.user_sessions AS s
-            WHERE EXISTS (
-                    SELECT 1 FROM jsonb_array_elements_text(s.commands) AS elem
-                    WHERE {match_elem}
-                  )
-               OR {match_entry}
-               OR {match_exit}
-            ON CONFLICT (store, row_key) DO NOTHING
-            """,
+            fill_sql(
+                """
+                INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
+                SELECT 'user_sessions', id::text, to_jsonb(s)
+                FROM public.user_sessions AS s
+                WHERE EXISTS (
+                        SELECT 1 FROM jsonb_array_elements_text(s.commands) AS elem
+                        WHERE %%ELEM%%
+                      )
+                   OR %%ENTRY%%
+                   OR %%EXIT%%
+                ON CONFLICT (store, row_key) DO NOTHING
+                """,
+                ELEM=match_elem,
+                ENTRY=match_entry,
+                EXIT=match_exit,
+            ),
             commands,
         )
         await conn.execute(
-            f"""
-            INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
-            SELECT 'error_logs', id::text, to_jsonb(e)
-            FROM public.error_logs AS e
-            WHERE jsonb_typeof(context) = 'object'
-              AND {match_ctx}
-              AND COALESCE(context->>'user_id', '0') <> '0'
-            ON CONFLICT (store, row_key) DO NOTHING
-            """,
+            fill_sql(
+                """
+                INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
+                SELECT 'error_logs', id::text, to_jsonb(e)
+                FROM public.error_logs AS e
+                WHERE jsonb_typeof(context) = 'object'
+                  AND %%CTX%%
+                  AND COALESCE(context->>'user_id', '0') <> '0'
+                ON CONFLICT (store, row_key) DO NOTHING
+                """,
+                CTX=match_ctx,
+            ),
             commands,
         )
     trace_rows = await conn.fetchval(
-        f"""
-        SELECT count(*)::int FROM public.request_traces
-        WHERE {match_command} AND user_id IS DISTINCT FROM 0
-        """,
+        fill_sql(
+            """
+            SELECT count(*)::int FROM public.request_traces
+            WHERE %%COMMAND%% AND user_id IS DISTINCT FROM 0
+            """,
+            COMMAND=match_command,
+        ),
         commands,
     )
     if trace_rows:
         await conn.execute(
-            f"""
-            UPDATE public.request_traces
-            SET user_id = 0
-            WHERE {match_command} AND user_id IS DISTINCT FROM 0
-            """,
+            fill_sql(
+                """
+                UPDATE public.request_traces
+                SET user_id = 0
+                WHERE %%COMMAND%% AND user_id IS DISTINCT FROM 0
+                """,
+                COMMAND=match_command,
+            ),
             commands,
         )
     await conn.execute(
-        f"""
-        UPDATE public.user_sessions AS s
-        SET commands = (
-                SELECT COALESCE(jsonb_agg(to_jsonb(elem) ORDER BY ordinality), '[]'::jsonb)
-                FROM jsonb_array_elements_text(s.commands) WITH ORDINALITY AS listed(elem, ordinality)
-                WHERE NOT {match_elem}
-            ),
-            entry_point = CASE WHEN {match_entry} THEN $2 ELSE entry_point END,
-            exit_point = CASE WHEN {match_exit} THEN $2 ELSE exit_point END
-        WHERE EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(s.commands) AS elem
-                WHERE {match_elem}
-              )
-           OR {match_entry}
-           OR {match_exit}
-        """,
+        fill_sql(
+            """
+            UPDATE public.user_sessions AS s
+            SET commands = (
+                    SELECT COALESCE(jsonb_agg(to_jsonb(elem) ORDER BY ordinality), '[]'::jsonb)
+                    FROM jsonb_array_elements_text(s.commands) WITH ORDINALITY AS listed(elem, ordinality)
+                    WHERE NOT %%ELEM%%
+                ),
+                entry_point = CASE WHEN %%ENTRY%% THEN $2 ELSE entry_point END,
+                exit_point = CASE WHEN %%EXIT%% THEN $2 ELSE exit_point END
+            WHERE EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(s.commands) AS elem
+                    WHERE %%ELEM%%
+                  )
+               OR %%ENTRY%%
+               OR %%EXIT%%
+            """,
+            ELEM=match_elem,
+            ENTRY=match_entry,
+            EXIT=match_exit,
+        ),
         commands,
         REDACTED_POINT,
     )
     error_rows = await conn.fetchval(
-        f"""
-        SELECT count(*)::int FROM public.error_logs
-        WHERE jsonb_typeof(context) = 'object'
-          AND {match_ctx}
-          AND COALESCE(context->>'user_id', '0') <> '0'
-        """,
+        fill_sql(
+            """
+            SELECT count(*)::int FROM public.error_logs
+            WHERE jsonb_typeof(context) = 'object'
+              AND %%CTX%%
+              AND COALESCE(context->>'user_id', '0') <> '0'
+            """,
+            CTX=match_ctx,
+        ),
         commands,
     )
     if error_rows:
         await conn.execute(
-            f"""
-            UPDATE public.error_logs
-            SET context = jsonb_set(context, '{{user_id}}', '0'::jsonb, true)
-            WHERE jsonb_typeof(context) = 'object'
-              AND {match_ctx}
-              AND COALESCE(context->>'user_id', '0') <> '0'
-            """,
+            fill_sql(
+                """
+                UPDATE public.error_logs
+                SET context = jsonb_set(context, '{user_id}', '0'::jsonb, true)
+                WHERE jsonb_typeof(context) = 'object'
+                  AND %%CTX%%
+                  AND COALESCE(context->>'user_id', '0') <> '0'
+                """,
+                CTX=match_ctx,
+            ),
             commands,
         )
     left = await _print_counts("проверка наблюдаемости", conn, health_count_sql())
@@ -319,21 +358,27 @@ async def _apply_bot(conn) -> None:
     before = await _control(conn, _bot_control_sql())
     await _ensure_backup(conn)
     await conn.execute(
-        f"""
-        INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
-        SELECT 'user_events', id::text, to_jsonb(e)
-        FROM development.user_events AS e
-        WHERE event_type = 'session_start' AND {match}
-        ON CONFLICT (store, row_key) DO NOTHING
-        """,
+        fill_sql(
+            """
+            INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
+            SELECT 'user_events', id::text, to_jsonb(e)
+            FROM development.user_events AS e
+            WHERE event_type = 'session_start' AND %%MATCH%%
+            ON CONFLICT (store, row_key) DO NOTHING
+            """,
+            MATCH=match,
+        ),
         commands,
     )
     await conn.execute(
-        f"""
-        UPDATE development.user_events
-        SET payload = jsonb_set(payload, '{{entry_point}}', to_jsonb($2::text), true)
-        WHERE event_type = 'session_start' AND {match}
-        """,
+        fill_sql(
+            """
+            UPDATE development.user_events
+            SET payload = jsonb_set(payload, '{entry_point}', to_jsonb($2::text), true)
+            WHERE event_type = 'session_start' AND %%MATCH%%
+            """,
+            MATCH=match,
+        ),
         commands,
         REDACTED_POINT,
     )
@@ -378,24 +423,30 @@ async def _apply_learning(conn) -> None:
     clear_hmac = ", account_hmac = NULL" if hmac_row else ""
     await _ensure_backup(conn)
     await conn.execute(
-        f"""
-        INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
-        SELECT 'domain_event', id::text, to_jsonb(d)
-        FROM public.domain_event AS d
-        WHERE event_type = 'request_traced'
-          AND account_id IS NOT NULL
-          AND {match}
-        ON CONFLICT (store, row_key) DO NOTHING
-        """,
+        fill_sql(
+            """
+            INSERT INTO public.wp612_erasure_link_backup (store, row_key, snapshot)
+            SELECT 'domain_event', id::text, to_jsonb(d)
+            FROM public.domain_event AS d
+            WHERE event_type = 'request_traced'
+              AND account_id IS NOT NULL
+              AND %%MATCH%%
+            ON CONFLICT (store, row_key) DO NOTHING
+            """,
+            MATCH=match,
+        ),
         commands,
     )
     planned = await conn.fetchval(
-        f"""
-        SELECT count(*)::int FROM public.domain_event
-        WHERE event_type = 'request_traced'
-          AND account_id IS NOT NULL
-          AND {match}
-        """,
+        fill_sql(
+            """
+            SELECT count(*)::int FROM public.domain_event
+            WHERE event_type = 'request_traced'
+              AND account_id IS NOT NULL
+              AND %%MATCH%%
+            """,
+            MATCH=match,
+        ),
         commands,
     )
     await conn.execute(
@@ -415,13 +466,17 @@ async def _apply_learning(conn) -> None:
     )
     await conn.execute("SELECT set_config('iwe.domain_event_admin', 'forget_account', true)")
     await conn.execute(
-        f"""
-        UPDATE public.domain_event
-        SET account_id = NULL{clear_hmac}
-        WHERE event_type = 'request_traced'
-          AND account_id IS NOT NULL
-          AND {match}
-        """,
+        fill_sql(
+            """
+            UPDATE public.domain_event
+            SET account_id = NULL%%HMAC%%
+            WHERE event_type = 'request_traced'
+              AND account_id IS NOT NULL
+              AND %%MATCH%%
+            """,
+            HMAC=clear_hmac,
+            MATCH=match,
+        ),
         commands,
     )
     await conn.execute("SELECT set_config('iwe.domain_event_admin', '', true)")

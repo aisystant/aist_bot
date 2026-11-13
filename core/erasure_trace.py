@@ -60,62 +60,99 @@ def erasure_command_list() -> list[str]:
     return sorted(ERASURE_TRACE_COMMANDS)
 
 
+def fill_sql(template: str, **parts: str) -> str:
+    """Подставить доверенные фрагменты в текст запроса.
+
+    Маркер в тексте — %%ИМЯ%%. Значение собирает вызывающий код из белого
+    списка, не из текста человека. Это обычная замена, не f-строка: проверка
+    безопасности не принимает маркер за имя таблицы.
+    """
+    rendered = template
+    for key, value in parts.items():
+        token = f"%%{key}%%"
+        if token not in rendered:
+            raise KeyError(key)
+        rendered = rendered.replace(token, value)
+    return rendered
+
+
 def health_count_sql() -> dict[str, str]:
     """Подсчёт оставшихся связок в базе наблюдаемости. Ключ — место, значение — SQL."""
+    omitted = str(OMITTED_USER_ID)
     return {
-        "request_traces": f"""
+        "request_traces": fill_sql(
+            """
             SELECT command, count(*)::int AS rows
             FROM public.request_traces
-            WHERE {sensitive_match_sql("command")}
-              AND user_id IS DISTINCT FROM {OMITTED_USER_ID}
+            WHERE %%MATCH%%
+              AND user_id IS DISTINCT FROM %%OMITTED%%
             GROUP BY command
             ORDER BY command
-        """,
-        "user_sessions.commands": f"""
+            """,
+            MATCH=sensitive_match_sql("command"),
+            OMITTED=omitted,
+        ),
+        "user_sessions.commands": fill_sql(
+            """
             SELECT elem AS command, count(*)::int AS rows
             FROM public.user_sessions AS s,
                  jsonb_array_elements_text(s.commands) AS elem
-            WHERE {sensitive_match_sql("elem")}
+            WHERE %%MATCH%%
             GROUP BY elem
             ORDER BY elem
-        """,
-        "user_sessions.entry_point": f"""
+            """,
+            MATCH=sensitive_match_sql("elem"),
+        ),
+        "user_sessions.entry_point": fill_sql(
+            """
             SELECT entry_point AS command, count(*)::int AS rows
             FROM public.user_sessions
-            WHERE {sensitive_match_sql("entry_point")}
+            WHERE %%MATCH%%
             GROUP BY entry_point
             ORDER BY entry_point
-        """,
-        "user_sessions.exit_point": f"""
+            """,
+            MATCH=sensitive_match_sql("entry_point"),
+        ),
+        "user_sessions.exit_point": fill_sql(
+            """
             SELECT exit_point AS command, count(*)::int AS rows
             FROM public.user_sessions
-            WHERE {sensitive_match_sql("exit_point")}
+            WHERE %%MATCH%%
             GROUP BY exit_point
             ORDER BY exit_point
-        """,
-        "error_logs": f"""
+            """,
+            MATCH=sensitive_match_sql("exit_point"),
+        ),
+        "error_logs": fill_sql(
+            """
             SELECT context->>'command' AS command, count(*)::int AS rows
             FROM public.error_logs
             WHERE jsonb_typeof(context) = 'object'
-              AND {sensitive_match_sql("context->>'command'")}
-              AND COALESCE(context->>'user_id', '0') <> '0'
+              AND %%MATCH%%
+              AND COALESCE(context->>'user_id', '0') <> '%%OMITTED%%'
             GROUP BY 1
             ORDER BY 1
-        """,
+            """,
+            MATCH=sensitive_match_sql("context->>'command'"),
+            OMITTED=omitted,
+        ),
     }
 
 
 def bot_count_sql() -> dict[str, str]:
     """Журнал бота: событие начала сессии хранит название команды."""
     return {
-        "user_events.session_start": f"""
+        "user_events.session_start": fill_sql(
+            """
             SELECT payload->>'entry_point' AS command, count(*)::int AS rows
             FROM development.user_events
             WHERE event_type = 'session_start'
-              AND {sensitive_match_sql("payload->>'entry_point'")}
+              AND %%MATCH%%
             GROUP BY 1
             ORDER BY 1
-        """,
+            """,
+            MATCH=sensitive_match_sql("payload->>'entry_point'"),
+        ),
     }
 
 
@@ -126,15 +163,18 @@ def learning_count_sql() -> dict[str, str]:
     останавливает чистку журнала: правка payload ломает цепочку хэшей.
     """
     return {
-        "domain_event.request_traced": f"""
+        "domain_event.request_traced": fill_sql(
+            """
             SELECT payload->>'command' AS command, count(*)::int AS rows
             FROM public.domain_event
             WHERE event_type = 'request_traced'
               AND account_id IS NOT NULL
-              AND {sensitive_match_sql("payload->>'command'")}
+              AND %%MATCH%%
             GROUP BY 1
             ORDER BY 1
-        """,
+            """,
+            MATCH=sensitive_match_sql("payload->>'command'"),
+        ),
         "domain_event.session_start_mentions": """
             SELECT count(*)::int AS rows
             FROM public.domain_event
