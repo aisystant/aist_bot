@@ -36,6 +36,32 @@ def day_masks(days: list[dict]) -> dict[str, int]:
     return masks
 
 
+def last_7_days(calendar: list[dict]) -> dict | None:
+    """Rolling last 7 calendar days by place: the one source for the text card and the widget.
+
+    Returns {"range": "dd.mm–dd.mm", "masks": [7 bit masks], "counts": {place: days},
+    "has_places": bool}. A day active only by the bot's own journal (active, mask 0) counts as
+    the bot. has_places is False until the ecosystem answer arrived (apply_ecosystem sets a mask
+    on every day); then only the bot row is known. None for an empty calendar.
+    """
+    window = calendar[-7:]
+    if not window:
+        return None
+    masks = []
+    for day in window:
+        mask = int(day.get("mask") or 0)
+        if day.get("active") and not mask:
+            mask = CHANNEL_BITS["bot"]
+        masks.append(mask)
+    first, last = date.fromisoformat(window[0]["date"]), date.fromisoformat(window[-1]["date"])
+    return {
+        "range": f"{first:%d.%m}–{last:%d.%m}",
+        "masks": masks,
+        "counts": {place: sum(1 for mask in masks if mask & bit) for place, bit in CHANNEL_BITS.items()},
+        "has_places": any("mask" in day for day in calendar),
+    }
+
+
 def _runs(active: list[bool]) -> tuple[int, int]:
     """(current streak, longest streak). Today still open: a run ending yesterday stays current."""
     longest = run = 0

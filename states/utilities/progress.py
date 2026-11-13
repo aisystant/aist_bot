@@ -17,13 +17,19 @@ import logging
 from datetime import timedelta
 from typing import Optional
 
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
-from core.activity_board import apply_ecosystem, apply_totals
-from db.queries.cp_assessment import STAGE_NAMES
-from states.base import BaseState
-from i18n import t
 from config import MARATHON_DAYS, Mode
+from core.activity_board import apply_ecosystem, apply_totals, last_7_days
+from db.queries.cp_assessment import STAGE_NAMES
+from i18n import t
+from integrations.telegram.widgets import stage_fields
+from states.base import BaseState
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,42 @@ logger = logging.getLogger(__name__)
 # gateway slot; past this the overview is shown with the bot's own data.
 OPTIONAL_GATEWAY_READ_SECONDS = 8
 
+
+
+def whole_number(value) -> int | None:
+    """Points from the cache as an int; None for a missing or unreadable value (old cache, NaN)."""
+    try:
+        return int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def overview_week_line(calendar: list[dict], lang: str) -> str | None:
+    """Text-card line for the last 7 days by place: same numbers as the widget's 7-days tab."""
+    week = last_7_days(calendar)
+    if week is None:
+        return None
+    counts = week["counts"]
+    head = f"📍 {t('progress.week_places', lang)}, {week['range']}:"
+    if not week["has_places"]:
+        return f"{head} {t('progress.place_bot', lang)} {counts['bot']} · IWE, {t('progress.place_club', lang)}, LMS {t('progress.places_unavailable', lang)}"
+    return (f"{head} IWE {counts['iwe']} · {t('progress.place_club', lang)} {counts['club']}"
+            f" · LMS {counts['lms']} · {t('progress.place_bot', lang)} {counts['bot']}")
+
+
+def overview_growth_line(cache: dict, lang: str) -> str:
+    """Text-card line for growth: stage of the latest valid diagnostic and total points earned."""
+    stage = stage_fields(cache.get('cp_profile'), lang)
+    if stage:
+        line = f"📈 {t('progress.stage_line', lang)} {stage['g']} — {stage['n']}"
+        if 'd' in stage:
+            line += f" ({t('progress.assessed_on', lang)} {stage['d']})"
+    else:
+        line = f"📈 {t('progress.no_stage', lang)}"
+    earned = whole_number(cache.get('earned_total'))
+    if earned is not None:
+        line += f" · {t('progress.earned_total', lang)}: {earned}"
+    return line
 
 class ProgressState(BaseState):
     """
@@ -135,16 +177,18 @@ class ProgressState(BaseState):
 
     async def _prefetch(self, chat_id: int) -> dict:
         """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
+        from core.topics import TOPICS, get_display_day, get_marathon_day
         from db.queries import get_intern
+        from db.queries.activity import get_activity_calendar, get_activity_stats
         from db.queries.answers import (
-            get_weekly_marathon_stats, get_weekly_feed_stats,
-            get_total_stats, get_work_products_by_day,
             get_theory_count_at_level,
+            get_total_stats,
+            get_weekly_feed_stats,
+            get_weekly_marathon_stats,
+            get_work_products_by_day,
         )
-        from db.queries.activity import get_activity_stats, get_activity_calendar
-        from db.queries.qa import get_user_qa_stats
         from db.queries.github import get_github_connection
-        from core.topics import get_marathon_day, get_display_day, TOPICS
+        from db.queries.qa import get_user_qa_stats
 
         intern = await get_intern(chat_id)
         if not intern:
@@ -370,8 +414,8 @@ class ProgressState(BaseState):
 
     async def enter(self, user, context: dict = None) -> None:
         """Обзорная карточка + навигационные кнопки."""
-        from db.queries.users import update_intern
         from db.queries.marathon_newcomer import has_active_marathon_progress
+        from db.queries.users import update_intern
 
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
@@ -434,8 +478,13 @@ class ProgressState(BaseState):
         text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest} {t('progress.days', lang)}\n"
         text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
         text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
+        points = whole_number(points)
         if points is not None:
-            text += f"🏆 Бонусы: {int(float(points))}\n"
+            text += f"🏆 {t('progress.bonuses', lang)}: {points}\n"
+        week_line = overview_week_line(cache.get('calendar') or [], lang)
+        if week_line:
+            text += week_line + "\n"
+        text += overview_growth_line(cache, lang) + "\n"
         text += f"📆 {t('progress.since', lang)}: {reg_date}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -469,9 +518,10 @@ class ProgressState(BaseState):
             build_progress_chat_data,
             load_template,
             progress_widget_enabled,
+            widget_breaker,
         )
 
-        if not progress_widget_enabled():
+        if not progress_widget_enabled() or not widget_breaker.allows():
             return False
         chat_id = self._get_chat_id(user)
         try:
@@ -484,7 +534,10 @@ class ProgressState(BaseState):
             ))
         except (TelegramAPIError, OSError, ValueError) as e:
             logger.warning(f"[Progress] widget send failed for chat {chat_id}, falling back to text: {e}")
+            if widget_breaker.record_failure(e, chat_id):
+                logger.warning(f"[Progress] Telegram keeps refusing widgets: no widget sends for {widget_breaker.PAUSE_S:.0f} s")
             return False
+        widget_breaker.record_success()
         logger.info(f"[Progress] widget sent to chat {chat_id}")
         return True
 
