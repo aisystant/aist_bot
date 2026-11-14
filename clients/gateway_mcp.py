@@ -818,6 +818,22 @@ class GatewayMCPClient:
         parsed = self._parse_text_content(result)
         return parsed if isinstance(parsed, dict) and isinstance(parsed.get("channels"), dict) else None
 
+    async def dt_read_degree(self, telegram_user_id: int) -> Optional[dict]:
+        """Current qualification: {level, numeric, ...} or None.
+
+        Reads 3_derived.3_8_degree (the Profiler recomputes it nightly) and, while that is empty
+        (new qualification before the night run, profile not computed yet), the source it is
+        computed from, 2_collected.2_2_courses.qualification_level written by dt_sync from LMS.
+        Same fallback as handlers/twin.py and states/utilities/mydata.py.
+        """
+        for path in ("3_derived.3_8_degree", "2_collected.2_2_courses.qualification_level"):
+            result = await self._call("dt_read_digital_twin", {"path": path},
+                                      telegram_user_id, timeout=5, best_effort=True)
+            parsed = self._parse_text_content(result)
+            if isinstance(parsed, dict) and isinstance(parsed.get("level"), str) and parsed["level"]:
+                return parsed
+        return None
+
     async def dt_describe(self, path: str, telegram_user_id: Optional[int] = None) -> Optional[str]:
         """Описание метамодели ЦД."""
         result = await self._call("dt_describe_by_path", {"path": path}, telegram_user_id)

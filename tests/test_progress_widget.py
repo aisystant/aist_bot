@@ -19,6 +19,7 @@ from integrations.telegram.widgets import (
     SendWidget,
     WidgetRefusalBreaker,
     build_progress_chat_data,
+    growth_fields,
     load_template,
     progress_widget_enabled,
 )
@@ -249,6 +250,49 @@ async def test_get_point_totals_reads_both_fields_from_one_row(monkeypatch):
     assert len(queries) == 2 and "points, earned_total" in queries[0][0]
 
 
+async def test_dt_read_degree_falls_back_to_lms_record_until_the_night_run(monkeypatch):
+    from clients.gateway_mcp import gateway_mcp
+
+    twin = {"3_derived.3_8_degree": json.dumps({"level": "", "numeric": 0}),
+            "2_collected.2_2_courses.qualification_level": json.dumps(_REFORMER)}
+    paths = []
+
+    async def call(tool, args, chat_id, **kwargs):
+        paths.append(args["path"])
+        return twin[args["path"]]
+
+    monkeypatch.setattr(gateway_mcp, "_call", call)
+    monkeypatch.setattr(gateway_mcp, "_parse_text_content", json.loads)
+
+    assert await gateway_mcp.dt_read_degree(42) == _REFORMER
+    assert paths == ["3_derived.3_8_degree", "2_collected.2_2_courses.qualification_level"]
+    twin["3_derived.3_8_degree"] = json.dumps(_REFORMER)
+    paths.clear()
+    assert await gateway_mcp.dt_read_degree(42) == _REFORMER and paths == ["3_derived.3_8_degree"]
+
+
+async def test_fetch_degree_reads_the_twin_and_degrades_to_none(monkeypatch):
+    from clients.gateway_mcp import gateway_mcp
+    from states.utilities.progress import ProgressState
+
+    state = ProgressState.__new__(ProgressState)
+    reads = []
+
+    async def degree(chat_id):
+        reads.append(chat_id)
+        return _REFORMER
+
+    async def down(chat_id):
+        raise TimeoutError("gateway down")
+
+    monkeypatch.setattr(gateway_mcp, "dt_read_degree", degree)
+    assert await state._fetch_degree(42, "acc") == _REFORMER
+    assert await state._fetch_degree(42, None) is None   # no linked account: no gateway call
+    monkeypatch.setattr(gateway_mcp, "dt_read_degree", down)
+    assert await state._fetch_degree(42, "acc") is None
+    assert reads == [42]
+
+
 async def test_fetch_points_degrades_to_empty_on_error(monkeypatch):
     from db.queries import rewards
     from states.utilities.progress import ProgressState
@@ -342,13 +386,37 @@ def test_overview_text_lines_ru_en_and_fallbacks():
     assert overview_week_line(_board(masks=None)["calendar"], "ru") == (
         "📍 Последние 7 дней, 05.11–11.11: бот 7 · IWE, клуб, LMS недоступны")
     assert overview_week_line([], "ru") is None
-    assert overview_growth_line(board, "ru") == "📈 Ступень 4 — Дисциплинированный (оценка от 02.11) · Всего баллов: 250"
-    assert overview_growth_line(board, "en") == "📈 Stage 4 — Disciplined (assessed 02.11) · Total points: 250"
+    assert overview_growth_line(board, "ru") == "📈 Ступень 4 — Дисциплинированный (оценка от 02.11)\n🏅 Всего баллов: 250"
+    assert overview_growth_line(board, "en") == "📈 Stage 4 — Disciplined (assessed 02.11)\n🏅 Total points: 250"
     assert overview_growth_line(dict(board, cp_profile=None, earned_total=None), "ru") == (
         "📈 Ступень: диагностика не пройдена или устарела — /diagnose")
     assert "Etapa 4 — Disciplinado" in overview_growth_line(board, "es")
     assert "Ступень 4 — Дисциплинированный" in overview_growth_line(board, "de")  # unknown language: Russian, as i18n
     assert overview_growth_line(dict(board, earned_total="NaN"), "ru").endswith("(оценка от 02.11)")
+
+
+_REFORMER = {"code": "L7", "level": "Реформатор", "numeric": 70, "source": "lms", "event_date": "2026-04-19T00:00:00+00:00"}
+
+
+@pytest.mark.parametrize("degree, expected", [
+    (_REFORMER, {"f": "Реформатор"}),                                 # Работник+: qualification, no stage
+    (dict(_REFORMER, level="Работник", numeric=25), {"f": "Работник"}),
+    (dict(_REFORMER, level="Ученик", numeric=20), {"g": 4, "n": "Дисциплинированный", "d": "02.11"}),  # stage lives here
+    (None, {"g": 4, "n": "Дисциплинированный", "d": "02.11"}),          # unknown qualification: keep the stage
+    (dict(_REFORMER, numeric="n/a"), {"g": 4, "n": "Дисциплинированный", "d": "02.11"}),
+    (["Реформатор"], {"g": 4, "n": "Дисциплинированный", "d": "02.11"}),
+    (dict(_REFORMER, level=""), {"g": 4, "n": "Дисциплинированный", "d": "02.11"}),   # no name: never «Квалификация: »
+    (dict(_REFORMER, numeric="inf"), {"g": 4, "n": "Дисциплинированный", "d": "02.11"}),
+])
+def test_growth_shows_qualification_instead_of_stage_from_worker_up(degree, expected):
+    assert growth_fields(_board(degree=degree), "ru") == expected
+
+
+def test_overview_growth_line_for_reformer_has_no_stage():
+    line = overview_growth_line(_board(degree=_REFORMER, earned_total=123540), "ru")
+
+    assert line == "🎓 Квалификация: Реформатор\n🏅 Всего баллов: 123540"
+    assert "Ступень" not in line
 
 
 async def test_text_card_shows_week_and_growth_when_widget_is_not_sent(monkeypatch):
@@ -420,6 +488,7 @@ def test_template_tabs_render_for_every_data_shape():
         (_board(cp_profile=None), "ru"),                              # no valid diagnostic
         (_board(earned_total=None), "ru"),                            # no points row
         (_board(), "en"),
+        (_board(degree=_REFORMER), "ru"),                             # Работник+: qualification, no stage
     ]
     views = _render_tabs([build_progress_chat_data(cache, lang) for cache, lang in cases])
 
@@ -442,6 +511,7 @@ def test_template_tabs_render_for_every_data_shape():
     assert "Диагностика не пройдена или устарела — /diagnose" in views[5][2]
     assert "всего баллов" not in views[6][2]
     assert "Stage 4 — Disciplined" in views[7][2] and "Growth" in views[7][0]
+    assert "Квалификация: Реформатор" in views[8][2] and "Ступень" not in views[8][2]
 
 
 def test_widget_and_text_card_show_the_same_week():

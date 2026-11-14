@@ -112,6 +112,7 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
     calendar day, bits iwe 1 / club 2 / lms 4 / bot 8; omitted without ecosystem data),
     h "dd.mm–dd.mm" of the last 7 calendar days and q their place masks (hex digit per day,
     bot-only days already carry the bot bit; core/activity_board.last_7_days) for the 7-days tab,
+    f qualification name for «Работник» and above (then no stage keys),
     e total points earned (never decreases on redemption), g stage 1..5 of the latest
     valid diagnostic, n its name, d "dd.mm" (Moscow) of that diagnostic; e/g/n/d are
     omitted when unknown (growth tab, WP-417 Ф8).
@@ -148,9 +149,27 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
     earned = cache.get("earned_total")
     if earned is not None:
         payload["e"] = int(float(earned))
-    payload.update(stage_fields(cache.get("cp_profile"), payload["l"]))
+    payload.update(growth_fields(cache, payload["l"]))
 
     return json.dumps(payload, separators=(",", ":"))
+
+
+# Stages 1..5 exist only inside the «Ученик» qualification (WP-149 canon, 05.07.2026); from
+# «Работник» (LMS numeric 25, db/queries/dt_sync.py) up a person has a qualification, no stage.
+QUALIFIED_NUMERIC_MIN = 25
+
+
+def growth_fields(cache: dict, lang: str) -> dict:
+    """Growth keys: {"f": qualification} for «Работник» and above, otherwise stage keys g/n/d."""
+    degree = cache.get("degree")
+    if isinstance(degree, dict) and isinstance(degree.get("level"), str) and degree["level"]:
+        try:
+            numeric = float(degree.get("numeric"))
+        except (TypeError, ValueError):
+            numeric = None
+        if numeric is not None and math.isfinite(numeric) and numeric >= QUALIFIED_NUMERIC_MIN:
+            return {"f": degree["level"]}
+    return stage_fields(cache.get("cp_profile"), lang)
 
 
 def stage_fields(cp_profile: dict | None, lang: str) -> dict:

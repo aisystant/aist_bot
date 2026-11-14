@@ -340,6 +340,7 @@ progress:
   place_bot: "bot"
   places_unavailable: "indisponibles"
   stage_line: "Étape"
+  qualification: "Qualification"
   assessed_on: "évaluée le"
   no_stage: "Étape : pas de diagnostic valide — /diagnose"
   earned_total: "Points au total"
