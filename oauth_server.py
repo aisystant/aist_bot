@@ -2030,10 +2030,9 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
     repo_name = body.get('repo_name', '')
 
     if notify_type == 'ops_alert':
-        # WP-391 Ф6 P0#2 (пир-сессия 2026-07-29, Kimi+Hermes): ops-канал для
-        # reindex-алертов. Чат — OPS_ALERT_CHAT_ID (env); без него алерт деградирует
-        # в лог (поведение до этой правки) и 503 вызывающему — видно в мониторинге.
+        import asyncio as _asyncio
         from core.reindex_alert import render_reindex_alert
+        from core.ops_alert_dedup import mark_alert_sent, release_reservation, reserve_reindex_alert
         ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
         if not ops_chat_id:
             logger.warning("[InternalNotify] ops_alert получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
@@ -2041,26 +2040,31 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         if not _bot_instance:
             logger.warning("[InternalNotify] Bot instance not ready")
             return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
+        accepted, reservation, token = await reserve_reindex_alert(body)
+        if not accepted:
+            logger.info("[InternalNotify] ops_alert deduped key=%s", reservation)
+            return web.Response(text=json.dumps({"ok": True, "deduped": True}), content_type="application/json")
         try:
             await _bot_instance.send_message(
                 chat_id=int(ops_chat_id),
                 text=render_reindex_alert(body),
                 parse_mode="HTML",
             )
+            mark_alert_sent(reservation, token)
             logger.info("[InternalNotify] ops_alert sent")
             return web.Response(text=json.dumps({"ok": True}), content_type="application/json")
+        except _asyncio.CancelledError:
+            release_reservation(reservation, token)
+            raise
         except Exception as e:
+            release_reservation(reservation, token)
             logger.exception("[InternalNotify] Error sending ops_alert: %s", e)
             return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
 
     if notify_type == 'installation_orphaned':
-        # WP-559 (live case 13.09, Ivan K.): github-integration-service could not match a
-        # GitHub installation webhook to any user (no state-bearing install on file, no
-        # matching github_user_id) — the event sits in knowledge.orphaned_installation_events
-        # forever, nothing re-reads that table. Surface it the moment it happens instead of
-        # waiting for the user to complain.
-        # WP-559: acknowledge orphan alerts only after Telegram accepts delivery.
+        import asyncio as _asyncio
         import html as _html
+        from core.ops_alert_dedup import mark_alert_sent, release_reservation, reserve_installation_orphaned
         ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
         if not ops_chat_id:
             logger.warning("[InternalNotify] installation_orphaned получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
@@ -2068,21 +2072,37 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         if not _bot_instance:
             logger.warning("[InternalNotify] Bot instance not ready")
             return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
+        accepted, reservation, token = await reserve_installation_orphaned(body)
+        if not accepted:
+            logger.info("[InternalNotify] installation_orphaned deduped key=%s", reservation)
+            return web.Response(text=json.dumps({"ok": True, "deduped": True}), content_type="application/json")
         installation_id = _html.escape(str(body.get('installation_id', '?')))
         github_user_id = _html.escape(str(body.get('github_user_id', '?')))
+        action_text = {
+            'added': 'добавление репозитория',
+            'removed': 'удаление репозитория',
+            'deleted': 'удаление установки',
+            'suspend': 'приостановка установки',
+            'unsuspend': 'возобновление установки',
+        }.get(body.get('action'), 'изменение установки')
         try:
             await _bot_instance.send_message(
                 chat_id=int(ops_chat_id),
                 text=(
-                    f"⚠️ <b>GitHub-подключение потерялось</b>: установка <code>{installation_id}</code> "
-                    f"не сопоставилась ни с одним пользователем (github_user_id=<code>{github_user_id}</code>).\n"
-                    f"Смотри knowledge.orphaned_installation_events, сопоставляй вручную."
+                    f"⚠️ <b>GitHub-установка не сопоставлена</b>: установка <code>{installation_id}</code> "
+                    f"не связана ни с одним пользователем (github_user_id=<code>{github_user_id}</code>).\n"
+                    f"Событие: {action_text}. Запись в knowledge.orphaned_installation_events ждёт разбора."
                 ),
                 parse_mode="HTML",
             )
+            mark_alert_sent(reservation, token)
             logger.info("[InternalNotify] installation_orphaned installation_id=%s sent", installation_id)
             return web.Response(text=json.dumps({"ok": True}), content_type="application/json")
+        except _asyncio.CancelledError:
+            release_reservation(reservation, token)
+            raise
         except Exception as e:
+            release_reservation(reservation, token)
             logger.exception("[InternalNotify] Error sending installation_orphaned: %s", e)
             return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
 
