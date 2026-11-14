@@ -18,6 +18,7 @@ from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
+from core.qualification import degree_from_profile, qualified_level
 from states.base import BaseState
 from i18n import t
 
@@ -584,20 +585,14 @@ class MyDataState(BaseState):
             # Извлечь ключевые поля
             result = {}
             derived = (profile.get('_derived') or profile.get('3_derived')) or {}
-            # Degree: 3_derived.3_8_degree → 2_collected.2_2_courses.qualification_level
-            degree_d = derived.get('3_8_degree') or {}
-            if degree_d.get('level'):
-                result['Степень квалификации'] = degree_d['level']
-            else:
-                collected = profile.get('2_collected', {}) or {}
-                qual = (collected.get('2_2_courses', {}) or {}).get('qualification_level', {}) or {}
-                if qual.get('level'):
-                    result['Степень квалификации'] = qual['level']
-            # Stage: 3_derived.3_4_qualification
+            degree = degree_from_profile(profile)
+            if degree:
+                result['Степень квалификации'] = degree['level']
+            # Stage: 3_derived.3_4_qualification; only inside «Ученик», none from «Работник» up
             from handlers.twin import STAGE_NAMES_RU
             qual_s = derived.get('3_4_qualification') or {}
             stage_num = qual_s.get('stage')
-            if stage_num is not None:
+            if stage_num is not None and not qualified_level(degree):
                 stage_name = STAGE_NAMES_RU.get(stage_num, '?')
                 result['Ступень ученика'] = f"{stage_name} ({stage_num}/5)"
             # Note: profile.get('stage') is legacy — removed to avoid stale data.

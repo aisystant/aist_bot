@@ -16,6 +16,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from db.queries import get_intern
+from core.qualification import degree_from_profile, qualified_level
 from handlers.dt_indicators import DTGroup
 from helpers.typing_indicator import keep_typing
 from i18n import t
@@ -81,21 +82,18 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     collected = profile.get("2_collected", {}) or {}
 
     # ── Degree ──
-    degree_d = derived.get(DTGroup.DEGREE) or {}
-    if degree_d.get("level"):
-        degree = degree_d["level"]
-    else:
-        courses = (collected.get("2_2_courses", {}) or {})
-        qual = (courses.get("qualification_level", {}) or {})
-        degree = qual.get("level") or t('twin.lms_not_connected', lang)
+    degree_record = degree_from_profile(profile)
+    degree = degree_record["level"] if degree_record else t('twin.lms_not_connected', lang)
 
-    # ── Stage ──
-    qualification = derived.get(DTGroup.QUALIFICATION) or {}
-    stage_num = qualification.get("stage")
-    if stage_num is not None:
-        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
-    else:
-        stage = profile.get("stage") or t('twin.not_set', lang)
+    # ── Stage: only inside «Ученик»; «Работник» and above have a qualification, no stage ──
+    stage = None
+    if not qualified_level(degree_record):
+        qualification = derived.get(DTGroup.QUALIFICATION) or {}
+        stage_num = qualification.get("stage")
+        if stage_num is not None:
+            stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
+        else:
+            stage = profile.get("stage") or t('twin.not_set', lang)
 
     # ── Agency index ──
     # IND.3.10.1 Интегральный индекс агентности
@@ -220,7 +218,8 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         lines[0] = f"📋 *{name} — {t('twin.profile_title', lang)}*"
     lines.append("")
     lines.append(f"🎓 {t('twin.degree_label', lang)}: {_display_degree(degree)}")
-    lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
+    if stage is not None:
+        lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
     lines.append(f"🎯 Агентность: {agency_text}")
     lines.append("")
     lines.append(f"📊 Активность: {ev_7d} событий/7д  |  {ev_30d}/30д  |  {active_days} активных дней")
@@ -567,27 +566,17 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     lines = [f"📋 *{name} — {t('twin.profile_title', lang)}*"]
     lines.append("")
 
-    # Degree (from DT profile or derived)
-    degree = None
-    degree_d = derived.get('3_8_degree') or {}
-    if degree_d.get('level'):
-        degree = degree_d['level']
-    elif dt_profile:
-        dt_degree = ((dt_profile.get('3_derived') or {}).get('3_8_degree') or {})
-        if dt_degree.get('level'):
-            degree = dt_degree['level']
-        else:
-            dt_courses = ((dt_profile.get('2_collected') or {}).get('2_2_courses') or {})
-            qual = dt_courses.get('qualification_level') or {}
-            degree = qual.get('level')
-    if degree:
-        degree = _display_degree(degree)
-        lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}")
+    # Degree (from derived, then the DT profile, then the raw engagement view)
+    degree_record = (degree_from_profile({"3_derived": derived})
+                     or degree_from_profile(dt_profile)
+                     or degree_from_profile({"2_collected": engagement}))
+    if degree_record:
+        lines.append(f"🎓 {t('twin.degree_label', lang)}: {_display_degree(degree_record['level'])}")
 
-    # Stage
+    # Stage: only inside «Ученик»; «Работник» and above have a qualification, no stage
     qualification = derived.get('3_4_qualification') or {}
     stage_num = qualification.get('stage')
-    if stage_num is not None:
+    if stage_num is not None and not qualified_level(degree_record):
         stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
         lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
 

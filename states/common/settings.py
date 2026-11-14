@@ -21,6 +21,7 @@ from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
+from core.qualification import degree_from_profile, qualified_level
 from states.base import BaseState
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
@@ -1272,20 +1273,14 @@ class SettingsState(BaseState):
 
             profile = await gateway_mcp.get_user_profile(chat_id)
             if profile and isinstance(profile, dict):
-                # Degree: 3_derived.3_8_degree → 2_collected.2_2_courses.qualification_level
                 derived = (profile.get('_derived') or profile.get('3_derived')) or {}
-                degree_d = derived.get('3_8_degree') or {}
-                if degree_d.get('level'):
-                    degree = degree_d['level']
-                else:
-                    collected = profile.get('2_collected', {}) or {}
-                    qual = (collected.get('2_2_courses', {}) or {}).get('qualification_level', {}) or {}
-                    degree = qual.get('level') or t('twin.not_set_m', lang)
-                # Stage: 3_derived.3_4_qualification
-                qual_s = derived.get('3_4_qualification') or {}
-                stage = qual_s.get('stage') or profile.get('stage') or t('twin.not_set_m', lang)
-                lines.append(f"🎓 {t('twin.degree_label', lang)}: *{degree}*")
-                lines.append(f"📊 {t('twin.stage_label', lang)}: *{stage}*")
+                degree = degree_from_profile(profile)
+                lines.append(f"🎓 {t('twin.degree_label', lang)}: *{degree['level'] if degree else t('twin.not_set_m', lang)}*")
+                # Stage: 3_derived.3_4_qualification; only inside «Ученик», none from «Работник» up
+                if not qualified_level(degree):
+                    qual_s = derived.get('3_4_qualification') or {}
+                    stage = qual_s.get('stage') or profile.get('stage') or t('twin.not_set_m', lang)
+                    lines.append(f"📊 {t('twin.stage_label', lang)}: *{stage}*")
 
             buttons = [
                 [InlineKeyboardButton(
