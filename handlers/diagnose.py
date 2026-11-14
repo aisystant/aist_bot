@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import uuid
@@ -33,6 +34,8 @@ from db.queries.cp_assessment import (
     compute_cp_stage,
     describe_bottleneck,
 )
+from core.qualification import qualified_level
+from helpers.typing_indicator import keep_typing
 
 logger = logging.getLogger(__name__)
 diagnose_router = Router(name="diagnose")
@@ -349,17 +352,46 @@ def _determine_phase2_slot(scores: dict) -> str | None:
     return bottleneck if mandatory_asked[bottleneck] < 3 else None
 
 
-def _format_result(profile: dict, valid_until_iso: str | None) -> str:
+# Same ceiling as the optional twin reads of /progress (states/utilities/progress.py).
+QUALIFICATION_READ_SECONDS = 8
+
+
+async def _qualification(chat_id: int) -> str | None:
+    """Qualification name for «Работник» and above; None for «Ученик», no twin or a failed read.
+
+    Stages 1..5 exist only inside «Ученик» (WP-149), so a qualified person sees the
+    qualification instead of the stage (WP-417 Ф8). Best effort: the diagnostic result is shown
+    with the stage when the twin cannot be read.
+    """
+    from clients.gateway_mcp import gateway_mcp
+    if not gateway_mcp.is_connected(chat_id):
+        return None
+    try:
+        degree = await asyncio.wait_for(gateway_mcp.dt_read_degree(chat_id), QUALIFICATION_READ_SECONDS)
+    except Exception as e:
+        logger.warning("[diagnose] qualification read failed (chat=%s): %r", chat_id, e)
+        return None
+    return qualified_level(degree)
+
+
+def _level_line(stage: int, qualification: str | None) -> str:
+    if qualification:
+        return f"🎓 Квалификация: <b>{html.escape(qualification)}</b>"
+    stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
+    return f"Ступень: <b>{stage_name} ({stage} из 5)</b>"
+
+
+def _format_result(profile: dict, valid_until_iso: str | None, qualification: str | None = None) -> str:
     stage = profile["stage"]
     bottleneck = profile["bottleneck_slot"]
     stream = profile["recommended_stream"]
 
-    stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
     stream_label = STREAM_LABELS.get(stream, stream)
 
     # WP-370: bottleneck = None или 'none' при stage ≥ 4 → нет узких мест.
     if bottleneck is None or bottleneck == 'none':
-        priority_line = "Узких мест нет — поддерживайте темп и берите следующие ступени."
+        priority_line = ("Узких мест нет — поддерживайте темп." if qualification
+                         else "Узких мест нет — поддерживайте темп и берите следующие ступени.")
     else:
         priority_line = f"Приоритет роста: {describe_bottleneck(bottleneck)}"
 
@@ -383,7 +415,7 @@ def _format_result(profile: dict, valid_until_iso: str | None) -> str:
 
     return (
         f"📊 <b>Результаты диагностики</b>\n\n"
-        f"Ступень: <b>{stage_name} ({stage} из 5)</b>\n\n"
+        f"{_level_line(stage, qualification)}\n\n"
         f"{priority_line}\n\n"
         f"{program_line}"
         f"{valid_str}"
@@ -413,15 +445,16 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
             dt = datetime.fromisoformat(assessed_at)
             age_days = (datetime.now(timezone.utc) - dt).days
             if age_days < DIAGNOSE_COOLDOWN_DAYS:
-                stage = existing["stage"]
                 stream = existing["recommended_stream"]
-                stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
+                async with keep_typing(message):
+                    qualification = await _qualification(chat_id)
+                level_line = _level_line(existing["stage"], qualification)
                 force_kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🔄 Повторить сейчас", callback_data=CB_FORCE_RESTART)
                 ]])
                 await message.answer(
                     f"У вас уже есть свежая диагностика ({age_days} дн. назад).\n\n"
-                    f"Ступень: <b>{stage_name} ({stage} из 5)</b>\n"
+                    f"{level_line}\n"
                     f"Рекомендованное руководство: <b>{stream}</b>\n\n"
                     f"Следующая диагностика доступна через {DIAGNOSE_COOLDOWN_DAYS - age_days} дн.\n"
                     f"Если изменилось что-то существенное — запустите досрочно:",
@@ -636,7 +669,7 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
         await state.clear()
         logger.warning("[diagnose] no account_id — skip save")
         await message.answer(
-            _format_result(profile, None),
+            _format_result(profile, None, await _qualification(message.chat.id)),
             parse_mode="HTML",
         )
         from core.onboarder.x3 import check_x3_return_to_bridge
@@ -646,6 +679,9 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
     # Попытка фиксируется до сетевого вызова. attempt_id создан на старте опроса; если FSM
     # остался от версии без него — новый, ключ всё равно стабилен для всех повторов этой попытки.
     attempt_id = data.get("attempt_id") or str(uuid.uuid4())
+    # Read before touching the FSM: a slow twin must not widen the window between
+    # set_state(None) and state.clear() in _save_attempt (cold review, 14.11).
+    qualification = await _qualification(message.chat.id)
     await state.set_state(None)
     await state.update_data(pending_save={
         "event_id": f"tg-diagnose:{attempt_id}",
@@ -654,6 +690,7 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
         "profile": profile,
         "cp_scores": scores,
         "questions_count": q_count,
+        "qualification": qualification,
     })
     await _save_attempt(message, state, first_pass=True)
 
@@ -751,7 +788,10 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
             valid_until = (
                 datetime.fromisoformat(pending["occurred_at"]) + timedelta(days=CP_TTL_DAYS)
             ).isoformat()
-        await message.answer(_format_result(profile, valid_until), parse_mode="HTML")
+        await message.answer(
+            _format_result(profile, valid_until, pending.get("qualification")),
+            parse_mode="HTML",
+        )
 
     if outcome == SAVE_OK:
         if first_pass:

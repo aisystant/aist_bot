@@ -12,6 +12,7 @@ Prefetch: enter() загружает ВСЕ данные одним батчем
 """
 
 import asyncio
+import html
 import json
 import logging
 from datetime import timedelta
@@ -26,6 +27,7 @@ from aiogram.types import (
 
 from config import MARATHON_DAYS, Mode
 from core.activity_board import apply_ecosystem, apply_totals, last_7_days
+from core.qualification import qualified_level
 from db.queries.cp_assessment import STAGE_NAMES
 from i18n import t
 from integrations.telegram.widgets import growth_fields
@@ -766,15 +768,20 @@ class ProgressState(BaseState):
         text = "<b>🔬 Диагностический профиль</b>\n\n"
 
         if cp:
-            stage = cp.get('stage', '—')
-            stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
             _btn_raw = cp.get('bottleneck_slot')
             bottleneck = '' if not _btn_raw or _btn_raw == 'none' else _btn_raw  # WP-370: None/'none' при stage≥4
             stream = cp.get('recommended_stream', '—')
             valid_until = cp.get('valid_until') or ''
             valid_str = valid_until[:10] if isinstance(valid_until, str) and valid_until else '—'
 
-            text += f"🎯 Ступень: <b>{stage} — {stage_label}</b>\n"
+            # Stages exist only inside «Ученик»; from «Работник» up — the qualification (WP-417 Ф8)
+            qualification = qualified_level(cache.get('degree'))
+            if qualification:
+                text += f"🎓 Квалификация: <b>{html.escape(qualification)}</b>\n"
+            else:
+                stage = cp.get('stage', '—')
+                stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
+                text += f"🎯 Ступень: <b>{stage} — {stage_label}</b>\n"
             if bottleneck:
                 bottleneck_label = self._CP_SLOT_LABELS.get(bottleneck, bottleneck)
                 text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"

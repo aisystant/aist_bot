@@ -33,6 +33,7 @@ from aiogram.types import (
     Message,
 )
 
+from core.qualification import degree_from_profile, qualified_level
 from db.queries import get_intern
 from db.queries.identity import get_user_uuid
 
@@ -206,7 +207,11 @@ def _stage_weekly_goal(stage: Optional[int]) -> Optional[float]:
 
 
 async def _get_user_stage(user_id: int) -> Optional[int]:
-    """Получить текущую ступень пользователя из ЦД (best-effort)."""
+    """Получить текущую ступень пользователя из ЦД (best-effort).
+
+    Ступени есть только у квалификации «Ученик» (WP-149): от «Работника» и выше — None
+    (WP-417 Ф8), и сводка слота не называет цель «на ступени».
+    """
     try:
         from db.queries import get_intern
         intern = await get_intern(user_id)
@@ -219,12 +224,24 @@ async def _get_user_stage(user_id: int) -> Optional[int]:
         pool = await get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
-                SELECT data->'3_derived'->'3_4_qualification'->>'stage' as stage
+                SELECT data->'3_derived'->'3_4_qualification'->>'stage' as stage,
+                       data->'3_derived'->>'3_8_degree' as degree,
+                       data->'2_collected'->'2_2_courses'->>'qualification_level' as lms_degree
                 FROM public.digital_twins
                 WHERE user_id = $1::text
                 LIMIT 1
             ''', str(user_uuid))
-        if row and row['stage']:
+        if not row:
+            return None
+        profile = {
+            "3_derived": {"3_8_degree": json.loads(row['degree']) if row['degree'] else None},
+            "2_collected": {"2_2_courses": {
+                "qualification_level": json.loads(row['lms_degree']) if row['lms_degree'] else None,
+            }},
+        }
+        if qualified_level(degree_from_profile(profile)):
+            return None
+        if row['stage']:
             return int(row['stage'])
     except Exception as e:
         logger.debug(f"[slot] _get_user_stage fallback: {e}")
