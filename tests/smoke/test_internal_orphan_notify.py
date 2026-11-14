@@ -20,6 +20,9 @@ from aiohttp import web
 
 @pytest.fixture
 async def notify(monkeypatch):
+    from core.ops_alert_dedup import reset_ops_alert_dedup
+
+    reset_ops_alert_dedup()
     monkeypatch.setenv("INTERNAL_NOTIFY_SECRET", "synthetic-test-secret")
     monkeypatch.setenv("OPS_ALERT_CHAT_ID", "123")
     source = Path(__file__).resolve().parents[2] / "oauth_server.py"
@@ -88,6 +91,8 @@ async def test_acknowledges_telegram_delivery_and_escapes_html(notify):
     assert sent["parse_mode"] == "HTML"
     assert "&lt;123&gt;" in sent["text"]
     assert "456&amp;789" in sent["text"]
+    assert "GitHub-установка не сопоставлена" in sent["text"]
+    assert "подключение потерялось" not in sent["text"]
 
 
 @pytest.mark.asyncio
@@ -250,3 +255,147 @@ def test_timeout_classification_does_not_guess_other_formats(error):
     text = render_reindex_alert({"failed": [{"target": "example", "error": error}]})
     assert "Запросы завершились с ошибкой" in text
     assert "Результат пока неизвестен" not in text
+
+
+
+@pytest.mark.asyncio
+async def test_orphan_is_deduped_by_installation_and_names_added_action(notify):
+    client, bot, _ = notify
+    body = {
+        "type": "installation_orphaned",
+        "installation_id": 123542883,
+        "github_user_id": 46213661,
+        "action": "added",
+    }
+    first = await post(client, body)
+    second = await post(client, body)
+    assert first.status == 200
+    assert await second.json() == {"ok": True, "deduped": True}
+    bot.send_message.assert_awaited_once()
+    assert "Событие: добавление репозитория" in bot.send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_401_is_one_alert_across_sources(notify):
+    client, bot, _ = notify
+    for source in ("PACK-one", "PACK-two"):
+        response = await post(
+            client,
+            {
+                "type": "ops_alert",
+                "source": source,
+                "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
+            },
+        )
+        assert response.status == 200
+    bot.send_message.assert_awaited_once()
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "OpenRouter отклонил авторизацию (401)" in text
+    assert "Повторная переиндексация до восстановления доступа не нужна" in text
+
+
+@pytest.mark.asyncio
+async def test_telegram_failure_releases_alert_reservation(notify):
+    client, bot, _ = notify
+    body = {
+        "type": "ops_alert",
+        "source": "PACK-one",
+        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
+    }
+    bot.send_message.side_effect = [RuntimeError("temporary"), None]
+    failed = await post(client, body)
+    retried = await post(client, body)
+    assert failed.status == 500
+    assert retried.status == 200
+    assert bot.send_message.await_count == 2
+
+
+
+@pytest.mark.asyncio
+async def test_concurrent_duplicate_waits_for_confirmed_delivery(notify):
+    import asyncio
+
+    client, bot, _ = notify
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def gated_send(**kwargs):
+        started.set()
+        await finish.wait()
+
+    bot.send_message.side_effect = gated_send
+    body = {
+        "type": "ops_alert",
+        "source": "PACK-one",
+        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
+    }
+    first = asyncio.create_task(post(client, body))
+    await started.wait()
+    second = asyncio.create_task(post(client, body))
+    await asyncio.sleep(0)
+    assert not second.done()
+    finish.set()
+    assert (await first).status == 200
+    assert await (await second).json() == {"ok": True, "deduped": True}
+    assert bot.send_message.await_count == 1
+
+
+
+@pytest.mark.asyncio
+async def test_second_request_sends_after_first_delivery_fails(notify):
+    import asyncio
+
+    client, bot, _ = notify
+    bot.send_message.side_effect = [RuntimeError("temporary"), None]
+    body = {
+        "type": "ops_alert",
+        "source": "PACK-one",
+        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
+    }
+    first, second = await asyncio.gather(post(client, body), post(client, body))
+    assert {first.status, second.status} == {200, 500}
+    assert bot.send_message.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cancellation_releases_single_flight(notify):
+    import asyncio
+
+    client, bot, _ = notify
+    started = asyncio.Event()
+
+    async def blocked_send(**kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    bot.send_message.side_effect = blocked_send
+    body = {
+        "type": "ops_alert",
+        "source": "PACK-one",
+        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
+    }
+    cancelled = asyncio.create_task(post(client, body))
+    await started.wait()
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    bot.send_message.side_effect = None
+    response = await post(client, body)
+    assert response.status == 200
+
+
+@pytest.mark.asyncio
+async def test_stale_release_does_not_release_new_reservation():
+    from core.ops_alert_dedup import _PENDING, release_reservation, reserve_reindex_alert, reset_ops_alert_dedup
+
+    reset_ops_alert_dedup()
+    body = {"source": "PACK-one", "failed": []}
+    accepted, key, first = await reserve_reindex_alert(body)
+    assert accepted
+    release_reservation(key, first)
+    accepted, key, second = await reserve_reindex_alert(body)
+    assert accepted
+    release_reservation(key, first)
+    assert _PENDING[key] is second
+    release_reservation(key, second)
+    assert key not in _PENDING

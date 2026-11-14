@@ -42,6 +42,13 @@ def render_reindex_alert(body: dict) -> str:
             errors.append(f"{target}: {_escaped(error, 240)}")
 
     lines = [f"⚠️ <b>Переиндексация</b>: источник <code>{source}</code>"]
+    if any(
+        isinstance(entry, dict) and "OpenRouter embeddings error: 401" in str(entry.get("error", ""))
+        for entry in entries
+    ):
+        lines.append(
+            "OpenRouter отклонил авторизацию (401). Повторная переиндексация до восстановления доступа не нужна; следующие такие отказы сегодня будут объединены."
+        )
     if unknown:
         targets = "; ".join(unknown[:3])
         if len(unknown) > 3:
