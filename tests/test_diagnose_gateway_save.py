@@ -318,3 +318,58 @@ class TestRecordTimeout:
         assert call.args[0] == "learning_ctx_record_cp_assessment"
         assert call.kwargs["timeout"] == 15
         assert call.args[1]["bottleneck_slot"] == "cp.rhy" and call.args[1]["written_by"] == "tg"
+
+
+REFORMER = {"level": "Реформатор", "numeric": 70, "source": "lms"}
+
+
+class TestQualificationInsteadOfStage:
+    """WP-417 Ф8: from «Работник» up the result names the qualification, not the stage."""
+
+    async def test_reformer_result_shows_qualification_read_before_fsm_changes(self):
+        state = FakeState(finished_data())
+        gw = gateway(result=ok_result())
+        fsm_at_read = []
+
+        async def read_degree(chat_id):
+            fsm_at_read.append(state.fsm_state)
+            return REFORMER
+
+        gw.dt_read_degree = AsyncMock(side_effect=read_degree)
+        message, _, _ = await run_finish(state, gw)
+
+        shown = texts(message)
+        assert "🎓 Квалификация: <b>Реформатор</b>" in shown[0] and "Ступень" not in shown[0]
+        assert fsm_at_read == ["q6"]          # twin read before set_state(None)
+        assert state.data == {}
+
+    async def test_failed_twin_read_keeps_the_stage(self):
+        state = FakeState(finished_data())
+        gw = gateway(result=ok_result())
+        gw.dt_read_degree = AsyncMock(side_effect=TimeoutError("down"))
+        message, _, _ = await run_finish(state, gw)
+
+        assert "Ступень" in texts(message)[0]
+
+    async def test_fresh_diagnostic_reply_shows_qualification(self):
+        from contextlib import asynccontextmanager
+        from datetime import datetime, timezone
+
+        @asynccontextmanager
+        async def no_typing(_message):
+            yield
+
+        existing = {"stage": 5, "recommended_stream": "РР",
+                    "assessed_at": datetime.now(timezone.utc).isoformat()}
+        gw = gateway()
+        gw.dt_read_degree = AsyncMock(return_value=REFORMER)
+        message = make_message()
+        with patch("clients.gateway_mcp.gateway_mcp", gw), \
+             patch("helpers.dual_write.resolve_ory_id_from_chat", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(diagnose, "get_latest_cp_assessment", AsyncMock(return_value=existing)), \
+             patch.object(diagnose, "keep_typing", no_typing):
+            await diagnose.cmd_diagnose(message, FakeState({}))
+
+        shown = texts(message)
+        assert len(shown) == 1 and "свежая диагностика" in shown[0]
+        assert "🎓 Квалификация: <b>Реформатор</b>" in shown[0] and "Ступень" not in shown[0]
