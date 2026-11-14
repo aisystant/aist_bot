@@ -23,6 +23,7 @@ from aiogram.methods.base import TelegramMethod
 from aiogram.types import InlineKeyboardMarkup, Message
 
 from core.activity_board import last_7_days
+from core.qualification import qualified_level
 from db.queries.cp_assessment import STAGE_NAMES
 
 _TEMPLATES_DIR = Path(__file__).parent / "widget_templates"
@@ -154,21 +155,11 @@ def build_progress_chat_data(cache: dict, lang: str) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
-# Stages 1..5 exist only inside the «Ученик» qualification (WP-149 canon, 05.07.2026); from
-# «Работник» (LMS numeric 25, db/queries/dt_sync.py) up a person has a qualification, no stage.
-QUALIFIED_NUMERIC_MIN = 25
-
-
 def growth_fields(cache: dict, lang: str) -> dict:
     """Growth keys: {"f": qualification} for «Работник» and above, otherwise stage keys g/n/d."""
-    degree = cache.get("degree")
-    if isinstance(degree, dict) and isinstance(degree.get("level"), str) and degree["level"]:
-        try:
-            numeric = float(degree.get("numeric"))
-        except (TypeError, ValueError):
-            numeric = None
-        if numeric is not None and math.isfinite(numeric) and numeric >= QUALIFIED_NUMERIC_MIN:
-            return {"f": degree["level"]}
+    qualification = qualified_level(cache.get("degree"))
+    if qualification:
+        return {"f": qualification}
     return stage_fields(cache.get("cp_profile"), lang)
 
 
