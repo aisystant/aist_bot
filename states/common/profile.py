@@ -131,20 +131,11 @@ class ProfileState(BaseState):
         assessment_state = intern.get('assessment_state')
         assessment_date = intern.get('assessment_date')
         if assessment_state and assessment_date:
-            try:
-                from core.assessment import load_assessment
-                assess_data = load_assessment('systematicity')
-                group = next(
-                    (g for g in assess_data.get('groups', []) if g['id'] == assessment_state),
-                    None,
-                ) if assess_data else None
-                if group:
-                    a_emoji = group.get('emoji', '')
-                    a_title = group.get('title', {}).get(lang, group.get('title', {}).get('ru', assessment_state))
-                    a_date = assessment_date.strftime('%d.%m.%Y') if hasattr(assessment_date, 'strftime') else str(assessment_date)
-                    assessment_line = f"\n📋 {t('assessment.profile_label', lang)}: {a_emoji} {a_title} ({a_date})"
-            except Exception:
-                pass
+            from core.assessment import format_state_label
+            a_date = assessment_date.strftime('%d.%m.%Y') if hasattr(assessment_date, 'strftime') else str(assessment_date)
+            assessment_line = (
+                f"\n📋 {t('assessment.profile_label', lang)}: {format_state_label(assessment_state, lang)} ({a_date})"
+            )
 
         active_day_hint = t('profile.active_day_hint', lang)
 
