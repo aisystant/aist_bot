@@ -173,6 +173,28 @@ async def test_cp_profile_shows_qualification_for_reformer():
     assert "Узкое место" in text and "Профиль по слотам" in text   # the rest of the diagnostic stays
 
 
+async def test_cp_profile_reformer_programme_by_qualification_and_no_learner_gaps():
+    text = await _cp_profile_text(REFORMER)
+
+    assert "📚 Программа по квалификации: <b>«Исследовательское развитие» или «Просветительская программа»</b>" in text
+    assert "🎯 Роль Ученика: <b>пробелов нет</b>" in text
+    assert "Рабочее развитие" not in text
+
+
+async def test_cp_profile_qualified_with_learner_gap_shows_stage_to_add():
+    from states.utilities.progress import ProgressState
+
+    cp = {"stage": 2, "bottleneck_slot": "cp.rhy", "recommended_stream": "S2",
+          "cp_scores": {"cp.rhy": 2, "cp.wld": 3}}
+    state = ProgressState.__new__(ProgressState)
+    state._show_section = AsyncMock()
+    await state._show_cp_profile(MagicMock(), {"cp_profile": cp, "degree": REFORMER}, "ru")
+    text = state._show_section.await_args.args[1]
+
+    assert "🎯 Роль Ученика: <b>ступень 2 — " in text
+    assert "📚 Можно также пройти: <b>S1 «Собранность»" in text
+
+
 async def test_cp_profile_keeps_stage_for_student_and_unknown():
     assert "🎯 Ступень: <b>5 — Проактивный</b>" in await _cp_profile_text(STUDENT)
     assert "🎯 Ступень: <b>5 — Проактивный</b>" in await _cp_profile_text(None)
@@ -196,6 +218,55 @@ def test_diagnose_result_keeps_stage_without_qualification():
     from handlers.diagnose import _format_result
 
     assert "Ступень: <b>Проактивный (5 из 5)</b>" in _format_result(_DIAG, None)
+
+
+# Pilot 15.11.2026 (WP-385 Ф18): the programme of a qualified person comes from the qualification;
+# the learner-role result is a separate, additional recommendation.
+
+def _qualified(stage, bottleneck=None, stage5_candidate=False, qualification="Работник"):
+    from handlers.diagnose import _format_result
+
+    profile = {"stage": stage, "bottleneck_slot": bottleneck, "stage5_candidate": stage5_candidate}
+    return _format_result(profile, None, qualification)
+
+
+def test_reformer_with_all_fives_gets_research_programme_and_no_gaps():
+    text = _qualified(4, "none", stage5_candidate=True, qualification="Реформатор")
+
+    assert "Эта диагностика измеряет роль Ученика — умение развивать себя и свою ИИ-среду." in text
+    assert "«Исследовательское развитие» или «Просветительская программа»" in text
+    assert "пробелов не показала — дополнительно проходить ничего не нужно" in text
+    assert "S3" not in text and "признаки пятой ступени" not in text
+
+
+def test_worker_with_learner_gap_gets_work_programme_and_learner_stage():
+    text = _qualified(2, "cp.rhy")
+
+    assert "рекомендуется программа «Рабочее развитие»" in text
+    assert ("Однако диагностика по роли Ученика показала, что у вас ступень 2 «Практикующий», "
+            "слабее всего — регулярность и ритм занятий") in text
+    assert "также пройти этап <b>S1 «Собранность»" in text
+
+
+def test_qualified_stage_four_may_take_s3_after_consultation():
+    text = _qualified(4, "none", qualification="Мастер")
+
+    assert "«Исследовательское развитие» или следующий круг «Рабочего развития»" in text
+    assert "Можно также пройти этап <b>S3 «Системность»" in text
+    assert "консультация в IWE или у наставника" in text
+
+
+def test_unknown_qualification_name_falls_back_to_mentor():
+    assert "программа та, которую подберёт наставник" in _qualified(3, "cp.int", qualification="Новая степень")
+
+
+def test_learner_stage_four_offers_s3_or_work_development():
+    from handlers.diagnose import _format_result
+
+    text = _format_result({"stage": 4, "bottleneck_slot": "none", "stage5_candidate": False}, None)
+
+    assert "S3 «Системность»" in text and "или сразу программа «Рабочее развитие»" in text
+    assert "консультация в IWE или у наставника" in text
 
 
 async def test_diagnose_qualification_read_is_best_effort(monkeypatch):

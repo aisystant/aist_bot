@@ -28,7 +28,13 @@ from aiogram.types import (
 from config import MARATHON_DAYS, Mode
 from core.activity_board import apply_ecosystem, apply_totals, last_7_days
 from core.qualification import qualified_level
-from db.queries.cp_assessment import PROGRAM_STAGE_LABELS, STAGE_NAMES, program_stage_for_stored_stream
+from db.queries.cp_assessment import (
+    PROGRAM_STAGE_LABELS,
+    STAGE_NAMES,
+    learner_role_has_no_gaps,
+    program_stage_for_stored_stream,
+    qualification_programme,
+)
 from i18n import t
 from integrations.telegram.widgets import growth_fields
 from states.base import BaseState
@@ -768,19 +774,26 @@ class ProgressState(BaseState):
 
             # Stages exist only inside «Ученик»; from «Работник» up — the qualification (WP-417 Ф8)
             qualification = qualified_level(cache.get('degree'))
+            stage = cp.get('stage', '—')
+            stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
+            # For «Работник» and above the programme comes from the qualification; the diagnostic
+            # adds a separate learner-role line (pilot 15.11.2026, WP-385 Ф18)
+            no_gaps = bool(qualification) and learner_role_has_no_gaps(stage, cp.get('cp_scores'))
             if qualification:
                 text += f"🎓 Квалификация: <b>{html.escape(qualification)}</b>\n"
+                text += f"📚 Программа по квалификации: <b>{qualification_programme(qualification)}</b>\n"
+                text += ("🎯 Роль Ученика: <b>пробелов нет</b>\n" if no_gaps
+                         else f"🎯 Роль Ученика: <b>ступень {stage} — {stage_label}</b>\n")
             else:
-                stage = cp.get('stage', '—')
-                stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
                 text += f"🎯 Ступень: <b>{stage} — {stage_label}</b>\n"
             if bottleneck:
                 bottleneck_label = self._CP_SLOT_LABELS.get(bottleneck, bottleneck)
                 text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"
             else:
                 text += "⚡ Узких мест нет\n"
-            if programme_stage:
-                text += f"📚 Этап программы: <b>{PROGRAM_STAGE_LABELS[programme_stage]}</b>\n"
+            if programme_stage and not no_gaps:
+                caption = "Можно также пройти" if qualification else "Этап программы"
+                text += f"📚 {caption}: <b>{PROGRAM_STAGE_LABELS[programme_stage]}</b>\n"
             text += f"📅 Действует до: {valid_str}\n"
 
             scores = cp.get('cp_scores') or {}
