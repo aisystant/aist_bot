@@ -157,8 +157,10 @@ async def setup_foreign_tables(conn):
 async def verify_owner_reads(conn):
     """Read identical sentinel rows; catalog grants alone cannot prove RLS visibility."""
     sentinels = []
+    # SQL identifiers come only from the literal READ_PROBES allowlist, never
+    # from a caller or database row. Row values remain bound parameters.
     for table, key, columns in READ_PROBES:
-        value = await conn.fetchval(f"SELECT {key} FROM {table} LIMIT 1")
+        value = await conn.fetchval(f"SELECT {key} FROM {table} LIMIT 1")  # nosec B608
         if value is None and not table.endswith(".contract_event"):
             raise RuntimeError(
                 f"No sentinel available for {table}; inspect before rollout"
@@ -172,10 +174,11 @@ async def verify_owner_reads(conn):
             if value is None:
                 # History is currently empty. The source precondition must prove
                 # RLS is disabled or has an explicit SELECT policy for the reader.
-                await conn.fetchrow(f"SELECT {columns} FROM {table} LIMIT 1")
+                await conn.fetchrow(f"SELECT {columns} FROM {table} LIMIT 1")  # nosec B608
             else:
                 visible = await conn.fetchrow(
-                    f"SELECT {columns} FROM {table} WHERE {key}=$1 LIMIT 1", value
+                    f"SELECT {columns} FROM {table} WHERE {key}=$1 LIMIT 1",  # nosec B608
+                    value,
                 )
                 if not visible:
                     raise RuntimeError(f"Engine cannot see admin sentinel in {table}")
