@@ -26,30 +26,27 @@ import datetime
 import logging
 from typing import Optional
 
+from db.queries.cp_assessment import PROGRAM_STAGE_LABELS, program_stage_for_stored_stream
+
 logger = logging.getLogger(__name__)
 
-# Человекочитаемые имена потоков. Источник семантики — compute_cp_stage
-# (cp_assessment.py): "РР" = «Рабочее развитие» (WP-371), "S{n}" = поток ступени n.
-_WORK_DEVELOPMENT_STREAM = "РР"
 
 _RETURN_TO_X3 = "x3_offer"
 _RETURN_TO_TTL_SECONDS = 3600  # мост устаревает через 1 час если diagnose не завершён
 
 
 def describe_stream(recommended_stream: str) -> str:
-    """Перевести код рекомендованного потока в человекочитаемое имя.
+    """Stored stream code → the programme stage a learner is offered, readable for the learner.
 
-    Args:
-        recommended_stream: значение из compute_cp_stage ("РР" | "S1".."S4").
-    Returns:
-        Строка для показа пилоту. Неизвестный код возвращается как есть
-        (не выдумываем имя, см. правило «не изобретать имена артефактов»).
+    Stored codes 'S1'..'S4' equal the stage, 'РР' is the legacy code of stage 5; the offer
+    follows the admission table (WP-385 Ф18.2). An unknown code is returned as is.
     """
-    if recommended_stream == _WORK_DEVELOPMENT_STREAM:
-        return "программа «Рабочее развитие»"
-    if recommended_stream.startswith("S") and recommended_stream[1:].isdigit():
-        return f"поток личного развития ступени {recommended_stream[1:]} ({recommended_stream})"
-    return recommended_stream
+    code = program_stage_for_stored_stream(recommended_stream)
+    if code is None:
+        return recommended_stream
+    if code == "РР":
+        return PROGRAM_STAGE_LABELS[code]
+    return f"этап {PROGRAM_STAGE_LABELS[code]} программы «Личное развитие»"
 
 
 async def run_x3(intern: dict, message) -> None:

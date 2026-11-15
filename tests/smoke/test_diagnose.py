@@ -79,22 +79,26 @@ class TestComputeCpStage:
         scores_low = {s: 1 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         scores_high = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         assert compute_cp_stage(scores_low)["recommended_stream"] == "S1"
-        # WP-371: stage=5 (Проактивный) → программа РР, не S4
-        assert compute_cp_stage(scores_high)["recommended_stream"] == "РР"
+        # Self-assessment never gives stage 5 (WP-385 Ф18.9): stored code stays within S1..S4
+        assert compute_cp_stage(scores_high)["recommended_stream"] == "S4"
 
-    def test_stage_4_recommends_s4(self):
-        """ст. 4 Дисциплинированный — последняя ступень с руководством S4."""
-        from db.queries.cp_assessment import compute_cp_stage
-        scores = {s: 4 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
-        assert compute_cp_stage(scores)["recommended_stream"] == "S4"
+    def test_programme_stage_follows_admission_table(self):
+        """WP-385 Ф18.2: stage 1 → S0, 2 → S1, 3 → S2, 4 → S3, 5 → РР; no S4."""
+        from db.queries.cp_assessment import program_stage_for, program_stage_for_stored_stream
+        assert [program_stage_for(n) for n in range(1, 6)] == ["S0", "S1", "S2", "S3", "РР"]
+        assert program_stage_for_stored_stream("S4") == "S3"
+        assert program_stage_for_stored_stream("РР") == "РР"
+        assert program_stage_for_stored_stream("Z9") is None
 
-    def test_stage_5_recommends_rr(self):
-        """WP-371: ст. 5 Проактивный → программа Рабочего развития (РР) + след. роли Интеллектуал/Профессионал."""
+    def test_all_fives_give_stage_4_and_candidate_for_5(self):
+        """WP-385 Ф18.9: stage 5 is not assigned by one self-assessment."""
         from db.queries.cp_assessment import compute_cp_stage
         scores = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         result = compute_cp_stage(scores)
-        assert result["stage"] == 5
-        assert result["recommended_stream"] == "РР"
+        assert result["stage"] == 4
+        assert result["stage5_candidate"] is True
+        four = compute_cp_stage({s: 4 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]})
+        assert four["stage5_candidate"] is False
 
     def test_skip_to_stage_equals_stage(self):
         from db.queries.cp_assessment import compute_cp_stage
@@ -112,14 +116,12 @@ class TestComputeCpStage:
         assert result["bottleneck_slot"] == "cp.agt"
 
     # WP-370 acceptance tests
-    def test_all_max_gives_proactive_no_bottleneck(self):
-        """5/5/5/5/5 → ступень 5 (Проактивный), bottleneck='none' (нет узких мест), recommended РР (WP-371)."""
+    def test_all_max_no_bottleneck(self):
+        """5/5/5/5/5 → no bottleneck ('none' sentinel, NOT NULL column)."""
         from db.queries.cp_assessment import compute_cp_stage
         scores = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         result = compute_cp_stage(scores)
-        assert result["stage"] == 5
-        assert result["bottleneck_slot"] == "none"  # WP-370: stage ≥4 → 'none' sentinel (NOT NULL в БД)
-        assert result["recommended_stream"] == "РР"  # WP-371: ст. 5 → РР, не S4
+        assert result["bottleneck_slot"] == "none"
 
     def test_stage_4_no_bottleneck(self):
         """Все 4+ → bottleneck='none' (порог «нет узких мест»)."""
@@ -138,10 +140,10 @@ class TestComputeCpStage:
     def test_cp_iwe_does_not_affect_stage(self):
         """WP-370: cp.iwe — informational, не входит в mandatory → не блокирует ступень."""
         from db.queries.cp_assessment import compute_cp_stage
-        # все mandatory = 5, cp.iwe = 1 → stage всё равно 5
-        scores = {"cp.rhy": 5, "cp.wld": 5, "cp.skl": 5, "cp.int": 5, "cp.agt": 5, "cp.iwe": 1}
+        # all mandatory = 4, cp.iwe = 1 → stage is still 4
+        scores = {"cp.rhy": 4, "cp.wld": 4, "cp.skl": 4, "cp.int": 4, "cp.agt": 4, "cp.iwe": 1}
         result = compute_cp_stage(scores)
-        assert result["stage"] == 5
+        assert result["stage"] == 4
         assert result["bottleneck_slot"] == "none"
 
 
@@ -155,16 +157,16 @@ class TestDiagnoseStates:
         assert hasattr(DiagnoseStates, 'q3')
         assert hasattr(DiagnoseStates, 'q4')
         assert hasattr(DiagnoseStates, 'q5')
-        assert hasattr(DiagnoseStates, 'q6')  # WP-370: Phase 2 drill-down
+        assert hasattr(DiagnoseStates, 'q6')  # cp.iwe, last Phase 1 question
+        assert hasattr(DiagnoseStates, 'clarify')  # Phase 2 clarifying question
 
     def test_phase1_questions_count(self):
         from handlers.diagnose import PHASE1_QUESTIONS
-        # WP-370: 5 вопросов = 4 mandatory якорных + 1 informational (cp.iwe)
-        assert len(PHASE1_QUESTIONS) == 5
+        # 6 questions = 5 mandatory + 1 informational (cp.iwe), WP-385 Ф18.7
+        assert len(PHASE1_QUESTIONS) == 6
 
     def test_phase1_covers_4_mandatory_anchors(self):
-        """WP-370: PHASE1 должна содержать 4 mandatory якорных (cp.rhy/wld/int/agt) + cp.iwe.
-        cp.skl derive из cp.rhy в _finish_diagnose."""
+        """PHASE1 asks every mandatory slice by its own question, plus cp.iwe (WP-385 Ф18.7)."""
         from handlers.diagnose import PHASE1_QUESTIONS
         slots = [q["slot"] for q in PHASE1_QUESTIONS]
         assert "cp.rhy" in slots
@@ -172,7 +174,7 @@ class TestDiagnoseStates:
         assert "cp.int" in slots
         assert "cp.agt" in slots
         assert "cp.iwe" in slots  # informational
-        assert "cp.skl" not in slots  # derive из cp.rhy
+        assert "cp.skl" in slots  # own question, not a copy of cp.rhy
 
     def test_phase2_questions_cover_all_mandatory(self):
         from handlers.diagnose import PHASE2_QUESTIONS
@@ -182,9 +184,9 @@ class TestDiagnoseStates:
             assert slot in PHASE2_QUESTIONS, f"Missing drill-down for {slot}"
 
     def test_min_anchors_constant(self):
-        """WP-370: MIN_ANCHORS = 4 (все mandatory якорные)."""
+        """MIN_ANCHORS = all five mandatory slices."""
         from handlers.diagnose import MIN_ANCHORS
-        assert MIN_ANCHORS == 4
+        assert MIN_ANCHORS == 5
 
 
 # ─── 4. _show_cp_profile() rendering ──────────────────────
@@ -239,7 +241,8 @@ class TestShowCpProfile:
         text = sent[0]
         assert "Практикующий" in text, "Должен показать название ступени"
         assert "Навыки" in text, "Должен показать bottleneck по-русски (cp.skl→Навыки)"
-        assert "S2" in text, "Должен показать рекомендованный поток"
+        # Stored S2 = stage 2 → programme stage S1 by the admission table (WP-385 Ф18.2)
+        assert "Этап программы: <b>S1 «Собранность»" in text, "Должен показать этап программы"
         assert "2026-11-16" in text, "Должен показать дату valid_until"
         assert "●" in text, "Должен показать bar-профиль"
 
@@ -332,19 +335,8 @@ class TestPackSyncDrift:
         assert "cp.cre" not in MANDATORY_SLOTS
 
     def test_phase1_anchors_match_form089_table(self):
-        """PHASE1 якорные = 4 mandatory (cp.skl derive) + 1 informational (cp.iwe).
-
-        Spec §6.1 Фаза 1 таблица: cp.rhy, cp.wld, cp.iwe, cp.int.
-        cp.skl выводится из cp.rhy.
-        cp.agt — дополнительный вопрос (или bh.agn-прокси).
-
-        Здесь интерпретация Plan A′: 4 mandatory anchors (rhy/wld/int/agt) + cp.iwe.
-        """
+        """PHASE1 = the five mandatory slices of PD.FORM.089 §6.1 + cp.iwe; each slice once."""
         from handlers.diagnose import PHASE1_QUESTIONS
-        slots = {q["slot"] for q in PHASE1_QUESTIONS}
-        # 4 mandatory якорных (без cp.skl — derive)
-        assert {"cp.rhy", "cp.wld", "cp.int", "cp.agt"}.issubset(slots)
-        # informational
-        assert "cp.iwe" in slots
-        # cp.skl НЕ должен быть в PHASE1 — derive в _finish_diagnose
-        assert "cp.skl" not in slots
+        from db.queries.cp_assessment import MANDATORY_SLOTS
+        slots = [q["slot"] for q in PHASE1_QUESTIONS]
+        assert sorted(slots) == sorted(list(MANDATORY_SLOTS) + ["cp.iwe"])
