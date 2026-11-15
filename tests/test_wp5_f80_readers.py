@@ -29,6 +29,7 @@ CONTRACT = "00000000-0000-0000-0000-000000000002"
 OWNER = "neondb_owner"
 ENGINE = "rewards_points_engine_owner"
 SUB_READER = "rewards_subscription_fdw_reader"
+MIGRATION_ADMIN = "fixture_migration_admin"
 DATABASES = ("rewards", "learning", "indicators", "subscription")
 
 
@@ -489,5 +490,157 @@ def test_source_failure_rolls_back_new_role_but_leaves_prior_source_commits(clus
                 "ALTER TABLE public.contract RENAME COLUMN incompatible TO valid_to"
             )
             assert await READERS.run(True) is False
+
+    asyncio.run(scenario())
+
+
+@asynccontextmanager
+async def noninheriting_administrator(superuser, cluster):
+    """Reproduce production SET membership without implicit owner privileges."""
+    password = secrets.token_urlsafe(32)
+    await superuser.execute(f"""
+        CREATE ROLE {MIGRATION_ADMIN} LOGIN NOINHERIT BYPASSRLS PASSWORD '{password}';
+        GRANT {ENGINE} TO {MIGRATION_ADMIN};
+        CREATE FUNCTION public.compute_effective_amount_v4(
+            p_account_id uuid,p_event_id bigint,p_event_type text,p_payload jsonb,
+            p_ingested_at timestamp with time zone)
+        RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER
+        AS $$ BEGIN RETURN -1; END $$;
+        ALTER FUNCTION {DEPLOY.COMPUTE} OWNER TO {ENGINE};
+        CREATE FUNCTION public._lookup_student_stage(p_account_id uuid)
+        RETURNS integer LANGUAGE sql STABLE AS $$ SELECT 1 $$;
+        ALTER FUNCTION {DEPLOY.STAGE} OWNER TO {MIGRATION_ADMIN};
+        ALTER SCHEMA public OWNER TO {MIGRATION_ADMIN};
+    """)
+    rewards = await asyncpg.connect(
+        host="127.0.0.1",
+        port=cluster.port,
+        database="rewards",
+        user=MIGRATION_ADMIN,
+        password=password,
+    )
+    try:
+        attributes = await rewards.fetchrow(
+            "SELECT rolsuper,rolinherit,rolbypassrls FROM pg_roles WHERE rolname=current_user"
+        )
+        assert dict(attributes) == {
+            "rolsuper": False,
+            "rolinherit": False,
+            "rolbypassrls": True,
+        }
+        assert await rewards.fetchval("SELECT session_user") == MIGRATION_ADMIN
+        assert await rewards.fetchval(
+            "SELECT pg_has_role(current_user,$1,'MEMBER')", ENGINE
+        )
+        assert not await rewards.fetchval(
+            "SELECT pg_has_role(current_user,$1,'USAGE')", ENGINE
+        )
+        assert await rewards.fetchval(
+            "SELECT pg_has_role(current_user,$1,'SET')", ENGINE
+        )
+        assert not await rewards.fetchval(
+            "SELECT has_schema_privilege($1,'public','CREATE')", ENGINE
+        )
+        baseline = {
+            signature: await rewards.fetchval(
+                "SELECT pg_get_functiondef($1::regprocedure)", signature
+            )
+            for signature in (DEPLOY.COMPUTE, DEPLOY.STAGE)
+        }
+        yield rewards, baseline
+    finally:
+        await rewards.close()
+
+
+async def assert_function_owner_and_schema_access(rewards):
+    assert await rewards.fetchval("SELECT current_user") == MIGRATION_ADMIN
+    assert (
+        await rewards.fetchval(
+            "SELECT proowner::regrole::text FROM pg_proc WHERE oid=$1::regprocedure",
+            DEPLOY.COMPUTE,
+        )
+        == ENGINE
+    )
+    assert not await rewards.fetchval(
+        "SELECT has_schema_privilege($1,'public','CREATE')", ENGINE
+    )
+
+
+def test_install_and_rollback_use_engine_owner_without_retaining_schema_create(
+    cluster, tmp_path
+):
+    async def scenario():
+        async with (
+            source_databases(cluster) as connections,
+            noninheriting_administrator(connections["rewards"], cluster) as (
+                rewards,
+                baseline,
+            ),
+        ):
+            # Prove that the old administrator-only replacement really fails.
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with rewards.transaction():
+                    await rewards.execute(baseline[DEPLOY.COMPUTE])
+            async with rewards.transaction():
+                await DEPLOY.install_functions(rewards, DEPLOY.SQL_FILE.read_text())
+                await assert_function_owner_and_schema_access(rewards)
+                definition = await rewards.fetchval(
+                    "SELECT pg_get_functiondef($1::regprocedure)", DEPLOY.COMPUTE
+                )
+                assert "wp5_f80_subscription_occurrence_v1" in definition
+                assert definition != baseline[DEPLOY.COMPUTE]
+                assert (
+                    await rewards.fetchval(
+                        "SELECT proowner::regrole::text FROM pg_proc "
+                        "WHERE oid='public._wp5_stage_value(jsonb)'::regprocedure"
+                    )
+                    == MIGRATION_ADMIN
+                )
+            await assert_function_owner_and_schema_access(rewards)
+            rollback = tmp_path / "rollback.sql"
+            DEPLOY.write_rollback(rollback, baseline)
+            # Execute the generated rollback file under the same restricted admin.
+            await rewards.execute(rollback.read_text())
+            await assert_function_owner_and_schema_access(rewards)
+            for signature, definition in baseline.items():
+                assert (
+                    await rewards.fetchval(
+                        "SELECT pg_get_functiondef($1::regprocedure)", signature
+                    )
+                    == definition
+                )
+
+    asyncio.run(scenario())
+
+
+def test_install_failure_restores_owner_definitions_and_schema_access(cluster):
+    async def scenario():
+        async with (
+            source_databases(cluster) as connections,
+            noninheriting_administrator(connections["rewards"], cluster) as (
+                rewards,
+                baseline,
+            ),
+        ):
+            async with rewards.transaction():
+                with pytest.raises(asyncpg.DivisionByZeroError):
+                    await DEPLOY.install_functions(
+                        rewards, DEPLOY.SQL_FILE.read_text() + "\nSELECT 1 / 0;"
+                    )
+                await assert_function_owner_and_schema_access(rewards)
+                for signature, definition in baseline.items():
+                    assert (
+                        await rewards.fetchval(
+                            "SELECT pg_get_functiondef($1::regprocedure)", signature
+                        )
+                        == definition
+                    )
+                assert (
+                    await rewards.fetchval(
+                        "SELECT to_regprocedure('public._wp5_stage_value(jsonb)')"
+                    )
+                    is None
+                )
+            await assert_function_owner_and_schema_access(rewards)
 
     asyncio.run(scenario())

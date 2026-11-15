@@ -1093,6 +1093,10 @@ Deployment order (after peer review and deployment approval):
    The runner creates the narrow foreign relations, compares actual source-row
    visibility as administrator and as the engine owner, and installs functions
    in one rewards transaction. It never calls the accrual function in production.
+   The accrual definition is replaced under its existing owner role, including
+   when the administrator's membership is NOINHERIT. Schema CREATE, if needed,
+   is granted and revoked inside that transaction; no new runtime creation
+   privilege remains. The saved rollback uses the same owner-role procedure.
 4. Observe subsequent real events. The worker has a 30-second command deadline
    and finite retries followed by its dead-letter queue; a persistent source
    failure requires operator action, not an assumption of unlimited retries.
