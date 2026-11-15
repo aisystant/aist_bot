@@ -35,7 +35,7 @@ STAGE_NAMES = {
 SLOT_NAMES_RU = {
     "cp.rhy": "регулярность и ритм занятий",
     "cp.wld": "мировоззрение и системный взгляд",
-    "cp.skl": "учёт времени и собранность",
+    "cp.skl": "умение выбирать и применять способы саморазвития",
     "cp.iwe": "рабочая среда и инструменты",
     "cp.int": "системное мышление",
     "cp.agt": "агентность и инициатива",
@@ -50,26 +50,60 @@ def describe_bottleneck(bottleneck_slot: str) -> str:
     return SLOT_NAMES_RU.get(bottleneck_slot, bottleneck_slot)
 
 
-def compute_cp_stage(cp_scores: dict) -> dict:
-    """cp_confirmed_stage = min(mandatory). FORM.089 §6.1.
+# Stage of the «Личное развитие» programme a learner fits by their stage (README of the
+# practicums, admission table; WP-385 Ф18.2). S0 and S1 both admit stage 1; S0 is
+# recommended first. Stage 5 is reached only through the full gate (PD.FORM.089 §5.2),
+# never by self-assessment, so it does not appear here as a self-assessment result.
+PROGRAM_STAGE_BY_STAGE = {1: "S0", 2: "S1", 3: "S2", 4: "S3", 5: "РР"}
 
-    WP-370: bottleneck_slot = None если все mandatory ≥ 4 (нет узких мест на верхних ступенях).
-    WP-371: recommended_stream = "РР" для stage=5 (Проактивный → программа «Рабочее развитие»,
-            переход к ролям Интеллектуала → Профессионала). Для ст. 1-4 — S1..S4 как раньше.
+PROGRAM_STAGE_LABELS = {
+    "S0": "S0 «Ритмичность» — от расфокуса к результатам",
+    "S1": "S1 «Собранность» — от туриста к строителю",
+    "S2": "S2 «Агентность» — от пассажира к пилоту",
+    "S3": "S3 «Системность» — от тумана к архитектуре",
+    "РР": "программа «Рабочее развитие»",
+}
+
+# Highest stage a self-assessment alone may confirm (PD.FORM.089 §5.1 п.5, §6.1:
+# skip_to_stage = min(cp_floor, 4)); stage 5 needs the full gate §5.2 (WP-385 Ф18.9).
+SELF_ASSESSMENT_STAGE_CAP = 4
+
+
+def program_stage_for(stage: int) -> str:
+    """Programme stage (S0..S3, РР) recommended for a learner stage 1..5."""
+    return PROGRAM_STAGE_BY_STAGE[max(1, min(5, int(stage)))]
+
+
+def program_stage_for_stored_stream(recommended_stream: str) -> str | None:
+    """Programme stage for a stored stream code: 'S1'..'S4' (= stage) or legacy 'РР' (= stage 5)."""
+    if recommended_stream == "РР":
+        return program_stage_for(5)
+    if recommended_stream.startswith("S") and recommended_stream[1:].isdigit():
+        return program_stage_for(int(recommended_stream[1:]))
+    return None
+
+
+def compute_cp_stage(cp_scores: dict) -> dict:
+    """Stage from a self-assessment: minimum of the five mandatory slices, at most 4.
+
+    PD.FORM.089 §6.1 (решение пилота 20.10.2026: cp.agt входит в минимум на всех ступенях).
+    All fives give stage 4 with stage5_candidate=True: the transition 4→5 is checked
+    by the full gate (§5.2), not by the answers alone (WP-385 Ф18.9).
+    bottleneck_slot = 'none' from stage 4 (NOT NULL column; no bottleneck on stages 4-5).
+    recommended_stream keeps the stored code S1..S4 (= stage; the learning table may carry
+    CHECK recommended_stream IN ('S1'..'S4'), activity-hub migration 013). It is a storage
+    code, not a programme stage: screens show program_stage_for(stage) (WP-385 Ф18.2).
     """
     vals = {s: int(cp_scores.get(s, 1)) for s in MANDATORY_SLOTS}
-    stage = min(vals.values())
-    # 'none' вместо None: bottleneck_slot NOT NULL в БД (WP-370 §6.1: нет узких мест на ст. 4-5)
+    floor = min(vals.values())
+    stage = min(floor, SELF_ASSESSMENT_STAGE_CAP)
     bottleneck = 'none' if stage >= 4 else min(vals, key=vals.get)
-    if stage >= 5:
-        recommended_stream = "РР"
-    else:
-        recommended_stream = f"S{max(1, min(4, stage))}"
     return {
         "stage": stage,
         "bottleneck_slot": bottleneck,
-        "recommended_stream": recommended_stream,
+        "recommended_stream": f"S{stage}",
         "skip_to_stage": stage,
+        "stage5_candidate": floor >= 5,
     }
 
 
