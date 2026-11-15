@@ -704,18 +704,9 @@ class ProgressState(BaseState):
 
         await self._show_section(user, text, self._back_button(lang), callback)
 
-    # Маппинг assessment state → emoji + i18n (из systematicity.yaml)
-    _ASSESSMENT_LABELS = {
-        'chaos': {'emoji': '😵', 'ru': 'Хаос', 'en': 'Chaos', 'es': 'Caos', 'fr': 'Chaos', 'zh': '混乱'},
-        'deadlock': {'emoji': '🧱', 'ru': 'Тупик', 'en': 'Deadlock', 'es': 'Estancamiento', 'fr': 'Impasse', 'zh': '僵局'},
-        'turning_point': {'emoji': '🔁', 'ru': 'Поворот', 'en': 'Turning Point', 'es': 'Punto de giro', 'fr': 'Tournant', 'zh': '转折点'},
-    }
-
     def _translate_state(self, key: str, lang: str) -> str:
-        info = self._ASSESSMENT_LABELS.get(key)
-        if info:
-            return f"{info['emoji']} {info.get(lang, info.get('en', key))}"
-        return key
+        from core.assessment import format_state_label
+        return format_state_label(key, lang)
 
     async def _show_assessment(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         last = cache.get('last_assessment')

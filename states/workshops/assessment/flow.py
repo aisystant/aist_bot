@@ -2,7 +2,7 @@
 Стейт: Прохождение теста (Assessment Flow).
 
 Единый стейт для всех фаз опросника:
-  intro → questions (12 шт) → self_check → open_question → done
+  intro → questions (16 шт) → self_check → open_question → done
 
 Фазы переключаются внутри стейта через current_context,
 а не через SM-переходы. SM видит только flow → result.

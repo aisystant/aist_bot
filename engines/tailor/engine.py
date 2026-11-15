@@ -50,8 +50,10 @@ PHASE_WEIGHTS = {
 # Корректировка по состоянию (SOP.001 Шаг 3)
 STATE_ADJUSTMENTS = {
     'chaos':       {5: 2.0, 1: 0.5},     # Организм ↑, Знания ↓
-    'stuck':       {3: 1.5, 1: 1.5},     # Ограничения ↑, Знания ↑
-    'turn':        {},
+    # Keys are assessment_state values from the /test (WP-385 F18): the former 'stuck'/'turn'
+    # are marathon check-in values and never matched, so Тупик got no adjustment. 'mixed' → none.
+    'deadlock':    {3: 1.5, 1: 1.5},     # Ограничения ↑, Знания ↑
+    'turning_point': {},
     'development': {2: 1.5},              # Инструменты ↑
 }
 
@@ -176,7 +178,7 @@ class TailorEngine:
             'interests': profile.get('interests', ''),
             'student_stage': int(profile.get('student_stage', 0)),
             'it_level': int(profile.get('it_level', 0)),
-            'state': profile.get('assessment_state', 'turn'),
+            'state': profile.get('assessment_state') or 'turning_point',
             'energy': int(profile.get('energy', 3)),
             'style': profile.get('learning_style', ''),
         }
