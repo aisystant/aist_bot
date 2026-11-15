@@ -1,7 +1,7 @@
 """
 /diagnose — Диагностика ученика R28 (WP-318 Ф6).
 
-# see DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1 v5.0 (WP-370: cp.iwe informational, derive cp.skl из cp.rhy)
+# see DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1 (WP-370: cp.iwe informational; WP-385 Ф18: cp.skl asked separately, bh does not raise cp)
 
 Алгоритм CAT: ≤5 вопросов, старт со ст. 3.
 Фаза 1 (2-3 якорных вопроса) → Фаза 2 (1-2 drill-down по bottleneck).
@@ -29,10 +29,15 @@ from aiogram.types import (
 from db.queries.cp_assessment import (
     MANDATORY_SLOTS,
     CP_TTL_DAYS,
+    PROGRAM_STAGE_LABELS,
+    program_stage_for,
     STAGE_NAMES as CP_STAGE_NAMES,
     get_latest_cp_assessment,
     compute_cp_stage,
     describe_bottleneck,
+    admission_note,
+    qualification_programme,
+    stage5_signs,
 )
 from core.qualification import qualified_level
 from helpers.typing_indicator import keep_typing
@@ -58,20 +63,22 @@ class DiagnoseStates(StatesGroup):
     q2 = State()
     q3 = State()
     q4 = State()
-    q5 = State()  # Phase 1 cp.iwe (informational, last anchor)
-    q6 = State()  # WP-370: Phase 2 drill-down по mandatory bottleneck
+    q5 = State()
+    q6 = State()  # Phase 1 cp.iwe (informational, last question)
+    clarify = State()  # Phase 2: one clarifying question on the mandatory bottleneck
 
 
 # ── Вопросы FORM.089 §6.1 ─────────────────────────────────────────────────────
 
 # Фаза 1: якорные вопросы (всегда задаются)
-# WP-370: 5 вопросов = 4 mandatory якорных (cp.rhy/wld/int/agt) + 1 informational (cp.iwe).
-# cp.skl derive из cp.rhy в _finish_diagnose (§6.1: «ритм и мастерство коррелируют»).
+# 6 questions = 5 mandatory slices (cp.rhy/wld/skl/int/agt) + 1 informational (cp.iwe).
+# cp.skl is its own question, not a copy of cp.rhy (PD.FORM.089 §6.1, WP-385 Ф18.7);
+# cp.agt is asked to everyone: it is in the minimum on every stage (pilot decision 20.10.2026).
 PHASE1_QUESTIONS = [
     {
         "slot": "cp.rhy",
         "text": (
-            "📍 <b>Вопрос 1 из 5</b>\n\n"
+            "📍 <b>Вопрос 1 из 6</b>\n\n"
             "Сколько времени в неделю вы уделяете своему развитию (учёба, чтение, практика) и насколько регулярно?\n"
             "Сколько это примерно часов?"
         ),
@@ -86,7 +93,7 @@ PHASE1_QUESTIONS = [
     {
         "slot": "cp.wld",
         "text": (
-            "📍 <b>Вопрос 2 из 5</b>\n\n"
+            "📍 <b>Вопрос 2 из 6</b>\n\n"
             "Как вы обычно принимаете важные решения?"
         ),
         "labels": {
@@ -98,9 +105,24 @@ PHASE1_QUESTIONS = [
         },
     },
     {
+        "slot": "cp.skl",
+        "text": (
+            "📍 <b>Вопрос 3 из 6</b>\n\n"
+            "Когда вы хотите чему-то научиться или справиться с трудностью в своём развитии, "
+            "как вы выбираете способ действовать?"
+        ),
+        "labels": {
+            1: "Не знаю, какой способ подойдёт",
+            2: "Повторяю готовую инструкцию",
+            3: "Сам(а) применяю знакомый способ",
+            4: "Выбираю из нескольких способов и подстраиваю под ситуацию",
+            5: "Придумываю или улучшаю свои способы и помогаю другим их освоить",
+        },
+    },
+    {
         "slot": "cp.int",
         "text": (
-            "📍 <b>Вопрос 3 из 5</b>\n\n"
+            "📍 <b>Вопрос 4 из 6</b>\n\n"
             "Когда вы решаете рабочую задачу, выделяете ли вы систему, с которой имеете дело: "
             "из чего она состоит, какую роль играет каждая часть, где её границы и во что она входит?"
         ),
@@ -115,7 +137,7 @@ PHASE1_QUESTIONS = [
     {
         "slot": "cp.agt",
         "text": (
-            "📍 <b>Вопрос 4 из 5</b>\n\n"
+            "📍 <b>Вопрос 5 из 6</b>\n\n"
             "Какая доля задач за последний месяц инициирована вами лично — "
             "не «спустили», а вы сами увидели и взяли?"
         ),
@@ -130,7 +152,7 @@ PHASE1_QUESTIONS = [
     {
         "slot": "cp.iwe",  # informational — не входит в mandatory, не блокирует ступень
         "text": (
-            "📍 <b>Вопрос 5 из 5</b>\n\n"
+            "📍 <b>Вопрос 6 из 6</b>\n\n"
             "Насколько у вас налажена работа со знаниями: где хранятся заметки и личная база, "
             "какими программами и ИИ-помощниками вы пользуетесь?"
         ),
@@ -147,33 +169,18 @@ PHASE1_QUESTIONS = [
 # Фаза 2: уточняющие вопросы по bottleneck (задаётся один)
 PHASE2_QUESTIONS = {
     "cp.skl": {
-        "slot": "cp.rhy",
+        "slot": "cp.skl",
         "text": (
             "🔍 <b>Уточняющий вопрос</b>\n\n"
-            "Как часто вы занимаетесь саморазвитием в последние 3 месяца?\n"
-            "(занятия, чтение, практика)"
+            "Вспомните последний раз, когда вы применили какой-то способ развития к реальной задаче.\n"
+            "Можете ли вы сказать, почему выбрали именно его и что изменилось?"
         ),
         "labels": {
-            1: "Реже раза в месяц",
-            2: "1-2 раза в месяц",
-            3: "Еженедельно",
-            4: "3-5 раз в неделю",
-            5: "Ежедневно",
-        },
-    },
-    "cp.iwe": {
-        "slot": "cp.int",
-        "text": (
-            "🔍 <b>Уточняющий вопрос</b>\n\n"
-            "Системное мышление — это видеть, как части связаны в целое "
-            "и во что входит само это целое. Как вы с ним?"
-        ),
-        "labels": {
-            1: "Не знаю, что это",
-            2: "Слышал(а), но не применяю",
-            3: "Понимаю идею",
-            4: "Применяю осознанно",
-            5: "Чётко описываю и передаю другим",
+            1: "Не припомню такого случая",
+            2: "Был случай, но способ выбрал(а) наугад",
+            3: "Назову способ и что изменилось",
+            4: "Объясню, почему выбрал(а) этот способ, и покажу результат",
+            5: "Сравниваю результаты разных способов и улучшаю их",
         },
     },
     "cp.wld": {
@@ -237,24 +244,51 @@ PHASE2_QUESTIONS = {
     },
 }
 
-# WP-370: defaults только для mandatory (5). Применяется ТОЛЬКО при partial-завершении (q_count<MIN_ANCHORS).
-# При full-завершении все mandatory заполнены через PHASE1 (4 явных) + derive cp.skl (из cp.rhy).
-_DEFAULT_CP = {s: 2 for s in MANDATORY_SLOTS}
-
-# WP-370: минимум якорных вопросов для валидного stage. Если меньше — показываем «диагностика не завершена».
-MIN_ANCHORS = 4  # все 4 mandatory якорных в PHASE1 (cp.rhy, cp.wld, cp.int, cp.agt); cp.iwe — informational
+# Minimum answered questions for a valid stage: all five mandatory slices are asked in PHASE1.
+MIN_ANCHORS = len(MANDATORY_SLOTS)
 
 # Человеко-читаемые имена ступеней (единый словарь — db/queries/cp_assessment.py)
 STAGE_NAMES = CP_STAGE_NAMES["ru"]
 
-STREAM_LABELS = {
-    "S1": "Фундамент — начать с основ",
-    "S2": "Систематизация — собрать себя",
-    "S3": "Масштаб — выйти наружу",
-    "S4": "Передача — делиться и создавать",
-    # WP-371: ст. 5 Проактивный → программа Рабочего развития, переход к следующим ролям.
-    "РР": "Рабочее развитие — переход к ролям Интеллектуала и Профессионала",
-}
+SELF_ASSESSMENT_NOTE = "Это самооценка: ступень подтверждают наставник или расчёт по данным вашей активности."
+
+
+def _program_line(stage: int) -> str:
+    """Recommended programme stage for a learner by the admission table (WP-385 Ф18)."""
+    code = program_stage_for(stage)
+    if code == "РР":
+        return (f"Следующая программа: <b>{PROGRAM_STAGE_LABELS[code]}</b>\n"
+                f"Следующие роли: <b>{NEXT_ROLES_HINT}</b>")
+    line = f"Подходящий этап программы «Личное развитие»: <b>{PROGRAM_STAGE_LABELS[code]}</b>"
+    note = admission_note(stage)
+    return f"{line}\n{note}" if note else line
+
+
+def _qualified_result(qualification: str, stage: int, bottleneck: str | None, no_gaps: bool) -> str:
+    """Two separate answers for «Работник» and above: the programme by qualification, and the
+    gaps in the learner role this diagnostic measures (pilot 15.11.2026, WP-385 Ф18)."""
+    programme = qualification_programme(qualification)
+    programme_line = (f"Для вашей квалификации рекомендуется {programme}." if programme
+                      else "Программу для вашей квалификации подберёт наставник.")
+    head = (
+        f"🎓 Квалификация: <b>{html.escape(qualification)}</b>\n"
+        "Эта диагностика измеряет роль Ученика — умение развивать себя и свою ИИ-среду. "
+        "Квалификацию она не меняет и не подтверждает.\n\n"
+        f"{programme_line}"
+    )
+    if no_gaps:
+        return f"{head}\n\nДиагностика по роли Ученика пробелов не показала — дополнительно проходить ничего не нужно."
+    role = (f"Однако диагностика по роли Ученика показала, что у вас ступень {stage} "
+            f"«{STAGE_NAMES.get(stage, stage)}»")
+    if bottleneck and bottleneck != "none":
+        role += f", слабее всего — {describe_bottleneck(bottleneck)}"
+    label = PROGRAM_STAGE_LABELS[program_stage_for(stage)]
+    if stage == 4:
+        role += (f". Можно также пройти этап программы «Личное развитие»: <b>{label}</b>. "
+                 "Нужно ли, подскажет консультация в IWE или у наставника.")
+    else:
+        role += f". Поэтому вам рекомендуется также пройти этап программы «Личное развитие»: <b>{label}</b>."
+    return f"{head}\n\n{role}"
 
 # strftime('%B') зависит от locale процесса (не задан на проде → английские имена
 # месяцев); locale.setlocale() не годится — глобален для процесса, гонка между
@@ -357,9 +391,9 @@ QUALIFICATION_READ_SECONDS = 8
 async def _qualification(chat_id: int) -> str | None:
     """Qualification name for «Работник» and above; None for «Ученик», no twin or a failed read.
 
-    Stages 1..5 exist only inside «Ученик» (WP-149), so a qualified person sees the
-    qualification instead of the stage (WP-417 Ф8). Best effort: the diagnostic result is shown
-    with the stage when the twin cannot be read.
+    Stages 1..5 exist only inside «Ученик» (WP-149), so a qualified person sees the qualification
+    and the programme by it; the learner-role stage follows only as a separate gap note (WP-417 Ф8,
+    WP-385 Ф18). Best effort: the result is shown as for a learner when the twin cannot be read.
     """
     from clients.gateway_mcp import gateway_mcp
     if not gateway_mcp.is_connected(chat_id):
@@ -372,27 +406,38 @@ async def _qualification(chat_id: int) -> str | None:
     return qualified_level(degree)
 
 
-def _level_line(stage: int, qualification: str | None) -> str:
-    if qualification:
-        return f"🎓 Квалификация: <b>{html.escape(qualification)}</b>"
+def _stage_line(stage: int) -> str:
     stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
     return f"Ступень: <b>{stage_name} ({stage} из 5)</b>"
 
 
-def _format_result(profile: dict, valid_until_iso: str | None, qualification: str | None = None) -> str:
-    stage = profile["stage"]
-    bottleneck = profile["bottleneck_slot"]
-    stream = profile["recommended_stream"]
+STAGE5_HINT = ("По вашим ответам у вас есть признаки пятой ступени. Её не присваивают по одной "
+               "самооценке: подтверждение — через наставника или по данным вашей активности.")
 
-    stream_label = STREAM_LABELS.get(stream, stream)
 
+def _learner_result(stage: int, bottleneck: str | None, stage5_candidate: bool) -> str:
     # WP-370: bottleneck = None или 'none' при stage ≥ 4 → нет узких мест.
     if bottleneck is None or bottleneck == 'none':
-        priority_line = ("Узких мест нет — поддерживайте темп." if qualification
-                         else "Узких мест нет — поддерживайте темп и берите следующие ступени.")
+        priority_line = "Узких мест нет — поддерживайте темп и берите следующие ступени."
     else:
         priority_line = f"Приоритет роста: {describe_bottleneck(bottleneck)}"
+    program_line = _program_line(stage)
+    if stage5_candidate:
+        program_line = f"{STAGE5_HINT}\n\n{program_line}"
+    return f"{_stage_line(stage)}\n\n{priority_line}\n\n{program_line}"
 
+
+def _result_body(stage: int, bottleneck: str | None, stage5_candidate: bool,
+                 qualification: str | None) -> str:
+    """stage5_candidate: all fives in a self-assessment capped below stage 5."""
+    if qualification:
+        body = _qualified_result(qualification, stage, bottleneck, no_gaps=stage5_candidate or stage >= 5)
+    else:
+        body = _learner_result(stage, bottleneck, stage5_candidate)
+    return f"{body}\n\n{SELF_ASSESSMENT_NOTE}"
+
+
+def _format_result(profile: dict, valid_until_iso: str | None, qualification: str | None = None) -> str:
     valid_str = ""
     if valid_until_iso:
         try:
@@ -401,23 +446,9 @@ def _format_result(profile: dict, valid_until_iso: str | None, qualification: st
         except Exception:
             pass
 
-    # WP-371: на ст. 5 (Проактивный) показываем программу РР + след. роли вместо «руководства».
-    if stream == "РР":
-        program_line = (
-            f"Следующая программа: <b>Рабочее развитие (РР)</b>\n"
-            f"{stream_label}\n\n"
-            f"Следующие роли: <b>{NEXT_ROLES_HINT}</b>"
-        )
-    else:
-        program_line = f"Рекомендованное руководство: <b>{stream}</b> — {stream_label}"
-
-    return (
-        f"📊 <b>Результаты диагностики</b>\n\n"
-        f"{_level_line(stage, qualification)}\n\n"
-        f"{priority_line}\n\n"
-        f"{program_line}"
-        f"{valid_str}"
-    )
+    body = _result_body(profile["stage"], profile["bottleneck_slot"],
+                        bool(profile.get("stage5_candidate")), qualification)
+    return f"📊 <b>Результаты диагностики</b>\n\n{body}{valid_str}"
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -443,25 +474,25 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
             dt = datetime.fromisoformat(assessed_at)
             age_days = (datetime.now(timezone.utc) - dt).days
             if age_days < DIAGNOSE_COOLDOWN_DAYS:
-                stream = existing["recommended_stream"]
                 async with keep_typing(message):
                     qualification = await _qualification(chat_id)
-                level_line = _level_line(existing["stage"], qualification)
+                body = _result_body(existing["stage"], existing.get("bottleneck_slot"),
+                                    stage5_signs(existing["stage"], existing.get("cp_scores")),
+                                    qualification)
                 force_kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🔄 Повторить сейчас", callback_data=CB_FORCE_RESTART)
                 ]])
                 await message.answer(
                     f"У вас уже есть свежая диагностика ({age_days} дн. назад).\n\n"
-                    f"{level_line}\n"
-                    f"Рекомендованное руководство: <b>{stream}</b>\n\n"
+                    f"{body}\n\n"
                     f"Следующая диагностика доступна через {DIAGNOSE_COOLDOWN_DAYS - age_days} дн.\n"
                     f"Если изменилось что-то существенное — запустите досрочно:",
                     parse_mode="HTML",
                     reply_markup=force_kb,
                 )
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[diagnose] fresh-result screen failed, starting a new run (chat=%s): %r", chat_id, e)
 
     await _start_phase1(message, state, account_id)
 
@@ -476,7 +507,7 @@ async def _start_phase1(target, state: FSMContext, account_id: str | None) -> No
     # (формальный инструмент FORM.089 §6.1, ответы считают ступень мастерства).
     preamble = (
         "🔬 <b>Найдём вашу точку старта</b>\n\n"
-        "5 вопросов о том, как вы сейчас работаете и развиваетесь. Здесь нет "
+        "6 вопросов о том, как вы сейчас работаете и развиваетесь. Здесь нет "
         "проходного балла, но по ответам определяется ступень мастерства — "
         "чтобы подобрать руководство под ваш уровень, а не общее для всех. "
         "Занимает ~3 минуты.\n\n"
@@ -535,10 +566,10 @@ async def _process_answer(callback: CallbackQuery, state: FSMContext, q_idx: int
         pass
 
     next_idx = q_idx + 1
-    # WP-370: 5 вопросов Phase 1 (4 mandatory + cp.iwe informational), states q1..q5.
+    # 6 questions in Phase 1 (5 mandatory + cp.iwe informational), states q1..q6.
     states_map = [
         DiagnoseStates.q1, DiagnoseStates.q2, DiagnoseStates.q3,
-        DiagnoseStates.q4, DiagnoseStates.q5,
+        DiagnoseStates.q4, DiagnoseStates.q5, DiagnoseStates.q6,
     ]
     if next_idx < len(PHASE1_QUESTIONS):
         nq = PHASE1_QUESTIONS[next_idx]
@@ -546,11 +577,10 @@ async def _process_answer(callback: CallbackQuery, state: FSMContext, q_idx: int
         await send_diagnostic_question(callback.message, nq, next_idx)
     else:
         # Фаза 1 завершена. Phase 2 drill-down: только по mandatory bottleneck (cp.iwe — informational, не триггерит).
-        # MANDATORY_SLOTS = 5 (cp.rhy, cp.wld, cp.skl, cp.int, cp.agt) — cp.skl derive из cp.rhy в _finish_diagnose.
         bottleneck_slot = _determine_phase2_slot(scores)
         if bottleneck_slot and bottleneck_slot in PHASE2_QUESTIONS and bottleneck_slot != "cp.iwe":
             p2q = PHASE2_QUESTIONS[bottleneck_slot]
-            await state.set_state(DiagnoseStates.q6)  # WP-370: Phase 2 drill-down (q5 занят Phase 1 cp.iwe)
+            await state.set_state(DiagnoseStates.clarify)
             await send_diagnostic_question(callback.message, p2q, 99)
         else:
             await _finish_diagnose(callback.message, state)
@@ -578,13 +608,18 @@ async def answer_q4(callback: CallbackQuery, state: FSMContext) -> None:
 
 @diagnose_router.callback_query(DiagnoseStates.q5, F.data.startswith(CB_PREFIX + ":"))
 async def answer_q5(callback: CallbackQuery, state: FSMContext) -> None:
-    """Phase 1, last anchor — cp.iwe informational. После него возможен Phase 2 drill-down."""
     await _process_answer(callback, state, 4)
 
 
 @diagnose_router.callback_query(DiagnoseStates.q6, F.data.startswith(CB_PREFIX + ":"))
 async def answer_q6(callback: CallbackQuery, state: FSMContext) -> None:
-    """WP-370: Phase 2 drill-down handler (бывший answer_q5 на DiagnoseStates.q5)."""
+    """Phase 1, last question — cp.iwe informational. A Phase 2 clarifying question may follow."""
+    await _process_answer(callback, state, 5)
+
+
+@diagnose_router.callback_query(DiagnoseStates.clarify, F.data.startswith(CB_PREFIX + ":"))
+async def answer_clarify(callback: CallbackQuery, state: FSMContext) -> None:
+    """Phase 2: the clarifying answer replaces the bottleneck slice value."""
     parts = callback.data.split(":")
     if len(parts) < 4:
         await callback.answer()
@@ -622,10 +657,12 @@ async def answer_q6(callback: CallbackQuery, state: FSMContext) -> None:
 async def _finish_diagnose(message: Message, state: FSMContext) -> None:
     """Вычислить профиль, записать самооценку через инструмент, показать результат.
 
-    WP-370: §6.1 v5.0 compliance.
-    - q_count < MIN_ANCHORS (4 mandatory) → partial: показать «не завершена», не вычислять stage.
-    - cp.skl derive из cp.rhy (§6.1 line 144 «cp.skl определяется из ответа на cp.rhy»).
-    - all mandatory ≥ 4 → bottleneck = None (показывается как «нет узких мест»).
+    PD.FORM.089 §6.1:
+    - a mandatory slice without an answer → partial: «не завершена», stage is not computed
+      (also guards a run started before the question set changed).
+    - every mandatory slice comes from its own answer; behaviour signals (bh.*) do not raise
+      cp.* (§6.1 phase 3, WP-385 Ф18.8) — they are a cross-check for the stage calculation.
+    - all mandatory ≥ 4 → no bottleneck; stage is at most 4 (Ф18.9).
 
     WP-578 Ф21.4: запись идёт только через инструмент сервиса учебного контекста.
     Завершённая попытка (ключ, время, профиль) остаётся в FSM, пока запись не подтверждена:
@@ -637,29 +674,20 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
     scores_raw = data.get("scores", {})
     q_count = data.get("q_count", 0)
 
-    # WP-370 partial-flag: меньше 4 mandatory ответов — диагностика недостоверна.
-    if q_count < MIN_ANCHORS:
+    # Fewer answers than mandatory slices — the diagnostic is not valid.
+    answered = sum(1 for slot in MANDATORY_SLOTS if slot in scores_raw)
+    if q_count < MIN_ANCHORS or answered < MIN_ANCHORS:
         await state.clear()
         await message.answer(
             "⚠️ <b>Диагностика не завершена</b>\n\n"
-            f"Получено ответов: {q_count} из {MIN_ANCHORS} обязательных.\n"
+            f"Получено ответов: {answered} из {MIN_ANCHORS} обязательных.\n"
             "Для корректной оценки ступени нужно пройти все обязательные вопросы.\n\n"
             "Запустите заново: /diagnose",
             parse_mode="HTML",
         )
         return
 
-    # Default consevativeно подстраховывает редкие partial-кейсы (после MIN_ANCHORS check — обычно не сработает).
-    scores = dict(_DEFAULT_CP)
-    scores.update(scores_raw)
-
-    # WP-370 derive: cp.skl выводится из cp.rhy (spec §6.1).
-    # setdefault — если cp.skl уже задан явно (будущий код), не перезаписываем.
-    scores.setdefault("cp.skl", scores.get("cp.rhy", 2))
-    if "cp.skl" not in scores_raw and "cp.rhy" in scores_raw:
-        scores["cp.skl"] = scores_raw["cp.rhy"]  # explicit override default
-
-    scores = await _apply_bh_proxy(account_id, scores)
+    scores = dict(scores_raw)
 
     profile = compute_cp_stage(scores)
 
@@ -820,48 +848,3 @@ async def cb_retry_save(callback: CallbackQuery, state: FSMContext) -> None:
     """Повторить запись той же попытки (тот же event_id) без нового опроса."""
     await callback.answer()
     await _save_attempt(callback.message, state, first_pass=False)
-
-
-async def _apply_bh_proxy(account_id: str | None, scores: dict) -> dict:
-    """Фаза 3 (bh-прокси): повысить cp-слоты на основе bh-индексов (FORM.089 §6.1).
-
-    bh.inv ≥ 4 → cp.skl baseline ≥ 2
-    bh.sys ≥ 3 → cp.rhy baseline ≥ 2
-    bh.awr ≥ 2 → cp.wld baseline ≥ 2
-
-    Правило: cp_final = max(cp_dialogue, cp_bh_proxy) — только повышаем.
-    Если bh недоступен — возвращаем scores без изменений.
-    """
-    if not account_id:
-        return scores
-    try:
-        from db.connection import get_learning_pool
-        pool = await get_learning_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """SELECT payload FROM learning.domain_event
-                   WHERE account_id = $1::uuid
-                     AND event_type = 'bh.snapshot'
-                   ORDER BY occurred_at DESC
-                   LIMIT 1""",
-                account_id,
-            )
-        if row is None:
-            return scores
-
-        import json as _json
-        bh = _json.loads(row["payload"]) if isinstance(row["payload"], str) else (row["payload"] or {})
-
-        inv = float(bh.get("bh.inv", bh.get("inv", 0)) or 0)
-        sys_ = float(bh.get("bh.sys", bh.get("sys", 0)) or 0)
-        awr = float(bh.get("bh.awr", bh.get("awr", 0)) or 0)
-
-        if inv >= 4:
-            scores["cp.skl"] = max(scores.get("cp.skl", 1), 2)
-        if sys_ >= 3:
-            scores["cp.rhy"] = max(scores.get("cp.rhy", 1), 2)
-        if awr >= 2:
-            scores["cp.wld"] = max(scores.get("cp.wld", 1), 2)
-    except Exception as e:
-        logger.debug("[diagnose] bh_proxy skip: %s", e)
-    return scores

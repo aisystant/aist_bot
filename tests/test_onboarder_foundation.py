@@ -27,13 +27,16 @@ class TestDescribeStream(unittest.TestCase):
     def test_work_development_stream(self):
         self.assertEqual(x3.describe_stream("РР"), "программа «Рабочее развитие»")
 
-    def test_stage_stream_includes_number_and_code(self):
+    def test_stored_stage_code_offers_programme_stage(self):
+        # Stored S2 = stage 2 → programme stage S1 by the admission table (WP-385 Ф18.2)
         result = x3.describe_stream("S2")
-        self.assertIn("ступени 2", result)
-        self.assertIn("(S2)", result)
+        self.assertIn("S1 «Собранность»", result)
+        self.assertIn("программы «Личное развитие»", result)
 
-    def test_stage_stream_boundary(self):
-        self.assertIn("ступени 4", x3.describe_stream("S4"))
+    def test_stage_4_offers_s3_not_s4(self):
+        result = x3.describe_stream("S4")
+        self.assertIn("S3 «Системность»", result)
+        self.assertNotIn("S4", result)
 
     def test_unknown_returned_as_is(self):
         # Не выдумываем имя для незнакомого кода (правило «не изобретать имена»).
