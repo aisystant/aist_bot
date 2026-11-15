@@ -28,7 +28,7 @@ from aiogram.types import (
 from config import MARATHON_DAYS, Mode
 from core.activity_board import apply_ecosystem, apply_totals, last_7_days
 from core.qualification import qualified_level
-from db.queries.cp_assessment import STAGE_NAMES
+from db.queries.cp_assessment import PROGRAM_STAGE_LABELS, STAGE_NAMES, program_stage_for_stored_stream
 from i18n import t
 from integrations.telegram.widgets import growth_fields
 from states.base import BaseState
@@ -761,7 +761,8 @@ class ProgressState(BaseState):
         if cp:
             _btn_raw = cp.get('bottleneck_slot')
             bottleneck = '' if not _btn_raw or _btn_raw == 'none' else _btn_raw  # WP-370: None/'none' при stage≥4
-            stream = cp.get('recommended_stream', '—')
+            # Stored code S1..S4 = stage; shown as the programme stage by the admission table (WP-385 Ф18.2)
+            programme_stage = program_stage_for_stored_stream(cp.get('recommended_stream') or '')
             valid_until = cp.get('valid_until') or ''
             valid_str = valid_until[:10] if isinstance(valid_until, str) and valid_until else '—'
 
@@ -778,7 +779,8 @@ class ProgressState(BaseState):
                 text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"
             else:
                 text += "⚡ Узких мест нет\n"
-            text += f"📚 Поток: <b>{stream}</b>\n"
+            if programme_stage:
+                text += f"📚 Этап программы: <b>{PROGRAM_STAGE_LABELS[programme_stage]}</b>\n"
             text += f"📅 Действует до: {valid_str}\n"
 
             scores = cp.get('cp_scores') or {}

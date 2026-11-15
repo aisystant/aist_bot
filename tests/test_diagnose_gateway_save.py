@@ -68,9 +68,9 @@ def make_message():
 
 def finished_data(attempt_id="attempt-1"):
     return {
-        "scores": {"cp.rhy": 3, "cp.wld": 3, "cp.int": 4, "cp.agt": 3, "cp.iwe": 2},
+        "scores": {"cp.rhy": 3, "cp.wld": 3, "cp.skl": 3, "cp.int": 4, "cp.agt": 3, "cp.iwe": 2},
         "account_id": ACCOUNT,
-        "q_count": 5,
+        "q_count": 6,
         "attempt_id": attempt_id,
     }
 
@@ -91,7 +91,6 @@ def ok_result(event_recorded=True, duplicate=False):
 async def run_finish(state, gw):
     message = make_message()
     with patch("clients.gateway_mcp.gateway_mcp", gw), \
-         patch.object(diagnose, "_apply_bh_proxy", AsyncMock(side_effect=lambda _acc, s: s)), \
          patch("core.onboarder.x3.check_x3_return_to_bridge", AsyncMock()) as bridge, \
          patch("db.queries.onboarding_journey.sync_cp_stage_to_onboarding_state", AsyncMock()) as sync:
         await diagnose._finish_diagnose(message, state)
@@ -142,8 +141,8 @@ class TestFinishDiagnose:
         assert call.args == (CHAT_ID,)
         assert call.kwargs["event_id"] == "tg-diagnose:attempt-1"
         assert call.kwargs["profile"]["stage"] == 3
-        assert call.kwargs["cp_scores"]["cp.skl"] == 3  # derive из cp.rhy
-        assert call.kwargs["questions_count"] == 5
+        assert call.kwargs["cp_scores"]["cp.skl"] == 3  # own answer (WP-385 Ф18.7)
+        assert call.kwargs["questions_count"] == 6
         assert state.data == {}  # очищено после полного успеха
         sync.assert_awaited_once_with(ACCOUNT, 3)
         bridge.assert_awaited_once()
@@ -245,6 +244,16 @@ class TestFinishDiagnose:
         gw.record_cp_assessment.assert_not_awaited()
         bridge.assert_awaited_once()
         assert state.data == {}
+
+    async def test_run_without_skill_answer_is_not_saved(self):
+        """A run from the old question set (no cp.skl answer) must not be saved with a guess."""
+        data = finished_data()
+        del data["scores"]["cp.skl"]
+        state = FakeState(data)
+        gw = gateway(result=ok_result())
+        message, _bridge, _sync = await run_finish(state, gw)
+        gw.record_cp_assessment.assert_not_awaited()
+        assert "Получено ответов: 4 из 5" in texts(message)[0]
 
     async def test_partial_run_is_not_saved(self):
         data = finished_data()
