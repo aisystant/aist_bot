@@ -35,8 +35,9 @@ from db.queries.cp_assessment import (
     get_latest_cp_assessment,
     compute_cp_stage,
     describe_bottleneck,
-    learner_role_has_no_gaps,
+    admission_note,
     qualification_programme,
+    stage5_signs,
 )
 from core.qualification import qualified_level
 from helpers.typing_indicator import keep_typing
@@ -249,51 +250,44 @@ MIN_ANCHORS = len(MANDATORY_SLOTS)
 # Человеко-читаемые имена ступеней (единый словарь — db/queries/cp_assessment.py)
 STAGE_NAMES = CP_STAGE_NAMES["ru"]
 
-CONSULT_HINT = "Что выбрать, подскажет консультация в IWE или у наставника."
+SELF_ASSESSMENT_NOTE = "Это самооценка: ступень подтверждают наставник или расчёт по данным вашей активности."
 
 
 def _program_line(stage: int) -> str:
-    """Recommended programme stage for a learner by the admission table.
-
-    Stage 1 may also start with S1; stage 4 may take S3 or go straight to «Рабочее развитие»
-    (pilot 15.11.2026, WP-385 Ф18).
-    """
+    """Recommended programme stage for a learner by the admission table (WP-385 Ф18)."""
     code = program_stage_for(stage)
     if code == "РР":
         return (f"Следующая программа: <b>{PROGRAM_STAGE_LABELS[code]}</b>\n"
                 f"Следующие роли: <b>{NEXT_ROLES_HINT}</b>")
     line = f"Подходящий этап программы «Личное развитие»: <b>{PROGRAM_STAGE_LABELS[code]}</b>"
-    if code == "S0":
-        line += "\nС первой ступени можно начать и сразу с S1 «Собранность»."
-    if stage == 4:
-        line += f" — или сразу программа «Рабочее развитие». {CONSULT_HINT}"
-    return line
+    note = admission_note(stage)
+    return f"{line}\n{note}" if note else line
 
 
-def _qualified_result(qualification: str, stage: int, bottleneck: str | None,
-                      stage5_candidate: bool) -> str:
+def _qualified_result(qualification: str, stage: int, bottleneck: str | None, no_gaps: bool) -> str:
     """Two separate answers for «Работник» and above: the programme by qualification, and the
     gaps in the learner role this diagnostic measures (pilot 15.11.2026, WP-385 Ф18)."""
     programme = qualification_programme(qualification)
+    programme_line = (f"Для вашей квалификации рекомендуется {programme}." if programme
+                      else "Программу для вашей квалификации подберёт наставник.")
     head = (
         f"🎓 Квалификация: <b>{html.escape(qualification)}</b>\n"
         "Эта диагностика измеряет роль Ученика — умение развивать себя и свою ИИ-среду. "
         "Квалификацию она не меняет и не подтверждает.\n\n"
-        f"Для вашей квалификации рекомендуется программа {programme}."
+        f"{programme_line}"
     )
-    if stage5_candidate or stage >= 5:
-        role = "Диагностика по роли Ученика пробелов не показала — дополнительно проходить ничего не нужно."
+    if no_gaps:
+        return f"{head}\n\nДиагностика по роли Ученика пробелов не показала — дополнительно проходить ничего не нужно."
+    role = (f"Однако диагностика по роли Ученика показала, что у вас ступень {stage} "
+            f"«{STAGE_NAMES.get(stage, stage)}»")
+    if bottleneck and bottleneck != "none":
+        role += f", слабее всего — {describe_bottleneck(bottleneck)}"
+    label = PROGRAM_STAGE_LABELS[program_stage_for(stage)]
+    if stage == 4:
+        role += (f". Можно также пройти этап программы «Личное развитие»: <b>{label}</b>. "
+                 "Нужно ли, подскажет консультация в IWE или у наставника.")
     else:
-        role = (f"Однако диагностика по роли Ученика показала, что у вас ступень {stage} "
-                f"«{STAGE_NAMES.get(stage, stage)}»")
-        if bottleneck and bottleneck != "none":
-            role += f", слабее всего — {describe_bottleneck(bottleneck)}"
-        label = PROGRAM_STAGE_LABELS[program_stage_for(stage)]
-        if stage == 4:
-            role += (f". Можно также пройти этап <b>{label}</b> программы «Личное развитие». "
-                     f"Нужно ли, подскажет консультация в IWE или у наставника.")
-        else:
-            role += f". Поэтому вам рекомендуется также пройти этап <b>{label}</b> программы «Личное развитие»."
+        role += f". Поэтому вам рекомендуется также пройти этап программы «Личное развитие»: <b>{label}</b>."
     return f"{head}\n\n{role}"
 
 # strftime('%B') зависит от locale процесса (не задан на проде → английские имена
@@ -397,9 +391,9 @@ QUALIFICATION_READ_SECONDS = 8
 async def _qualification(chat_id: int) -> str | None:
     """Qualification name for «Работник» and above; None for «Ученик», no twin or a failed read.
 
-    Stages 1..5 exist only inside «Ученик» (WP-149), so a qualified person sees the
-    qualification instead of the stage (WP-417 Ф8). Best effort: the diagnostic result is shown
-    with the stage when the twin cannot be read.
+    Stages 1..5 exist only inside «Ученик» (WP-149), so a qualified person sees the qualification
+    and the programme by it; the learner-role stage follows only as a separate gap note (WP-417 Ф8,
+    WP-385 Ф18). Best effort: the result is shown as for a learner when the twin cannot be read.
     """
     from clients.gateway_mcp import gateway_mcp
     if not gateway_mcp.is_connected(chat_id):
@@ -435,9 +429,12 @@ def _learner_result(stage: int, bottleneck: str | None, stage5_candidate: bool) 
 
 def _result_body(stage: int, bottleneck: str | None, stage5_candidate: bool,
                  qualification: str | None) -> str:
+    """stage5_candidate: all fives in a self-assessment capped below stage 5."""
     if qualification:
-        return _qualified_result(qualification, stage, bottleneck, stage5_candidate)
-    return _learner_result(stage, bottleneck, stage5_candidate)
+        body = _qualified_result(qualification, stage, bottleneck, no_gaps=stage5_candidate or stage >= 5)
+    else:
+        body = _learner_result(stage, bottleneck, stage5_candidate)
+    return f"{body}\n\n{SELF_ASSESSMENT_NOTE}"
 
 
 def _format_result(profile: dict, valid_until_iso: str | None, qualification: str | None = None) -> str:
@@ -479,9 +476,9 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
             if age_days < DIAGNOSE_COOLDOWN_DAYS:
                 async with keep_typing(message):
                     qualification = await _qualification(chat_id)
-                no_gaps = learner_role_has_no_gaps(existing["stage"], existing.get("cp_scores"))
                 body = _result_body(existing["stage"], existing.get("bottleneck_slot"),
-                                    no_gaps, qualification)
+                                    stage5_signs(existing["stage"], existing.get("cp_scores")),
+                                    qualification)
                 force_kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🔄 Повторить сейчас", callback_data=CB_FORCE_RESTART)
                 ]])
@@ -494,8 +491,8 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
                     reply_markup=force_kb,
                 )
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[diagnose] fresh-result screen failed, starting a new run (chat=%s): %r", chat_id, e)
 
     await _start_phase1(message, state, account_id)
 
