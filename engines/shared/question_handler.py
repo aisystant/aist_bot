@@ -127,6 +127,8 @@ def _build_user_profile(intern: dict, lang: str) -> str:
             'chaos': 'Хаос (начало пути)',
             'deadlock': 'Тупик (нужен сдвиг)',
             'turning_point': 'Поворот (готов к изменениям)',
+            'development': 'Развитие (есть ритм и направление)',
+            'mixed': 'Смешанное (поровну нескольких состояний)',
         }
         label = state_labels.get(assessment, assessment)
         parts.append(f"Состояние: {label}")
