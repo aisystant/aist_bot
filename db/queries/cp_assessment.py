@@ -64,6 +64,34 @@ PROGRAM_STAGE_LABELS = {
     "РР": "программа «Рабочее развитие»",
 }
 
+# Programme for a qualified person («Работник» and above) by the qualification, not by the
+# learner-role diagnostic (PD.FORM.105 §3; pilot 15.11.2026, WP-385 Ф18). Keys are qualification
+# names as the twin stores them (db/queries/dt_sync.py); the revolutionary degree has two spellings.
+_WORK_DEVELOPMENT = "«Рабочее развитие»"
+_ENLIGHTENMENT = "«Просветительская программа» (курса пока нет, путь подберёт наставник)"
+QUALIFICATION_PROGRAMMES = {
+    "Работник": _WORK_DEVELOPMENT,
+    "Стратег": _WORK_DEVELOPMENT,
+    "Специалист": _WORK_DEVELOPMENT,
+    "Практик": _WORK_DEVELOPMENT,
+    "Мастер": "«Исследовательское развитие» или следующий круг «Рабочего развития»",
+    "Реформатор": "«Исследовательское развитие» или «Просветительская программа»",
+    "Деятель (революционер)": _ENLIGHTENMENT,
+    "Революционер": _ENLIGHTENMENT,
+}
+
+
+def qualification_programme(qualification: str) -> str:
+    """Programme recommended for a qualification; an unknown name is left to the mentor."""
+    return QUALIFICATION_PROGRAMMES.get(qualification, "та, которую подберёт наставник")
+
+
+def learner_role_has_no_gaps(stage, cp_scores) -> bool:
+    """True when the learner-role diagnostic leaves nothing to add: stage 5, or all fives by self-assessment."""
+    if isinstance(stage, int) and stage >= 5:
+        return True
+    return bool(cp_scores) and compute_cp_stage(cp_scores)["stage5_candidate"]
+
 # Highest stage a self-assessment alone may confirm (PD.FORM.089 §5.1 п.5, §6.1:
 # skip_to_stage = min(cp_floor, 4)); stage 5 needs the full gate §5.2 (WP-385 Ф18.9).
 SELF_ASSESSMENT_STAGE_CAP = 4
