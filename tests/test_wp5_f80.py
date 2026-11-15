@@ -292,8 +292,11 @@ def validate_local_dsn(dsn):
         raise ValueError(
             "WP5_TEST_DSN accepts only local host, port, dbname, user, connect_timeout"
         )
-    socket = Path(fields.get("host", "")).resolve()
-    if not socket.is_absolute() or not socket.is_relative_to(Path("/private/tmp")):
+    socket = Path(fields.get("host", ""))
+    temp_roots = {Path("/tmp").resolve(), Path("/private/tmp").resolve()}
+    if not socket.is_absolute() or not any(
+        socket.resolve().is_relative_to(root) for root in temp_roots
+    ):
         raise ValueError(
             "WP5_TEST_DSN must use a Unix socket under /private/tmp (or /tmp)"
         )
@@ -313,7 +316,7 @@ def pg_server():
         return
     if not (binaries / "initdb").exists():
         pytest.skip("PostgreSQL server unavailable; set PG_BIN or local WP5_TEST_DSN")
-    with tempfile.TemporaryDirectory(prefix="wp5-f80-", dir="/private/tmp") as temp:
+    with tempfile.TemporaryDirectory(prefix="wp5-f80-", dir="/tmp") as temp:
         directory = Path(temp)
         data = directory / "data"
         initialized = run(
@@ -769,7 +772,7 @@ def test_payment_hook_rolls_back_welcome_when_referral_fails(db):
     assert db.balances() == []
 
 
-def test_dsn_refuses_network_or_credential_sources():
+def test_dsn_refuses_network_or_credential_sources(monkeypatch):
     for dsn in (
         "host=127.0.0.1 dbname=production",
         "host=/private/tmp service=live",
@@ -777,3 +780,11 @@ def test_dsn_refuses_network_or_credential_sources():
     ):
         with pytest.raises(ValueError):
             validate_local_dsn(dsn)
+    with tempfile.TemporaryDirectory(prefix="wp5-dsn-", dir="/tmp") as temp:
+        explicit = f"host={temp} dbname=postgres"
+        assert validate_local_dsn(explicit) == explicit
+        with monkeypatch.context() as local:
+            local.chdir(temp)
+            for relative in ("host=. dbname=postgres", "dbname=postgres"):
+                with pytest.raises(ValueError):
+                    validate_local_dsn(relative)
