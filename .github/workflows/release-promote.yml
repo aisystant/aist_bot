@@ -1,0 +1,159 @@
+name: Release promote
+
+# WP-562: the only regular way to change production. new-architecture is a
+# pointer to an already verified pilot commit, never a second line of
+# development. The run fast-forwards it to the requested pilot SHA through the
+# Git refs API with force=false; Railway then builds that exact commit.
+#
+# GitHub only offers workflow_dispatch for workflows on the default branch
+# (new-architecture), so this file becomes runnable after the first
+# fast-forward that carries it.
+#
+# Owner-side settings this workflow relies on (not configurable from here):
+#   - Environment "production": required reviewer = the owner (the approval is
+#     the release decision); deployment branches = new-architecture only, so a
+#     modified copy of this file dispatched from another ref cannot pass it.
+#   - Environment secrets RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY of a
+#     dedicated GitHub App with contents:write on this repository.
+#   - A ruleset on new-architecture that restricts updates, with that GitHub
+#     App as the only bypass actor. GITHUB_TOKEN is not used to move the branch:
+#     it cannot be scoped to one workflow, and its pushes start no workflows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Pilot commit to release: hex SHA of a commit that was the tip of a push to pilot (that push has the smoke run)'
+        required: true
+        type: string
+      emergency:
+        description: 'Emergency release (post-mortem due within 24 hours)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-promote
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify candidate
+    if: github.ref == 'refs/heads/new-architecture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+      previous: ${{ steps.check.outputs.previous }}
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: new-architecture
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Candidate is in pilot and production is its ancestor
+        id: check
+        env:
+          REQUESTED: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::sha must be a hex commit id, got: ${REQUESTED}"
+            exit 1
+          fi
+          sha=$(git rev-parse --verify --quiet "${REQUESTED}^{commit}") \
+            || { echo "::error::Unknown commit: ${REQUESTED}"; exit 1; }
+          previous=$(git rev-parse origin/new-architecture)
+          if ! git merge-base --is-ancestor "$sha" origin/pilot; then
+            echo "::error::${sha} is not in pilot. Production only receives pilot commits."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$previous" "$sha"; then
+            echo "::error::Production ${previous} is not an ancestor of ${sha}: a fast-forward is impossible. Merge new-architecture into pilot first."
+            exit 1
+          fi
+          if [ "$sha" = "$previous" ]; then
+            echo "::error::Production is already at ${sha}."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release candidate"
+            echo ""
+            echo "Production \`${previous}\` → \`${sha}\`"
+            echo ""
+            echo '```'
+            git log --oneline --no-decorate "${previous}..${sha}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Pilot smoke run for this exact commit succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.check.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ok=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/smoke-tests.yml/runs?head_sha=${SHA}&branch=pilot&event=push&status=success" \
+            --jq '.total_count')
+          if [ "$ok" -lt 1 ]; then
+            echo "::error::No successful 'Smoke Tests (L1+L2)' push run on pilot for ${SHA}."
+            exit 1
+          fi
+
+  promote:
+    name: Fast-forward production
+    needs: verify
+    if: github.ref == 'refs/heads/new-architecture'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Mint release token
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Candidate is still in pilot after approval
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          status=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${SHA}...pilot" --jq '.status')
+          case "$status" in
+            ahead|identical) ;;
+            *) echo "::error::${SHA} is no longer in pilot (compare status: ${status})."; exit 1 ;;
+          esac
+      - name: Move new-architecture without force
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/new-architecture" \
+            -f sha="$SHA" -F force=false > /dev/null
+      - name: Release receipt
+        env:
+          SHA: ${{ needs.verify.outputs.sha }}
+          PREVIOUS: ${{ needs.verify.outputs.previous }}
+          EMERGENCY: ${{ inputs.emergency }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "## Release receipt"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Released commit | \`${SHA}\` |"
+            echo "| Previous production | \`${PREVIOUS}\` |"
+            echo "| Started by | ${ACTOR} |"
+            echo "| Emergency | ${EMERGENCY} |"
+            echo "| Run | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |"
+          } >> "$GITHUB_STEP_SUMMARY"

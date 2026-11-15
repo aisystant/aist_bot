@@ -15,7 +15,14 @@
 
 **Ветки:** `pilot` (разработка) → `new-architecture` (прод). Правило Pilot-First — см. MEMORY.md.
 
-**Хуки:** `.githooks/pre-push` блокирует push в `new-architecture` без `FORCE_PROD=1`. `.githooks/pre-commit` проверяет docs-sync (warning-only). После clone: `git config core.hooksPath .githooks`.
+**Хуки:** `.githooks/pre-push` блокирует push в `new-architecture` без `FORCE_PROD=1` (`FORCE_PROD=1` — только для ручной перемотки пилотом до включения запуска выпуска; не для копий, см. ниже). `.githooks/pre-commit` проверяет docs-sync (warning-only). После clone: `git config core.hooksPath .githooks`.
+
+**Выпуск в прод — только перемоткой (WP-562, решение пилота 15.11.2026, БЛОКИРУЮЩЕЕ).** `new-architecture` — не вторая линия разработки, а указатель на уже проверенный коммит `pilot`. Инвариант: `git merge-base --is-ancestor origin/new-architecture origin/pilot` всегда истинно — в проде нет кода, которого нет в `pilot`.
+
+- **Запрещено:** копии-PR с суффиксом `-prod` в `new-architecture`, cherry-pick в прод, коммит сначала в прод. Каждая копия даёт новый SHA и выборочный перенос — именно так ветки разошлись до 267/117 коммитов к 15.11.
+- **Штатный путь:** правка → `pilot` → проверка на пилотном боте → выпуск: `new-architecture` перематывается до выбранного коммита `pilot` (только fast-forward, без force) с одобрения пилота. Механизм — запуск выпуска (workflow `release-promote.yml`), пока он не включён — пилот перематывает вручную.
+- **Срочная правка в прод:** тоже сначала коммит в `pilot`, затем выпуск. Если голову `pilot` выпускать нельзя — решение пилота, а не копия в прод.
+- **Миграции:** до деплоя только обратно совместимые (expand); удаление колонок/таблиц (contract) — отдельным поздним выпуском.
 
 ---
 
