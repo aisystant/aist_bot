@@ -28,8 +28,11 @@ from db.queries.marathon_newcomer import has_active_marathon_progress
 from core.assessment import (
     load_assessment,
     calculate_scores,
-    get_dominant_group,
+    get_tied_groups,
+    resolve_state_id,
+    MIXED_STATE,
     format_result,
+    format_states_legend,
 )
 from config import get_logger
 
@@ -92,8 +95,9 @@ class AssessmentResultState(BaseState):
 
         # Подсчёт
         scores = calculate_scores(assessment, answers)
-        dominant = get_dominant_group(assessment, scores)
-        dominant_id = dominant.get('id', '')
+        # A tie is stored as 'mixed' (pilot decision 15.11, WP-385 F18), not as the first group in order.
+        dominant_id = resolve_state_id(assessment, scores)
+        tied_ids = [g['id'] for g in get_tied_groups(assessment, scores)] if dominant_id == MIXED_STATE else []
 
         # Самооценка — найти label
         self_check_label = self_check or ''
@@ -122,6 +126,7 @@ class AssessmentResultState(BaseState):
             await log_event(chat_id, 'assessment_completed', {
                 'assessment_id': assessment_id,
                 'dominant_state': dominant_id,
+                'tied_states': tied_ids or None,
                 'self_check': self_check,
                 'scores': scores if scores else None,
             }, confidence=0.9)
@@ -139,7 +144,11 @@ class AssessmentResultState(BaseState):
                 current_bloom = user.get('bloom_level', 1)
             else:
                 current_bloom = getattr(user, 'bloom_level', 1)
-            suggested_bloom = ASSESSMENT_BLOOM_MAP.get(dominant_id, 1)
+            if tied_ids:
+                # On a tie take the lowest level among the leaders: do not overrate.
+                suggested_bloom = min(ASSESSMENT_BLOOM_MAP.get(g, 1) for g in tied_ids)
+            else:
+                suggested_bloom = ASSESSMENT_BLOOM_MAP.get(dominant_id, 1)
             if current_bloom == 1 or suggested_bloom > current_bloom:
                 update_kwargs['bloom_level'] = suggested_bloom
 
@@ -154,6 +163,7 @@ class AssessmentResultState(BaseState):
 
         # Форматируем результат
         result = format_result(assessment, scores, lang)
+        legend = format_states_legend(assessment, lang)
 
         from db.queries.users import moscow_today
         date_str = moscow_today().strftime("%d.%m.%Y")
@@ -163,6 +173,10 @@ class AssessmentResultState(BaseState):
             f"✅ *{t('assessment.completed', lang)}*\n",
             result,
         ]
+
+        # Краткое описание всех состояний + «смотрите, чего у вас больше»
+        if legend:
+            lines.append("\n" + legend)
 
         # UX-audit Day 1 №6: пояснить разницу между тестом и самооценкой.
         lines.append(

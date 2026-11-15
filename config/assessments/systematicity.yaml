@@ -3,6 +3,9 @@
 # =============================================================================
 # Source-of-truth: DS-marathon-v2-tseren/materials/participants/00_questionnaire.md
 #
+# Порядок вопросов: состояния чередуются (хаос, тупик, поворот, развитие), чтобы ответы «Да» подряд
+# не завышали одно состояние. Принадлежность вопроса состоянию задаёт поле group, не порядок.
+#
 # Формат: данные теста отделены от кода.
 # Добавление нового теста = добавление нового YAML файла.
 # =============================================================================
@@ -18,11 +21,11 @@ title:
   zh: "测试：我的当前状态"
 
 intro:
-  ru: "12 вопросов Да/Нет. Займёт ~2 минуты.\nОтвечай честно — это не экзамен, а точка старта."
-  en: "12 Yes/No questions. Takes ~2 minutes.\nAnswer honestly — this is not an exam, but a starting point."
-  es: "12 preguntas Sí/No. Toma ~2 minutos.\nResponde honestamente — no es un examen, sino un punto de partida."
-  fr: "12 questions Oui/Non. Prend ~2 minutes.\nRéponds honnêtement — ce n'est pas un examen, mais un point de départ."
-  zh: "12个是/否问题。大约需要2分钟。\n请诚实回答——这不是考试，而是一个起点。"
+  ru: "16 вопросов Да/Нет. Займёт ~3 минуты.\nОтвечай честно — это не экзамен, а точка старта."
+  en: "16 Yes/No questions. Takes ~3 minutes.\nAnswer honestly — this is not an exam, but a starting point."
+  es: "16 preguntas Sí/No. Toma ~3 minutos.\nResponde honestamente — no es un examen, sino un punto de partida."
+  fr: "16 questions Oui/Non. Prend ~3 minutes.\nRéponds honnêtement — ce n'est pas un examen, mais un point de départ."
+  zh: "16个是/否问题。大约需要3分钟。\n请诚实回答——这不是考试，而是一个起点。"
 
 groups:
   - id: chaos
@@ -40,6 +43,13 @@ groups:
       fr: "Votre attention ne vous appartient pas: chats, notifications, petites tâches distraient constamment. La journée se passe à 'éteindre des feux', les choses importantes sont reportées."
       zh: "你的注意力不属于你：聊天、通知、小任务不断干扰。一天都在\u201C灭火\u201D，重要的事情被推迟。"
 
+    summary:
+      ru: "внимание рассеяно, день уходит на «пожары», важное откладывается"
+      en: "attention is scattered, the day goes to firefighting, the important gets postponed"
+      es: "la atención está dispersa, el día se va en apagar fuegos, lo importante se posterga"
+      fr: "l'attention est dispersée, la journée passe à éteindre des feux, l'important est reporté"
+      zh: "注意力分散，一天都在灭火，重要的事被推迟"
+
   - id: deadlock
     emoji: "🧱"
     title:
@@ -54,6 +64,13 @@ groups:
       es: "En general todo es estable, no hay caos, pero tampoco crecimiento. 'Día de la marmota': mucho trabajo, pero los resultados e ingresos apenas cambian."
       fr: "Dans l'ensemble tout est stable, pas de chaos, mais pas de croissance non plus. 'Jour de la marmotte': beaucoup de travail, mais les résultats et revenus changent à peine."
       zh: "总体一切稳定，没有混乱，但也没有增长。\u201C土拨鼠之日\u201D：工作很多，但成果和收入几乎不变。"
+
+    summary:
+      ru: "всё стабильно, но роста нет: много работы, а результаты почти не меняются"
+      en: "everything is stable but there is no growth: lots of work, results barely change"
+      es: "todo es estable pero no hay crecimiento: mucho trabajo, los resultados apenas cambian"
+      fr: "tout est stable mais sans croissance: beaucoup de travail, les résultats changent à peine"
+      zh: "一切稳定但没有增长：工作很多，成果几乎不变"
 
   - id: turning_point
     emoji: "🔁"
@@ -70,6 +87,34 @@ groups:
       fr: "Tout va bien: il y a de la stabilité, parfois même de la croissance, mais ça ne réjouit plus. Vous sentez que vous avez dépassé votre format de vie actuel."
       zh: "一切还不错：有稳定，有时甚至有增长，但已经不再让人高兴。你感觉自己已经超越了当前的生活模式。"
 
+    summary:
+      ru: "всё неплохо, но уже не радует: чувствуете, что переросли текущий формат, и ищете направление"
+      en: "things are fine but no longer satisfying: you feel you have outgrown your current format and look for a direction"
+      es: "todo va bien pero ya no satisface: sientes que superaste tu formato actual y buscas dirección"
+      fr: "tout va bien mais ne satisfait plus: vous sentez avoir dépassé votre format actuel et cherchez une direction"
+      zh: "一切还好但已不再满足：你觉得已超越当前模式，正在寻找方向"
+
+  - id: development
+    emoji: "🌱"
+    title:
+      ru: "Развитие"
+      en: "Development"
+      es: "Desarrollo"
+      fr: "Développement"
+      zh: "发展"
+    description:
+      ru: "Есть ритм и ясное направление, которое вы выбрали сами: день выстроен под важное, новое быстро применяется, результаты растут. Задача — удерживать темп и расширять масштаб."
+      en: "You have a rhythm and a clear direction you chose yourself: your day is built around what matters, new things get applied quickly, results grow. The task is to keep the pace and widen the scope."
+      es: "Tienes ritmo y una dirección clara que elegiste tú: el día gira en torno a lo importante, lo nuevo se aplica rápido y los resultados crecen. La tarea es mantener el ritmo y ampliar el alcance."
+      fr: "Vous avez un rythme et une direction claire que vous avez choisie vous-même: la journée est organisée autour de l'essentiel, le nouveau s'applique vite, les résultats progressent. L'enjeu est de tenir le rythme et d'élargir la portée."
+      zh: "你有节奏，也有自己选定的清晰方向：一天围绕重要的事安排，新知识很快落地，成果持续增长。任务是保持节奏并扩大规模。"
+    summary:
+      ru: "есть ритм и своё ясное направление: новое быстро применяется, результаты растут"
+      en: "you have a rhythm and your own clear direction: new things get applied quickly, results grow"
+      es: "tienes ritmo y tu propia dirección clara: lo nuevo se aplica rápido y los resultados crecen"
+      fr: "vous avez un rythme et votre propre direction claire: le nouveau s'applique vite, les résultats progressent"
+      zh: "有节奏、有自己的清晰方向：新知识很快落地，成果在增长"
+
 questions:
   - id: q1
     group: chaos
@@ -80,33 +125,6 @@ questions:
       fr: "À la fin de la plupart des jours, je sens que j'ai passé la journée à éteindre des feux et n'ai pas pu m'occuper de ce qui est vraiment important"
       zh: "大多数日子结束时，我觉得一整天都在灭火，没有时间做真正重要的事"
 
-  - id: q2
-    group: chaos
-    text:
-      ru: "У меня много незавершённых дел или проектов, которые «висят» и вызывают чувство вины"
-      en: "I have many unfinished tasks or projects that 'hang' and cause guilt"
-      es: "Tengo muchas tareas o proyectos sin terminar que 'cuelgan' y causan culpa"
-      fr: "J'ai beaucoup de tâches ou projets inachevés qui 'pendent' et causent de la culpabilité"
-      zh: "我有很多未完成的任务或项目，它们\u201C悬而未决\u201D并让我感到内疚"
-
-  - id: q3
-    group: chaos
-    text:
-      ru: "Уведомления, чаты и мелкие задачи часто полностью ломают мои планы на день"
-      en: "Notifications, chats, and small tasks often completely break my plans for the day"
-      es: "Las notificaciones, chats y pequeñas tareas a menudo rompen completamente mis planes del día"
-      fr: "Les notifications, chats et petites tâches cassent souvent complètement mes plans de la journée"
-      zh: "通知、聊天和小任务经常完全打乱我一天的计划"
-
-  - id: q4
-    group: chaos
-    text:
-      ru: "Я пробовал(а) разные системы планирования / самоорганизации, но ни одна не прижилась надолго"
-      en: "I've tried various planning / self-organization systems, but none stuck for long"
-      es: "He probado varios sistemas de planificación / autoorganización, pero ninguno duró mucho"
-      fr: "J'ai essayé divers systèmes de planification / auto-organisation, mais aucun n'a duré longtemps"
-      zh: "我尝试过各种计划/自我管理系统，但没有一个能长期坚持"
-
   - id: q5
     group: deadlock
     text:
@@ -115,33 +133,6 @@ questions:
       es: "Mi vida y trabajo se parecen más al 'Día de la Marmota': todo es predecible, pero casi no hay movimiento hacia adelante"
       fr: "Ma vie et mon travail ressemblent plus au 'Jour de la marmotte': tout est prévisible, mais il n'y a presque pas de mouvement en avant"
       zh: "我的生活和工作更像是\u201C土拨鼠之日\u201D：一切都可以预见，但几乎没有前进"
-
-  - id: q6
-    group: deadlock
-    text:
-      ru: "Я работаю достаточно много, но мой доход или результаты почти не растут"
-      en: "I work quite a lot, but my income or results barely grow"
-      es: "Trabajo bastante, pero mis ingresos o resultados apenas crecen"
-      fr: "Je travaille beaucoup, mais mes revenus ou résultats ne grandissent presque pas"
-      zh: "我工作很多，但收入或成果几乎没有增长"
-
-  - id: q7
-    group: deadlock
-    text:
-      ru: "Когда я чему-то учусь (курсы, книги, вебинары), это редко приводит к реальным изменениям"
-      en: "When I learn something (courses, books, webinars), it rarely leads to real changes"
-      es: "Cuando aprendo algo (cursos, libros, webinars), rara vez lleva a cambios reales"
-      fr: "Quand j'apprends quelque chose (cours, livres, webinaires), cela mène rarement à de vrais changements"
-      zh: "当我学习东西（课程、书籍、网络研讨会）时，很少能带来真正的改变"
-
-  - id: q8
-    group: deadlock
-    text:
-      ru: "У меня нет ощущения, что я расту как специалист или как личность"
-      en: "I don't feel like I'm growing as a professional or as a person"
-      es: "No siento que estoy creciendo como profesional o como persona"
-      fr: "Je ne sens pas que je grandis en tant que professionnel ou en tant que personne"
-      zh: "我没有感觉自己在专业上或个人上有所成长"
 
   - id: q9
     group: turning_point
@@ -152,6 +143,33 @@ questions:
       fr: "Dans l'ensemble ça va bien: il y a de la stabilité, mais ça ne me rend plus heureux"
       zh: "总的来说还不错：有稳定性，但这已经不再让我高兴"
 
+  - id: q13
+    group: development
+    text:
+      ru: "У меня устойчивый ритм: день и неделя выстроены так, что на важное остаётся время"
+      en: "I have a steady rhythm: my days and weeks are arranged so there is time for what matters"
+      es: "Tengo un ritmo estable: mis días y semanas están organizados para dejar tiempo a lo importante"
+      fr: "J'ai un rythme stable: mes jours et semaines sont organisés pour laisser du temps à l'essentiel"
+      zh: "我有稳定的节奏：每天和每周的安排都为重要的事留出了时间"
+
+  - id: q2
+    group: chaos
+    text:
+      ru: "У меня много незавершённых дел или проектов, которые «висят» и вызывают чувство вины"
+      en: "I have many unfinished tasks or projects that 'hang' and cause guilt"
+      es: "Tengo muchas tareas o proyectos sin terminar que 'cuelgan' y causan culpa"
+      fr: "J'ai beaucoup de tâches ou projets inachevés qui 'pendent' et causent de la culpabilité"
+      zh: "我有很多未完成的任务或项目，它们\u201C悬而未决\u201D并让我感到内疚"
+
+  - id: q6
+    group: deadlock
+    text:
+      ru: "Я работаю достаточно много, но мой доход или результаты почти не растут"
+      en: "I work quite a lot, but my income or results barely grow"
+      es: "Trabajo bastante, pero mis ingresos o resultados apenas crecen"
+      fr: "Je travaille beaucoup, mais mes revenus ou résultats ne grandissent presque pas"
+      zh: "我工作很多，但收入或成果几乎没有增长"
+
   - id: q10
     group: turning_point
     text:
@@ -160,6 +178,33 @@ questions:
       es: "Siento que he superado mis tareas actuales / formato de vida y quiero algo más"
       fr: "Je sens que j'ai dépassé mes tâches actuelles / mon format de vie et je veux quelque chose de plus"
       zh: "我觉得自己已经超越了当前的任务/生活模式，想要更多"
+
+  - id: q14
+    group: development
+    text:
+      ru: "Новое, что я узнаю, быстро попадает в мою работу или жизнь и даёт заметный результат"
+      en: "What I learn quickly makes its way into my work or life and produces a noticeable result"
+      es: "Lo nuevo que aprendo llega rápido a mi trabajo o vida y da un resultado visible"
+      fr: "Ce que j'apprends passe vite dans mon travail ou ma vie et donne un résultat visible"
+      zh: "我学到的新东西很快就用到工作或生活中，并带来明显的效果"
+
+  - id: q3
+    group: chaos
+    text:
+      ru: "Уведомления, чаты и мелкие задачи часто полностью ломают мои планы на день"
+      en: "Notifications, chats, and small tasks often completely break my plans for the day"
+      es: "Las notificaciones, chats y pequeñas tareas a menudo rompen completamente mis planes del día"
+      fr: "Les notifications, chats et petites tâches cassent souvent complètement mes plans de la journée"
+      zh: "通知、聊天和小任务经常完全打乱我一天的计划"
+
+  - id: q7
+    group: deadlock
+    text:
+      ru: "Когда я чему-то учусь (курсы, книги, вебинары), это редко приводит к реальным изменениям"
+      en: "When I learn something (courses, books, webinars), it rarely leads to real changes"
+      es: "Cuando aprendo algo (cursos, libros, webinars), rara vez lleva a cambios reales"
+      fr: "Quand j'apprends quelque chose (cours, livres, webinaires), cela mène rarement à de vrais changements"
+      zh: "当我学习东西（课程、书籍、网络研讨会）时，很少能带来真正的改变"
 
   - id: q11
     group: turning_point
@@ -170,6 +215,33 @@ questions:
       fr: "Je ressens un besoin intérieur de changement, mais je ne comprends pas bien dans quelle direction aller"
       zh: "我感到内心有改变的需求，但不太清楚该往哪个方向走"
 
+  - id: q15
+    group: development
+    text:
+      ru: "За последние месяцы мои навыки, результаты или доход заметно выросли"
+      en: "Over the past months my skills, results, or income have clearly grown"
+      es: "En los últimos meses mis habilidades, resultados o ingresos han crecido claramente"
+      fr: "Ces derniers mois, mes compétences, résultats ou revenus ont nettement progressé"
+      zh: "最近几个月，我的技能、成果或收入明显提高了"
+
+  - id: q4
+    group: chaos
+    text:
+      ru: "Я пробовал(а) разные системы планирования / самоорганизации, но ни одна не прижилась надолго"
+      en: "I've tried various planning / self-organization systems, but none stuck for long"
+      es: "He probado varios sistemas de planificación / autoorganización, pero ninguno duró mucho"
+      fr: "J'ai essayé divers systèmes de planification / auto-organisation, mais aucun n'a duré longtemps"
+      zh: "我尝试过各种计划/自我管理系统，但没有一个能长期坚持"
+
+  - id: q8
+    group: deadlock
+    text:
+      ru: "У меня нет ощущения, что я расту как специалист или как личность"
+      en: "I don't feel like I'm growing as a professional or as a person"
+      es: "No siento que estoy creciendo como profesional o como persona"
+      fr: "Je ne sens pas que je grandis en tant que professionnel ou en tant que personne"
+      zh: "我没有感觉自己在专业上或个人上有所成长"
+
   - id: q12
     group: turning_point
     text:
@@ -178,6 +250,15 @@ questions:
       es: "Simultáneamente quiero cambios serios y tengo miedo de tocar lo que ya funciona"
       fr: "Je veux simultanément des changements sérieux et j'ai peur de toucher ce qui fonctionne déjà"
       zh: "我既想要重大改变，又害怕触动已经运作良好的东西"
+
+  - id: q16
+    group: development
+    text:
+      ru: "Я понимаю, куда хочу двигаться, и мои действия на этой неделе с этим связаны"
+      en: "I know where I want to go, and what I do this week is connected to it"
+      es: "Sé hacia dónde quiero ir y lo que hago esta semana está relacionado con eso"
+      fr: "Je sais où je veux aller, et ce que je fais cette semaine y est lié"
+      zh: "我清楚自己想去哪里，这周做的事也与此相关"
 
 self_check:
   question:
@@ -208,6 +289,13 @@ self_check:
         es: "🔁 Punto de inflexión"
         fr: "🔁 Tournant"
         zh: "🔁 转折点"
+    - id: development
+      label:
+        ru: "🌱 Развитие"
+        en: "🌱 Development"
+        es: "🌱 Desarrollo"
+        fr: "🌱 Développement"
+        zh: "🌱 发展"
     - id: unsure
       label:
         ru: "🤔 Не понимаю"
@@ -224,3 +312,17 @@ open_question:
     fr: "Décris avec tes propres mots: qu'est-ce qui te dérange le plus dans ta situation actuelle?"
     zh: "用你自己的话描述：你目前的状况中最不满意的是什么？"
   optional: true
+
+result_legend_title:
+  ru: "Что означают состояния"
+  en: "What the states mean"
+  es: "Qué significan los estados"
+  fr: "Ce que signifient les états"
+  zh: "各状态的含义"
+
+result_hint:
+  ru: "Посмотрите, чего у вас больше всего: это состояние сейчас ближе всего к вам. Состояния могут сочетаться, это нормально."
+  en: "See which state you have the most of: it is the closest to you right now. States can overlap, and that is normal."
+  es: "Mira qué estado tienes más: es el más cercano a ti ahora. Los estados pueden combinarse, es normal."
+  fr: "Regardez quel état est le plus présent chez vous: c'est le plus proche de vous maintenant. Les états peuvent se combiner, c'est normal."
+  zh: "看看哪种状态在你身上最多：它现在离你最近。状态可以并存，这很正常。"
