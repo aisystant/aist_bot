@@ -65,25 +65,38 @@ PROGRAM_STAGE_LABELS = {
 }
 
 # Programme for a qualified person («Работник» and above) by the qualification, not by the
-# learner-role diagnostic (PD.FORM.105 §3; pilot 15.11.2026, WP-385 Ф18). Keys are qualification
-# names as the twin stores them (db/queries/dt_sync.py); the revolutionary degree has two spellings.
-_WORK_DEVELOPMENT = "«Рабочее развитие»"
-_ENLIGHTENMENT = "«Просветительская программа» (курса пока нет, путь подберёт наставник)"
-QUALIFICATION_PROGRAMMES = {
-    "Работник": _WORK_DEVELOPMENT,
-    "Стратег": _WORK_DEVELOPMENT,
-    "Специалист": _WORK_DEVELOPMENT,
-    "Практик": _WORK_DEVELOPMENT,
-    "Мастер": "«Исследовательское развитие» или следующий круг «Рабочего развития»",
-    "Реформатор": "«Исследовательское развитие» или «Просветительская программа»",
-    "Деятель (революционер)": _ENLIGHTENMENT,
-    "Революционер": _ENLIGHTENMENT,
+# learner-role diagnostic (PD.FORM.105 §3, §5; pilot 15.11.2026, WP-385 Ф18). Matched by a word of
+# the name, case-insensitive: the twin and LMS spell the top degree «Деятель (революционер)»,
+# «Революционер» or «Общественный деятель».
+_QUALIFICATION_PROGRAMME_RULES = (
+    (("работник", "стратег", "специалист", "практик"), "программа «Рабочее развитие»"),
+    (("мастер",), "программа «Исследовательское развитие» или следующий круг «Рабочего развития»"),
+    (("реформатор",), "программа «Исследовательское развитие» или «Просветительская программа» "
+                      "(курса «Просветительской программы» пока нет, путь подберёт наставник)"),
+    (("деятель", "революционер"), "«Просветительская программа» (курса пока нет, путь подберёт наставник)"),
+)
+
+
+def qualification_programme(qualification: str) -> str | None:
+    """Programme recommended for a qualification, or None for a name the rules do not know."""
+    name = qualification.lower()
+    for words, programme in _QUALIFICATION_PROGRAMME_RULES:
+        if any(word in name for word in words):
+            return programme
+    return None
+
+
+# Options the admission table allows beside the main stage (pilot 15.11.2026, WP-385 Ф18).
+_ADMISSION_NOTES = {
+    1: "С первой ступени можно начать и сразу с S1 «Собранность».",
+    4: ("Можно и сразу перейти к программе «Рабочее развитие». "
+        "Что выбрать, подскажет консультация в IWE или у наставника."),
 }
 
 
-def qualification_programme(qualification: str) -> str:
-    """Programme recommended for a qualification; an unknown name is left to the mentor."""
-    return QUALIFICATION_PROGRAMMES.get(qualification, "та, которую подберёт наставник")
+def admission_note(stage) -> str:
+    """Second option of the admission table for this stage, or an empty string."""
+    return _ADMISSION_NOTES.get(stage, "")
 
 
 def learner_role_has_no_gaps(stage, cp_scores) -> bool:
@@ -91,6 +104,12 @@ def learner_role_has_no_gaps(stage, cp_scores) -> bool:
     if isinstance(stage, int) and stage >= 5:
         return True
     return bool(cp_scores) and compute_cp_stage(cp_scores)["stage5_candidate"]
+
+
+def stage5_signs(stage, cp_scores) -> bool:
+    """All fives in a stored self-assessment whose stage was capped below 5."""
+    return isinstance(stage, int) and stage < 5 and bool(cp_scores) \
+        and compute_cp_stage(cp_scores)["stage5_candidate"]
 
 # Highest stage a self-assessment alone may confirm (PD.FORM.089 §5.1 п.5, §6.1:
 # skip_to_stage = min(cp_floor, 4)); stage 5 needs the full gate §5.2 (WP-385 Ф18.9).

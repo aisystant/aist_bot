@@ -176,7 +176,7 @@ async def test_cp_profile_shows_qualification_for_reformer():
 async def test_cp_profile_reformer_programme_by_qualification_and_no_learner_gaps():
     text = await _cp_profile_text(REFORMER)
 
-    assert "📚 Программа по квалификации: <b>«Исследовательское развитие» или «Просветительская программа»</b>" in text
+    assert "📚 Рекомендуется по квалификации: <b>программа «Исследовательское развитие» или «Просветительская программа»" in text
     assert "🎯 Роль Ученика: <b>пробелов нет</b>" in text
     assert "Рабочее развитие" not in text
 
@@ -192,7 +192,20 @@ async def test_cp_profile_qualified_with_learner_gap_shows_stage_to_add():
     text = state._show_section.await_args.args[1]
 
     assert "🎯 Роль Ученика: <b>ступень 2 — " in text
-    assert "📚 Можно также пройти: <b>S1 «Собранность»" in text
+    assert "📚 Рекомендуется также пройти: <b>S1 «Собранность»" in text
+
+
+async def test_cp_profile_learner_stage_four_shows_both_options():
+    from states.utilities.progress import ProgressState
+
+    cp = {"stage": 4, "bottleneck_slot": "none", "recommended_stream": "S4", "cp_scores": {"cp.rhy": 4}}
+    state = ProgressState.__new__(ProgressState)
+    state._show_section = AsyncMock()
+    await state._show_cp_profile(MagicMock(), {"cp_profile": cp, "degree": STUDENT}, "ru")
+    text = state._show_section.await_args.args[1]
+
+    assert "📚 Этап программы: <b>S3 «Системность»" in text
+    assert "Можно и сразу перейти к программе «Рабочее развитие»." in text
 
 
 async def test_cp_profile_keeps_stage_for_student_and_unknown():
@@ -223,6 +236,9 @@ def test_diagnose_result_keeps_stage_without_qualification():
 # Pilot 15.11.2026 (WP-385 Ф18): the programme of a qualified person comes from the qualification;
 # the learner-role result is a separate, additional recommendation.
 
+_FIVES = {s: 5 for s in ("cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt")}
+
+
 def _qualified(stage, bottleneck=None, stage5_candidate=False, qualification="Работник"):
     from handlers.diagnose import _format_result
 
@@ -234,7 +250,7 @@ def test_reformer_with_all_fives_gets_research_programme_and_no_gaps():
     text = _qualified(4, "none", stage5_candidate=True, qualification="Реформатор")
 
     assert "Эта диагностика измеряет роль Ученика — умение развивать себя и свою ИИ-среду." in text
-    assert "«Исследовательское развитие» или «Просветительская программа»" in text
+    assert "рекомендуется программа «Исследовательское развитие» или «Просветительская программа»" in text
     assert "пробелов не показала — дополнительно проходить ничего не нужно" in text
     assert "S3" not in text and "признаки пятой ступени" not in text
 
@@ -242,22 +258,31 @@ def test_reformer_with_all_fives_gets_research_programme_and_no_gaps():
 def test_worker_with_learner_gap_gets_work_programme_and_learner_stage():
     text = _qualified(2, "cp.rhy")
 
-    assert "рекомендуется программа «Рабочее развитие»" in text
+    assert "Для вашей квалификации рекомендуется программа «Рабочее развитие»." in text
     assert ("Однако диагностика по роли Ученика показала, что у вас ступень 2 «Практикующий», "
-            "слабее всего — регулярность и ритм занятий") in text
-    assert "также пройти этап <b>S1 «Собранность»" in text
+            "слабее всего — регулярность и ритм занятий. Поэтому вам рекомендуется также пройти "
+            "этап программы «Личное развитие»: <b>S1 «Собранность» — от туриста к строителю</b>.") in text
+    assert "Это самооценка" in text
 
 
 def test_qualified_stage_four_may_take_s3_after_consultation():
     text = _qualified(4, "none", qualification="Мастер")
 
     assert "«Исследовательское развитие» или следующий круг «Рабочего развития»" in text
-    assert "Можно также пройти этап <b>S3 «Системность»" in text
+    assert "Можно также пройти этап программы «Личное развитие»: <b>S3 «Системность»" in text
     assert "консультация в IWE или у наставника" in text
 
 
-def test_unknown_qualification_name_falls_back_to_mentor():
-    assert "программа та, которую подберёт наставник" in _qualified(3, "cp.int", qualification="Новая степень")
+@pytest.mark.parametrize("name", ["Деятель (революционер)", "Революционер", "Общественный деятель"])
+def test_top_degree_spellings_get_enlightenment_programme(name):
+    assert "рекомендуется «Просветительская программа» (курса пока нет" in _qualified(5, "none", qualification=name)
+
+
+def test_unknown_qualification_name_is_left_to_mentor():
+    text = _qualified(3, "cp.int", qualification="Новая степень")
+
+    assert "Программу для вашей квалификации подберёт наставник." in text
+    assert "рекомендуется программа та" not in text
 
 
 def test_learner_stage_four_offers_s3_or_work_development():
@@ -265,8 +290,44 @@ def test_learner_stage_four_offers_s3_or_work_development():
 
     text = _format_result({"stage": 4, "bottleneck_slot": "none", "stage5_candidate": False}, None)
 
-    assert "S3 «Системность»" in text and "или сразу программа «Рабочее развитие»" in text
+    assert "S3 «Системность»" in text and "Можно и сразу перейти к программе «Рабочее развитие»." in text
     assert "консультация в IWE или у наставника" in text
+
+
+def test_learner_role_has_no_gaps_and_stage5_signs():
+    from db.queries.cp_assessment import learner_role_has_no_gaps, stage5_signs
+
+    assert learner_role_has_no_gaps(5, None) and learner_role_has_no_gaps(4, _FIVES)
+    assert not learner_role_has_no_gaps(4, {**_FIVES, "cp.agt": 4})
+    assert stage5_signs(4, _FIVES) and not stage5_signs(5, _FIVES) and not stage5_signs(4, None)
+
+
+async def _fresh_screen(monkeypatch, existing, qualification):
+    from datetime import datetime, timezone
+    import handlers.diagnose as diag
+
+    existing = {"assessed_at": datetime.now(timezone.utc).isoformat(), **existing}
+    monkeypatch.setattr(diag, "get_latest_cp_assessment", AsyncMock(return_value=existing))
+    monkeypatch.setattr(diag, "_qualification", AsyncMock(return_value=qualification))
+    monkeypatch.setattr("helpers.dual_write.resolve_ory_id_from_chat", AsyncMock(return_value="acc"))
+    message = MagicMock()
+    message.chat.id = 42
+    message.answer = AsyncMock()
+    message.bot.send_chat_action = AsyncMock()
+    await diag.cmd_diagnose(message, MagicMock())
+    return message.answer.await_args.args[0]
+
+
+async def test_fresh_screen_stored_stage_five_learner_has_no_stage5_hint(monkeypatch):
+    text = await _fresh_screen(monkeypatch, {"stage": 5, "bottleneck_slot": "none", "cp_scores": _FIVES}, None)
+
+    assert "Проактивный (5 из 5)" in text and "признаки пятой ступени" not in text
+
+
+async def test_fresh_screen_qualified_all_fives_has_no_gaps(monkeypatch):
+    text = await _fresh_screen(monkeypatch, {"stage": 4, "bottleneck_slot": "none", "cp_scores": _FIVES}, "Реформатор")
+
+    assert "пробелов не показала" in text and "S3" not in text
 
 
 async def test_diagnose_qualification_read_is_best_effort(monkeypatch):

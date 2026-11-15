@@ -31,6 +31,7 @@ from core.qualification import qualified_level
 from db.queries.cp_assessment import (
     PROGRAM_STAGE_LABELS,
     STAGE_NAMES,
+    admission_note,
     learner_role_has_no_gaps,
     program_stage_for_stored_stream,
     qualification_programme,
@@ -760,6 +761,17 @@ class ProgressState(BaseState):
         "cp.agt": "Агентность",
     }
 
+    @staticmethod
+    def _programme_stage_line(programme_stage: str, stage, qualified: bool) -> str:
+        """Personal Development stage by the admission table, worded as in /diagnose (WP-385 Ф18)."""
+        label = PROGRAM_STAGE_LABELS[programme_stage]
+        if not qualified:
+            note = admission_note(stage)
+            return f"📚 Этап программы: <b>{label}</b>\n" + (f"{note}\n" if note else "")
+        if stage == 4:
+            return f"📚 Можно также пройти (после консультации в IWE или у наставника): <b>{label}</b>\n"
+        return f"📚 Рекомендуется также пройти: <b>{label}</b>\n"
+
     async def _show_cp_profile(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         cp = cache.get('cp_profile')
         text = "<b>🔬 Диагностический профиль</b>\n\n"
@@ -780,8 +792,9 @@ class ProgressState(BaseState):
             # adds a separate learner-role line (pilot 15.11.2026, WP-385 Ф18)
             no_gaps = bool(qualification) and learner_role_has_no_gaps(stage, cp.get('cp_scores'))
             if qualification:
+                programme = qualification_programme(qualification) or "подберёт наставник"
                 text += f"🎓 Квалификация: <b>{html.escape(qualification)}</b>\n"
-                text += f"📚 Программа по квалификации: <b>{qualification_programme(qualification)}</b>\n"
+                text += f"📚 Рекомендуется по квалификации: <b>{programme}</b>\n"
                 text += ("🎯 Роль Ученика: <b>пробелов нет</b>\n" if no_gaps
                          else f"🎯 Роль Ученика: <b>ступень {stage} — {stage_label}</b>\n")
             else:
@@ -792,8 +805,7 @@ class ProgressState(BaseState):
             else:
                 text += "⚡ Узких мест нет\n"
             if programme_stage and not no_gaps:
-                caption = "Можно также пройти" if qualification else "Этап программы"
-                text += f"📚 {caption}: <b>{PROGRAM_STAGE_LABELS[programme_stage]}</b>\n"
+                text += self._programme_stage_line(programme_stage, stage, qualified=bool(qualification))
             text += f"📅 Действует до: {valid_str}\n"
 
             scores = cp.get('cp_scores') or {}

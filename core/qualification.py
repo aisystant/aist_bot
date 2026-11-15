@@ -3,6 +3,8 @@
 Stages 1..5 exist only inside the «Ученик» qualification (WP-149 canon, 05.07.2026). From
 «Работник» up (LMS numeric level 25, see db/queries/dt_sync.py) a person has a qualification and
 no stage, so screens show the qualification instead of the stage (WP-417 Ф8, pilot 13-14.11.2026).
+The /diagnose result and the /progress diagnostic profile add the learner-role stage only as a
+separate gap note next to the programme by qualification (WP-385 Ф18, pilot 15.11.2026).
 
 Pure data helpers: no texts, no I/O. Stage names stay with the screens that render them.
 """
