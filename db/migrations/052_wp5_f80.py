@@ -189,14 +189,54 @@ def write_rollback(path, baseline):
     path = Path(path).resolve()
     if path.is_relative_to(Path(__file__).resolve().parents[2]):
         raise RuntimeError("Rollback must be outside the repository")
-    sql = (
-        "BEGIN;\n"
-        + "\n".join(v.rstrip() + ";" for v in baseline.values())
-        + "\nCOMMIT;\n"
-    )
+    compute = baseline[COMPUTE].strip()
+    stage = baseline[STAGE].strip()
+    if any(tag in compute for tag in ("$wp5_f80_restore$", "$wp5_f80_old_compute$")):
+        raise RuntimeError("Rollback definition contains a reserved quoting delimiter")
+    sql = f"""BEGIN;
+{stage};
+DO $wp5_f80_restore$
+DECLARE v_had_create boolean;
+BEGIN
+  v_had_create := has_schema_privilege('{ENGINE}', 'public', 'CREATE');
+  IF NOT v_had_create THEN
+    EXECUTE 'GRANT CREATE ON SCHEMA public TO {ENGINE}';
+  END IF;
+  EXECUTE 'SET LOCAL ROLE {ENGINE}';
+  EXECUTE $wp5_f80_old_compute${compute}$wp5_f80_old_compute$;
+  EXECUTE 'RESET ROLE';
+  IF NOT v_had_create THEN
+    EXECUTE 'REVOKE CREATE ON SCHEMA public FROM {ENGINE}';
+  END IF;
+END;
+$wp5_f80_restore$;
+COMMIT;
+"""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as stream:
         stream.write(sql)
+
+
+async def install_functions(conn, sql):
+    """Replace compute as its owner, without retaining schema CREATE rights."""
+    marker = "CREATE OR REPLACE FUNCTION public.compute_effective_amount_v4("
+    if sql.count(marker) != 1:
+        raise RuntimeError("Expected one reviewed accrual function definition")
+    helpers, _, compute = sql.partition(marker)
+    async with conn.transaction():
+        await conn.execute(helpers)
+        had_create = await conn.fetchval(
+            "SELECT has_schema_privilege($1,'public','CREATE')", ENGINE
+        )
+        if not had_create:
+            await conn.execute(f"GRANT CREATE ON SCHEMA public TO {ENGINE}")
+        # Production administrator has SET membership but does not inherit the
+        # engine owner's privileges. Superuser-only tests can hide this boundary.
+        await conn.execute(f"SET LOCAL ROLE {ENGINE}")
+        await conn.execute(marker + compute)
+        await conn.execute("RESET ROLE")
+        if not had_create:
+            await conn.execute(f"REVOKE CREATE ON SCHEMA public FROM {ENGINE}")
 
 
 async def run(args):
@@ -223,7 +263,7 @@ async def run(args):
             write_rollback(args.rollback, baseline)
             await setup_foreign_tables(conn)
             await verify_owner_reads(conn)
-            await conn.execute(SQL_FILE.read_text())
+            await install_functions(conn, SQL_FILE.read_text())
             for signature in (
                 "public._wp5_stage_value(jsonb)",
                 "public._wp5_stage_evidence(uuid)",
