@@ -91,12 +91,32 @@ jobs:
               raise SystemExit('DT PostgreSQL tests must run without skips')
           print(f'{len(cases)} PostgreSQL tests executed without skips')
           PY
+      - name: Test F80 rewards and dedicated FDW readers
+        env:
+          PG_BIN: /usr/lib/postgresql/16/bin
+        run: |
+          python -m pytest tests/test_wp5_f80.py tests/test_wp5_f80_readers.py -v --tb=short \
+            --junitxml=rewards-f80-results.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('rewards-f80-results.xml').findall('.//testcase')
+          if not cases or any(case.find('skipped') is not None for case in cases):
+              raise SystemExit('F80 PostgreSQL tests must run without skips')
+          print(f'{len(cases)} F80 PostgreSQL tests executed without skips')
+          PY
       - name: Upload DT writer results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dt-writer-results
           path: dt-writer-results.xml
+          retention-days: 30
+      - name: Upload F80 rewards results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rewards-f80-results
+          path: rewards-f80-results.xml
           retention-days: 30
 
   post-deploy-healthcheck:

@@ -1103,14 +1103,18 @@ prepared read-only objects. Historical backfill, the 34 attribution pairs and
 ownerless LMS events remain outside this forward calculation patch. Exact
 backfill totals must be computed on a database copy and approved separately.
 
-Validation: `tests/smoke/test_wp5_f80.py` starts a temporary PostgreSQL 16 cluster
+Validation: `tests/test_wp5_f80.py` starts a temporary PostgreSQL 16 cluster
 on a Unix socket with synthetic data, installs the actual function SQL and
 production earned-total trigger, and exercises the engine owner plus restricted
 caller. It covers source precedence, malformed/estimated stage evidence,
 subscription boundaries and lifecycle history, ordinary and referral balances,
 derived payment IDs, rollback of failed calls and idempotency.
-`tests/smoke/test_wp5_f80_readers.py` creates a separate local cluster with
+`tests/test_wp5_f80_readers.py` creates a separate local cluster with
 password-authenticated FDW connections. It checks actual engine reads of all
 required columns, minimal projections, access denial, repeated setup without
 credential rotation and refusal to overwrite unknown objects. It also verifies
 that a failed read restores the prior role and preserves the original error.
+
+CI runs the F80 tests in the PostgreSQL 16 job with an explicit binary path
+and rejects skipped cases. They are separate from the offline release smoke
+profile, which forbids network connections.

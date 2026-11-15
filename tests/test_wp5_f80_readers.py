@@ -23,7 +23,7 @@ from pathlib import Path
 import asyncpg
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 ACCOUNT = "00000000-0000-0000-0000-000000000001"
 CONTRACT = "00000000-0000-0000-0000-000000000002"
 OWNER = "neondb_owner"
