@@ -226,7 +226,7 @@ async def check_balances(conn, plan):
 
 async def preflight(conn, plan):
     permissions = await conn.fetchrow(
-        "SELECT (SELECT bool_and(has_table_privilege(rel,priv)) FROM (VALUES('public.applied_events','SELECT'),('public.applied_events','INSERT'),('public.applied_events','UPDATE'),('public.point_balances','SELECT'),('public.point_balances','UPDATE')) required(rel,priv)) table_access,has_schema_privilege('public','CREATE') schema_create,(SELECT pg_has_role(current_user,proowner,'USAGE') FROM pg_proc WHERE oid=$1::regprocedure) trigger_owner",
+        "SELECT (SELECT bool_and(has_table_privilege(rel,priv)) FROM (VALUES('public.applied_events','SELECT'),('public.applied_events','INSERT'),('public.applied_events','UPDATE'),('public.point_balances','SELECT'),('public.point_balances','UPDATE')) required(rel,priv)) table_access,has_schema_privilege('public','CREATE') schema_create,(SELECT pg_has_role(current_user,proowner,'USAGE') FROM pg_catalog.pg_proc WHERE oid=$1::regprocedure) trigger_owner",
         TRIGGER,
     )
     if not all(permissions.values()):
@@ -330,7 +330,7 @@ async def prior_receipt(conn, plan_hash, event_ids):
 async def trigger_state(conn):
     return dict(
         await conn.fetchrow(
-            "SELECT prosrc,proconfig,prosecdef,provolatile,proisstrict,proleakproof,proparallel,proacl::text,proowner::text FROM pg_proc WHERE oid=$1::regprocedure",
+            "SELECT prosrc,proconfig,prosecdef,provolatile,proisstrict,proleakproof,proparallel,proacl::text,proowner::text FROM pg_catalog.pg_proc WHERE oid=$1::regprocedure",
             TRIGGER,
         )
     )
@@ -377,11 +377,11 @@ async def write_awards(conn, plan, sources, plan_hash):
     # Identifiers derive only from this module's literal allowlist.
     projection = ",".join(f"r.{k}" for k in columns)
     await conn.execute(
-        f"INSERT INTO public.applied_events({','.join(columns)}) SELECT {projection} FROM pg_temp.wp5_f80_stage s CROSS JOIN LATERAL jsonb_populate_record(NULL::public.applied_events,s.award) r WHERE s.kind='new'"  # nosec B608
+        f"INSERT INTO public.applied_events({','.join(columns)}) SELECT {projection} FROM pg_temp.wp5_f80_stage s CROSS JOIN pg_catalog.jsonb_populate_record(NULL::public.applied_events,s.award) r WHERE s.kind='new'"  # nosec B608
     )
     assignment = ",".join(f"{k}=r.{k}" for k in columns if k != "event_id")
     await conn.execute(
-        f"UPDATE public.applied_events a SET {assignment} FROM pg_temp.wp5_f80_stage s CROSS JOIN LATERAL jsonb_populate_record(NULL::public.applied_events,s.award) r WHERE s.kind='zero' AND a.event_id=s.event_id AND a.effective=0 AND a.account_id=s.account_id"  # nosec B608
+        f"UPDATE public.applied_events a SET {assignment} FROM pg_temp.wp5_f80_stage s CROSS JOIN pg_catalog.jsonb_populate_record(NULL::public.applied_events,s.award) r WHERE s.kind='zero' AND a.event_id=s.event_id AND a.effective=0 AND a.account_id=s.account_id"  # nosec B608
     )
     await conn.execute(
         "UPDATE public.wp5_f80_items i SET after_row=to_jsonb(a) FROM public.applied_events a WHERE i.digest=$1 AND a.event_id=i.event_id",
