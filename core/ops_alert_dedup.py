@@ -5,15 +5,40 @@ import hashlib
 import json
 import time
 
+from core.reindex_alert import is_unknown_result
+
+# An unknown reindex result repeats with every push that times out; the old hourly bucket let
+# the same source through again after each hour boundary (WP-568, 16.11: four near-identical
+# chat messages in two hours). One message per source per window, repeats are only counted.
+UNKNOWN_RESULT_WINDOW_SECONDS = 6 * 3600
+_UNKNOWN_KEY_PREFIX = "reindex-unknown:"
+
+# The longest window any key uses (daily keys); older entries can no longer suppress anything.
+_MAX_WINDOW_SECONDS = 86_400
+
 _LAST_SENT: dict[str, float] = {}
 _PENDING: dict[str, asyncio.Event] = {}
+_SUPPRESSED: dict[str, int] = {}
+
+
+def _prune(now: float) -> None:
+    """Drop expired keys, and counters of keys that are gone: hourly keys never repeat."""
+    for key in [k for k, sent in _LAST_SENT.items() if now - sent >= _MAX_WINDOW_SECONDS]:
+        # The counter of a per-source key is shown on that source's next message, however late it comes.
+        if key.startswith(_UNKNOWN_KEY_PREFIX) and _SUPPRESSED.get(key):
+            continue
+        del _LAST_SENT[key]
+    for key in [k for k in _SUPPRESSED if k not in _LAST_SENT]:
+        del _SUPPRESSED[key]
 
 
 async def _reserve(key: str, ttl_seconds: int) -> tuple[bool, str, asyncio.Event | None]:
     while True:
         now = time.time()
+        _prune(now)
         previous = _LAST_SENT.get(key)
         if previous is not None and now - previous < ttl_seconds:
+            _SUPPRESSED[key] = _SUPPRESSED.get(key, 0) + 1
             return False, key, None
         pending = _PENDING.get(key)
         if pending is not None:
@@ -40,7 +65,10 @@ async def reserve_reindex_alert(body: dict) -> tuple[bool, str, asyncio.Event | 
     if entries and all("OpenRouter embeddings error: 401" in str(entry.get("error", "")) for entry in entries):
         key = f"reindex-openrouter-401:{time.strftime('%Y-%m-%d', time.gmtime())}"
         return await _reserve(key, 86_400)
-    source = str(body.get("source", "?"))
+    source = str(body.get("source") or "?")
+    # A payload without a source must not share one window with every other nameless payload.
+    if source != "?" and entries and all(is_unknown_result(entry.get("error", "")) for entry in entries):
+        return await _reserve(f"{_UNKNOWN_KEY_PREFIX}{source}", UNKNOWN_RESULT_WINDOW_SECONDS)
     fingerprint = hashlib.sha256(serialized.encode()).hexdigest()[:16]
     bucket = int(time.time() // 3600)
     key = f"reindex:{source}:{bucket}:{fingerprint}"
@@ -53,8 +81,14 @@ async def reserve_installation_orphaned(body: dict) -> tuple[bool, str, asyncio.
     return await _reserve(key, 86_400)
 
 
+def suppressed_count(key: str) -> int:
+    """Repeats swallowed for this key since its last delivered message."""
+    return _SUPPRESSED.get(key, 0)
+
+
 def mark_alert_sent(key: str, reservation: asyncio.Event) -> None:
     _finish(key, reservation, True)
+    _SUPPRESSED.pop(key, None)
 
 
 def release_reservation(key: str, reservation: asyncio.Event) -> None:
@@ -63,6 +97,7 @@ def release_reservation(key: str, reservation: asyncio.Event) -> None:
 
 def reset_ops_alert_dedup() -> None:
     _LAST_SENT.clear()
+    _SUPPRESSED.clear()
     for pending in _PENDING.values():
         pending.set()
     _PENDING.clear()

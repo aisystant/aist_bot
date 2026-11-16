@@ -399,3 +399,197 @@ async def test_stale_release_does_not_release_new_reservation():
     assert _PENDING[key] is second
     release_reservation(key, second)
     assert key not in _PENDING
+
+
+# --- WP-568, 16.11: an unknown reindex result must not repeat in chat every hour ---
+
+_UNKNOWN = {"target": "knowledge", "error": "timeout 20s: result unknown, job may be queued"}
+
+
+@pytest.mark.asyncio
+async def test_unknown_result_window_spans_hour_boundaries_and_error_text(monkeypatch):
+    import core.ops_alert_dedup as dedup
+
+    dedup.reset_ops_alert_dedup()
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+
+    body = {"source": "FMT-exocortex-template", "failed": [_UNKNOWN]}
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    assert accepted
+    dedup.mark_alert_sent(key, token)
+
+    # 58 minutes later (the next hour bucket) and with a different timeout text: still the same signal.
+    clock["now"] += 58 * 60
+    later = {"source": "FMT-exocortex-template", "failed": [{"target": "knowledge", "error": "timeout 30000ms: result unknown"}]}
+    accepted, _, _ = await dedup.reserve_reindex_alert(later)
+    assert not accepted
+    assert dedup.suppressed_count(key) == 1
+
+    # Another source is a different signal.
+    accepted, other_key, other_token = await dedup.reserve_reindex_alert({"source": "PACK-digital-platform", "failed": [_UNKNOWN]})
+    assert accepted and other_key != key
+    dedup.release_reservation(other_key, other_token)
+
+
+@pytest.mark.asyncio
+async def test_unknown_result_comes_back_after_window_with_repeat_count(monkeypatch):
+    import core.ops_alert_dedup as dedup
+    from core.reindex_alert import render_reindex_alert
+
+    dedup.reset_ops_alert_dedup()
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    body = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    dedup.mark_alert_sent(key, token)
+    for _ in range(3):
+        clock["now"] += 3600
+        accepted, _, _ = await dedup.reserve_reindex_alert(body)
+        assert not accepted
+
+    clock["now"] += dedup.UNKNOWN_RESULT_WINDOW_SECONDS
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    assert accepted
+    text = render_reindex_alert(body, dedup.suppressed_count(key))
+    assert "ещё 3 таких сообщения" in text
+    dedup.mark_alert_sent(key, token)
+    assert dedup.suppressed_count(key) == 0
+
+
+@pytest.mark.asyncio
+async def test_confirmed_error_is_not_swallowed_by_unknown_window():
+    import core.ops_alert_dedup as dedup
+
+    dedup.reset_ops_alert_dedup()
+    unknown = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+    accepted, key, token = await dedup.reserve_reindex_alert(unknown)
+    dedup.mark_alert_sent(key, token)
+
+    confirmed = {"source": "PACK-digital-platform", "failed": [{"target": "knowledge", "error": "HTTP 403 denied"}]}
+    accepted, error_key, error_token = await dedup.reserve_reindex_alert(confirmed)
+    assert accepted and error_key != key
+    dedup.release_reservation(error_key, error_token)
+
+
+def test_unknown_result_text_names_the_action_and_hides_nothing_new():
+    from core.reindex_alert import render_reindex_alert
+
+    text = render_reindex_alert({"source": "PACK-digital-platform", "failed": [_UNKNOWN]})
+    assert "Что делать: пока ничего." in text
+    assert "скажите агенту «проверь итог переиндексации PACK-digital-platform»" in text
+    assert "Повторный запуск до проверки не нужен" in text
+    assert "ещё" not in text  # no repeat line when nothing was suppressed
+
+
+@pytest.mark.parametrize(
+    "count, phrase",
+    [(1, "ещё 1 такое сообщение"), (2, "ещё 2 таких сообщения"), (5, "ещё 5 таких сообщений"), (11, "ещё 11 таких сообщений"), (21, "ещё 21 такое сообщение"), (24, "ещё 24 таких сообщения")],
+)
+def test_repeat_line_agrees_with_the_number(count, phrase):
+    from core.reindex_alert import render_reindex_alert
+
+    assert phrase in render_reindex_alert({"source": "S", "failed": [_UNKNOWN]}, count)
+
+
+@pytest.mark.asyncio
+async def test_handler_shows_suppressed_repeats_on_the_next_delivered_message(notify, monkeypatch):
+    """End to end through /internal/notify: repeats are swallowed, then counted in the next chat message."""
+    import core.ops_alert_dedup as dedup
+
+    client, bot, _ = notify
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    body = {"type": "ops_alert", "source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+
+    first = await post(client, body)
+    assert first.status == 200 and bot.send_message.await_count == 1
+    assert "ещё" not in bot.send_message.await_args.kwargs["text"]
+
+    for _ in range(2):
+        clock["now"] += 40 * 60
+        again = await post(client, body)
+        assert (await again.json()) == {"ok": True, "deduped": True}
+    assert bot.send_message.await_count == 1  # nothing new reached the chat
+
+    clock["now"] += dedup.UNKNOWN_RESULT_WINDOW_SECONDS
+    later = await post(client, body)
+    assert later.status == 200 and bot.send_message.await_count == 2
+    assert "ещё 2 таких сообщения" in bot.send_message.await_args.kwargs["text"]
+
+
+def test_mixed_unknown_and_error_never_says_nothing_to_do():
+    from core.reindex_alert import render_reindex_alert
+
+    text = render_reindex_alert(
+        {"source": "S", "failed": [_UNKNOWN, {"target": "personal", "error": "HTTP 403 denied"}]}
+    )
+    assert "Запросы завершились с ошибкой" in text
+    assert "Что делать: пока ничего" not in text
+
+
+@pytest.mark.asyncio
+async def test_payload_without_source_has_no_shared_window():
+    import core.ops_alert_dedup as dedup
+
+    dedup.reset_ops_alert_dedup()
+    nameless = {"failed": [_UNKNOWN]}
+    accepted, key, token = await dedup.reserve_reindex_alert(nameless)
+    assert accepted and not key.startswith("reindex-unknown:")
+    dedup.mark_alert_sent(key, token)
+    # a different nameless payload (other target) is a different signal
+    other = {"failed": [{"target": "personal", "error": "timeout 20s: result unknown"}]}
+    accepted, other_key, other_token = await dedup.reserve_reindex_alert(other)
+    assert accepted
+    dedup.release_reservation(other_key, other_token)
+
+
+@pytest.mark.asyncio
+async def test_expired_dedup_state_is_pruned(monkeypatch):
+    import core.ops_alert_dedup as dedup
+
+    dedup.reset_ops_alert_dedup()
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    for hour in range(5):
+        accepted, key, token = await dedup.reserve_reindex_alert({"source": f"S{hour}", "failed": [{"target": "t", "error": f"HTTP {400 + hour}"}]})
+        dedup.mark_alert_sent(key, token)
+        clock["now"] += 3600
+    assert len(dedup._LAST_SENT) == 5
+    dedup._SUPPRESSED["reindex:gone:1:abc"] = 3
+    clock["now"] += 2 * 86_400
+    accepted, key, token = await dedup.reserve_reindex_alert({"source": "fresh", "failed": []})
+    assert accepted
+    assert not dedup._LAST_SENT and "reindex:gone:1:abc" not in dedup._SUPPRESSED
+    dedup.release_reservation(key, token)
+
+
+@pytest.mark.asyncio
+async def test_repeat_counter_survives_a_gap_longer_than_a_day(monkeypatch):
+    import core.ops_alert_dedup as dedup
+    from core.reindex_alert import render_reindex_alert
+
+    dedup.reset_ops_alert_dedup()
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    body = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    dedup.mark_alert_sent(key, token)
+    for _ in range(5):
+        clock["now"] += 3600
+        accepted, _, _ = await dedup.reserve_reindex_alert(body)
+        assert not accepted
+    clock["now"] += 25 * 3600
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    assert accepted
+    assert "ещё 5 таких сообщений" in render_reindex_alert(body, dedup.suppressed_count(key))
+    dedup.release_reservation(key, token)
+
+
+def test_action_line_without_source_name_has_no_dangling_question_mark():
+    from core.reindex_alert import render_reindex_alert
+
+    text = render_reindex_alert({"failed": [_UNKNOWN]})
+    assert "«проверь итог переиндексации»" in text
+    assert "?" not in text.split("Что делать:")[1]
