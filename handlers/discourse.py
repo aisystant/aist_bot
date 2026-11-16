@@ -982,7 +982,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         lines = [
             f"✅ Опубликовано: «{pub['title']}»",
             url,
-            f"В очереди: {queue}",
+            f"Осталось постов в очереди на публикацию: {queue}",
         ]
         if reschedule_result:
             lines.append(f"\n📅 Перепланировано {len(reschedule_result)} постов:")
@@ -1527,7 +1527,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(
             f"✅ Опубликовано: «{post['title']}»\n"
             f"{url}\n"
-            f"В очереди: {queue}"
+            f"Осталось постов в очереди на публикацию: {queue}"
             f"{rebuild_msg}",
         )
     except Exception as e:

@@ -76,8 +76,9 @@ def render_reindex_alert(body: dict, suppressed: int = 0) -> str:
             ]
         )
         if not errors:
+            named = f" {source}" if source != "?" else ""
             lines.append(
-                f"Что делать: пока ничего. Если поиск по базе знаний не находит свежие правки, скажите агенту «проверь итог переиндексации {source}»."
+                f"Что делать: пока ничего. Если поиск по базе знаний не находит свежие правки, скажите агенту «проверь итог переиндексации{named}»."
             )
     if errors:
         details = "; ".join(errors[:3])

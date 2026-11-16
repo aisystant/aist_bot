@@ -563,3 +563,33 @@ async def test_expired_dedup_state_is_pruned(monkeypatch):
     assert accepted
     assert not dedup._LAST_SENT and "reindex:gone:1:abc" not in dedup._SUPPRESSED
     dedup.release_reservation(key, token)
+
+
+@pytest.mark.asyncio
+async def test_repeat_counter_survives_a_gap_longer_than_a_day(monkeypatch):
+    import core.ops_alert_dedup as dedup
+    from core.reindex_alert import render_reindex_alert
+
+    dedup.reset_ops_alert_dedup()
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    body = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    dedup.mark_alert_sent(key, token)
+    for _ in range(5):
+        clock["now"] += 3600
+        accepted, _, _ = await dedup.reserve_reindex_alert(body)
+        assert not accepted
+    clock["now"] += 25 * 3600
+    accepted, key, token = await dedup.reserve_reindex_alert(body)
+    assert accepted
+    assert "ещё 5 таких сообщений" in render_reindex_alert(body, dedup.suppressed_count(key))
+    dedup.release_reservation(key, token)
+
+
+def test_action_line_without_source_name_has_no_dangling_question_mark():
+    from core.reindex_alert import render_reindex_alert
+
+    text = render_reindex_alert({"failed": [_UNKNOWN]})
+    assert "«проверь итог переиндексации»" in text
+    assert "?" not in text.split("Что делать:")[1]

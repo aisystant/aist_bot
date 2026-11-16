@@ -11,6 +11,7 @@ from core.reindex_alert import is_unknown_result
 # the same source through again after each hour boundary (WP-568, 16.11: four near-identical
 # chat messages in two hours). One message per source per window, repeats are only counted.
 UNKNOWN_RESULT_WINDOW_SECONDS = 6 * 3600
+_UNKNOWN_KEY_PREFIX = "reindex-unknown:"
 
 # The longest window any key uses (daily keys); older entries can no longer suppress anything.
 _MAX_WINDOW_SECONDS = 86_400
@@ -23,6 +24,9 @@ _SUPPRESSED: dict[str, int] = {}
 def _prune(now: float) -> None:
     """Drop expired keys, and counters of keys that are gone: hourly keys never repeat."""
     for key in [k for k, sent in _LAST_SENT.items() if now - sent >= _MAX_WINDOW_SECONDS]:
+        # The counter of a per-source key is shown on that source's next message, however late it comes.
+        if key.startswith(_UNKNOWN_KEY_PREFIX) and _SUPPRESSED.get(key):
+            continue
         del _LAST_SENT[key]
     for key in [k for k in _SUPPRESSED if k not in _LAST_SENT]:
         del _SUPPRESSED[key]
@@ -64,7 +68,7 @@ async def reserve_reindex_alert(body: dict) -> tuple[bool, str, asyncio.Event | 
     source = str(body.get("source") or "?")
     # A payload without a source must not share one window with every other nameless payload.
     if source != "?" and entries and all(is_unknown_result(entry.get("error", "")) for entry in entries):
-        return await _reserve(f"reindex-unknown:{source}", UNKNOWN_RESULT_WINDOW_SECONDS)
+        return await _reserve(f"{_UNKNOWN_KEY_PREFIX}{source}", UNKNOWN_RESULT_WINDOW_SECONDS)
     fingerprint = hashlib.sha256(serialized.encode()).hexdigest()[:16]
     bucket = int(time.time() // 3600)
     key = f"reindex:{source}:{bucket}:{fingerprint}"
