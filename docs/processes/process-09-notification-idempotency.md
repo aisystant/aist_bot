@@ -80,6 +80,8 @@ CREATE INDEX idx_notification_log_created ON notification_log(created_at);
 | `template_update` | `template_update:{chat_id}:{version}` (через Доставщик, journal_key; до РП-529 — `…:{chat_id}:[{version}] — {date}`, учитывается `get_legacy_template_update_chat_ids`) | `oauth_server.py` |
 | `template_update` (предпросмотр) | `template_update_preview:{version}:{sha256(text)[:12]}` → только `DEVELOPER_CHAT_ID` | `oauth_server.py` |
 
+Для срочных security-уведомлений `{version}` имеет форму `security <SHA>` (ровно 12 или 40 шестнадцатеричных знаков, как отправляет GitHub Actions). Ключ по-прежнему привязан к подписчику и коммиту: повторный запуск того же push подавляется, а новый коммит получает новый ключ. Текст `changelog` экранируется как данные, не как HTML; ссылка ведёт на коммит, а не на несуществующий release `vsecurity …`.
+
 **Правило выбора detail:**
 - **Daily events** (lesson, reminder, digest) → включать дату → ровно одна отправка за сутки
 - **One-off events** (milestone, trial expiry markers) → включать семантический маркер → ровно одна отправка за всю жизнь user

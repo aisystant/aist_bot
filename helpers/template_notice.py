@@ -7,12 +7,14 @@ it only verifies that the incoming HTML is safe to hand to Telegram and falls ba
 a short deterministic notice otherwise. No LLM call and no changelog parsing here.
 """
 
+import html
 import re
 
 TEMPLATE_REPO_URL = "https://github.com/TserenTserenov/FMT-exocortex-template"
 TELEGRAM_MESSAGE_LIMIT = 4096
 
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?")
+_SECURITY_VERSION_RE = re.compile(r"security ((?:[0-9a-f]{40}|[0-9a-f]{12}))")
 # Telegram HTML subset accepted from CI; anything else rejects the whole text.
 _ALLOWED_ATTRS = {"b": (), "i": (), "u": (), "s": (), "code": (), "pre": (), "a": ("href",)}
 _TAG_RE = re.compile(r'<(/?)([a-zA-Z]+)((?:\s+[a-z]+="[^"<>]*")*)\s*>')
@@ -26,22 +28,50 @@ HOW_TO_UPDATE = (
 
 
 def parse_release_version(raw: str) -> str | None:
-    """Extract X.Y.Z[-suffix] from either "0.41.10" or a CHANGELOG header "[0.41.10] — 2026-10-27"."""
+    """Extract a release version or the security workflow's commit label."""
+    security = _SECURITY_VERSION_RE.fullmatch(raw or "")
+    if security:
+        return security.group(0)
+    if (raw or "").startswith("security"):
+        return None
     match = _VERSION_RE.search(raw or "")
     return match.group(0) if match else None
 
 
 def release_url(version: str) -> str:
+    security = _SECURITY_VERSION_RE.fullmatch(version)
+    if security:
+        return f"{TEMPLATE_REPO_URL}/commit/{security.group(1)}"
     return f"{TEMPLATE_REPO_URL}/releases/tag/v{version}"
 
 
 def short_notice(version: str) -> str:
     """Fallback announcement without retelling: version, link to the release, how to update."""
+    if _SECURITY_VERSION_RE.fullmatch(version):
+        return (
+            "🔒 <b>Срочное обновление безопасности шаблона IWE</b>\n\n"
+            f'Что изменилось — <a href="{release_url(version)}">в описании коммита</a>.\n\n'
+            f"{HOW_TO_UPDATE}"
+        )
     return (
         f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
         f'Что изменилось — <a href="{release_url(version)}">в описании выпуска</a>.\n\n'
         f"{HOW_TO_UPDATE}"
     )
+
+
+def build_security_notice(version: str, changelog: str) -> tuple[str, str]:
+    """Preserve the security lines as escaped text within Telegram's message limit."""
+    if not changelog.strip():
+        return short_notice(version), "short"
+    suffix = f'\n\n<a href="{release_url(version)}">Описание коммита</a>'
+    text = html.escape(changelog.strip())
+    if len(text) + len(suffix) > TELEGRAM_MESSAGE_LIMIT:
+        text = text[: TELEGRAM_MESSAGE_LIMIT - len(suffix) - 1]
+        if text.rfind("&") > text.rfind(";"):
+            text = text[: text.rfind("&")]
+        text = text.rstrip() + "…"
+    return text + suffix, "security"
 
 
 def _plain_text_ok(chunk: str) -> bool:

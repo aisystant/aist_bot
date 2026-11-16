@@ -11,6 +11,7 @@ import pytest
 
 from helpers.template_notice import (
     TELEGRAM_MESSAGE_LIMIT,
+    build_security_notice,
     build_template_notice,
     is_safe_telegram_html,
     parse_release_version,
@@ -231,3 +232,85 @@ async def test_non_string_message_html_gets_short_notice(monkeypatch):
 
     assert response.status == 200
     assert enqueue.await_args_list[0].args[2]["text"] == short_notice("0.41.10")
+
+
+@pytest.mark.parametrize("raw", [
+    "security d14a5ad3076b",
+    "security d14a5ad3076b4ec754f0963aee7991721bb3637b",
+])
+def test_parse_security_commit_label(raw):
+    assert parse_release_version(raw) == raw
+
+
+@pytest.mark.parametrize("raw", [
+    "security abc",
+    "security d14a5ad3076",
+    "security d14a5ad3076bc",
+    "security d14a5ad3076b extra",
+    "security d14a5ad3076b4ec754f0963aee7991721bb3637b0",
+    "security 0.42.0",
+])
+def test_malformed_security_commit_label_is_rejected(raw):
+    assert parse_release_version(raw) is None
+
+
+def test_security_notice_preserves_escaped_lines_and_commit_link():
+    text, kind = build_security_notice(
+        "security d14a5ad3076b",
+        "🔒 СРОЧНО — security-изменения:\n<b>не HTML</b> & безопасно",
+    )
+
+    assert kind == "security"
+    assert "&lt;b&gt;не HTML&lt;/b&gt; &amp; безопасно" in text
+    assert "/commit/d14a5ad3076b" in text
+    assert "/releases/tag/vsecurity" not in text
+    assert is_safe_telegram_html(text)
+
+
+def test_long_security_notice_stays_within_telegram_limit():
+    text, kind = build_security_notice(
+        "security d14a5ad3076b",
+        "Tom & Jerry <security> " * 500,
+    )
+
+    assert kind == "security"
+    assert len(text) <= TELEGRAM_MESSAGE_LIMIT
+    assert text.endswith("…\n\n<a href=\"https://github.com/TserenTserenov/FMT-exocortex-template/commit/d14a5ad3076b\">Описание коммита</a>")
+    assert is_safe_telegram_html(text)
+
+
+@pytest.mark.asyncio
+async def test_security_workflow_payload_is_enqueued_with_commit_key(monkeypatch):
+    monkeypatch.setenv("TEMPLATE_WEBHOOK_SECRET", "test-secret")
+    response, enqueue = await _run(
+        {
+            "version": "security d14a5ad3076b",
+            "changelog": "🔒 СРОЧНО — обнаружены security-изменения:\nЗакрыт обход <b>проверки</b>.",
+            "commit_count": 1,
+        },
+        subscribers=(111,),
+    )
+
+    assert response.status == 200
+    assert '"notice": "security"' in response.text
+    call = enqueue.await_args_list[0]
+    assert "Закрыт обход &lt;b&gt;проверки&lt;/b&gt;." in call.args[2]["text"]
+    assert "/commit/d14a5ad3076b" in call.args[2]["text"]
+    assert call.kwargs["journal_key"] == "template_update:111:security d14a5ad3076b"
+    assert call.kwargs["dedup_key"] == "template_update:111:security d14a5ad3076b"
+
+
+@pytest.mark.asyncio
+async def test_security_fallback_links_to_commit_not_release(monkeypatch):
+    monkeypatch.setenv("TEMPLATE_WEBHOOK_SECRET", "test-secret")
+    response, enqueue = await _run(
+        {"version": "security d14a5ad3076b", "changelog": ""},
+        subscribers=(111,),
+    )
+
+    assert response.status == 200
+    assert '"notice": "short"' in response.text
+    text = enqueue.await_args_list[0].args[2]["text"]
+    assert "/commit/d14a5ad3076b" in text
+    assert "/releases/tag/vsecurity" not in text
+    assert is_safe_telegram_html(text)
