@@ -143,9 +143,12 @@ async def finish_trace(trace: Trace) -> None:
     spans_summary = ", ".join(
         f"{s.name}={s.duration_ms:.0f}ms" for s in trace.spans
     )
+    from core.erasure_trace import is_erasure_trace_command
+
+    user_label = "omitted" if is_erasure_trace_command(trace.command) else trace.user_id
     logger.info(
         f"[TRACE] {trace.command} | {total:.0f}ms | "
-        f"user={trace.user_id} state={trace.state} | {spans_summary}"
+        f"user={user_label} state={trace.state} | {spans_summary}"
     )
 
     # Записываем в БД (true fire-and-forget: не ждём DB write)
@@ -171,9 +174,14 @@ async def _dual_write_trace(trace: Trace) -> None:
         # `trace.command` уже обрезан до 100 символов в _save_trace_to_db,
         # но raw полный — здесь дополнительно убираем потенциальный
         # PII-хвост (например `/start ref=email@x.com`).
-        command_name = (trace.command or "").split()[0] if trace.command else ""
+        from core.erasure_trace import is_erasure_trace_command
 
-        ory = await resolve_ory_id_from_chat(trace.user_id) if trace.user_id else None
+        command_name = (trace.command or "").split()[0] if trace.command else ""
+        # Даже если в объекте trace остался номер, в журнал платформы он не уходит.
+        if is_erasure_trace_command(command_name):
+            ory = None
+        else:
+            ory = await resolve_ory_id_from_chat(trace.user_id) if trace.user_id else None
         await post_event(
             source="aist-bot",
             external_id=f"trace-{trace.trace_id}",
@@ -206,6 +214,11 @@ async def _save_trace_to_db(trace: Trace) -> None:
             for s in trace.spans
         ])
 
+        from core.erasure_trace import OMITTED_USER_ID, is_erasure_trace_command
+
+        stored_user_id = (
+            OMITTED_USER_ID if is_erasure_trace_command(trace.command) else trace.user_id
+        )
         pool = await get_health_pool()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -213,7 +226,7 @@ async def _save_trace_to_db(trace: Trace) -> None:
                    (trace_id, user_id, command, state, total_ms, spans, created_at)
                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
                 trace.trace_id,
-                trace.user_id,
+                stored_user_id,
                 trace.command[:100],
                 trace.state,
                 round(trace.total_ms, 1),

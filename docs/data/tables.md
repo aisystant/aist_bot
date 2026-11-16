@@ -505,7 +505,7 @@
 |------|-----|---------|----------|
 | `id` | SERIAL | — | PK |
 | `trace_id` | TEXT | — | NOT NULL |
-| `user_id` | BIGINT | — | NOT NULL |
+| `user_id` | BIGINT | — | NOT NULL. Для `/erase_me`, `/resume_me` и четырёх кнопок подтверждения пишется `0`: номера человека в этой строке нет (WP-612) |
 | `command` | TEXT | — | |
 | `state` | TEXT | — | FSM state |
 | `total_ms` | REAL | — | NOT NULL |
@@ -591,9 +591,9 @@
 | `ended_at` | TIMESTAMPTZ | — | Последний запрос сессии; обновляется на каждом запросе |
 | `duration_seconds` | INTEGER | — | Интервал `ended_at - started_at`, без последующего времени бездействия |
 | `request_count` | INTEGER | `1` | Количество запросов между первым и последним запросом сессии |
-| `commands` | JSONB | `'[]'` | Команды в сессии |
-| `entry_point` | TEXT | — | Первая команда |
-| `exit_point` | TEXT | — | Последняя команда |
+| `commands` | JSONB | `'[]'` | Команды в сессии. `/erase_me`, `/resume_me` и четыре кнопки подтверждения в список не входят (WP-612) |
+| `entry_point` | TEXT | — | Первая команда. Команды удаления данных сюда не записываются (WP-612) |
+| `exit_point` | TEXT | — | Последняя команда. Команды удаления данных сюда не записываются (WP-612) |
 
 **Индексы:** `idx_sessions_chat_id`, `idx_sessions_started`
 
@@ -1015,6 +1015,7 @@ channel_mentions_log — standalone (по channel_id + message_id)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-11-12 | **WP-612:** `/erase_me`, `/resume_me` и четыре кнопки подтверждения не попадают в `user_sessions.commands` / `entry_point` / `exit_point`. В `request_traces.user_id` для них пишется `0`. |
 | 2026-09-12 | **Миграция 049 (WP-567 Ф3в):** `event_outbox` — транзакционный outbox для `payment_received`/`subscription_granted` Stars-оплат (защита от потери события между постановкой фоновой задачи и её выполнением). `subscriptions.telegram_payment_charge_id` получил UNIQUE-констрейнт (`subscriptions_charge_id_unique`) — защита от дубля строки при Telegram-редоставке. Применено на пилотном боте 12.09, детали → [P-12 «Надёжность Stars-платежей»](../processes/process-12-payment-events.md). |
 | 2026-09-04 | **Миграция 043 (WP-117 Ф-milestone-once):** `development.nudge_receipt` — at-most-once claim для milestone-нуджей с атомарной постановкой в очередь и честным ограничением once-per-Telegram-recipient до завершения Ф-identity. (Перенумерована из 039 — номер был дважды занят.) |
 | 2026-08-09 | **WP-46: исправлена семантика `user_sessions`:** `ended_at` теперь означает последний запрос и обновляется вместе с точным `duration_seconds`; разрыв ≥30 минут создаёт новую сессию. Удалена эвристика `30 секунд × request_count`, которая выдумывала длительность legacy-сессий. |
