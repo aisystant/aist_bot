@@ -981,7 +981,9 @@ async def _send_practice_nudges():
             )
 
         # WP-418 Ф4 волна 1б: кнопка — канало-нейтральным actions (рендер в drain).
-        nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{nudge_slot}"
+        # The lesson date is part of the key: a participant who passes the same
+        # marathon day again later gets a new key, the journal keeps keys forever.
+        nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{pu['lesson_date']}:{nudge_slot}"
         try:
             res = await enqueue(
                 chat_id, CLASS_CAPPED,
