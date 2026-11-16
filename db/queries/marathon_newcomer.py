@@ -652,7 +652,7 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT mq.user_id, mq.day_number, mq.sent_at
+            '''SELECT mq.user_id, mq.day_number, mq.sent_at, mq.sent_at::date::text AS lesson_date
                FROM learning.marathon_queue mq
                JOIN learning.marathon_progress mp ON mp.user_id = mq.user_id
                WHERE mq.content_type = 'lesson_practice'
@@ -660,18 +660,29 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
                  AND mq.sent_at::date = CURRENT_DATE
                  AND mq.sent_at <= NOW() - INTERVAL '30 minutes'
                  AND mp.status = 'active'
-                 -- Skip once the day's last reminder is journaled: the current
-                 -- key is marathon_practice_nudge:<chat>:<day>:150m (scheduler),
-                 -- marathon_practice:<chat>:<day> is the pre-queue key.
+                 -- Skip once the day's last reminder is journaled. The current key is
+                 -- marathon_practice_nudge:<chat>:<day>:<lesson date>:150m (scheduler);
+                 -- the date makes a repeated pass of the same marathon day a new key.
+                 -- Older dateless keys (marathon_practice_nudge:<chat>:<day>:150m and the
+                 -- pre-queue marathon_practice:<chat>:<day>) only count when journaled
+                 -- today, so they cover the deploy day and never block a later repeat.
                  AND NOT EXISTS (
                    SELECT 1 FROM public.domain_event de
                    WHERE de.source = 'aist-bot'
                      AND de.event_type = 'notification_sent'
-                     AND de.external_id IN (
-                       'notification-marathon_practice:' || mq.user_id::text
-                         || ':' || mq.day_number::text,
-                       'notification-marathon_practice_nudge:' || mq.user_id::text
-                         || ':' || mq.day_number::text || ':150m'
+                     AND (
+                       de.external_id = 'notification-marathon_practice_nudge:'
+                         || mq.user_id::text || ':' || mq.day_number::text
+                         || ':' || mq.sent_at::date::text || ':150m'
+                       OR (
+                         de.occurred_at::date = CURRENT_DATE
+                         AND de.external_id IN (
+                           'notification-marathon_practice:' || mq.user_id::text
+                             || ':' || mq.day_number::text,
+                           'notification-marathon_practice_nudge:' || mq.user_id::text
+                             || ':' || mq.day_number::text || ':150m'
+                         )
+                       )
                      )
                  )
                  AND NOT EXISTS (
