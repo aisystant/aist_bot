@@ -226,7 +226,7 @@ async def check_balances(conn, plan):
 
 async def preflight(conn, plan):
     permissions = await conn.fetchrow(
-        "SELECT (SELECT bool_and(has_table_privilege(rel,priv)) FROM (VALUES('public.applied_events','SELECT'),('public.applied_events','INSERT'),('public.applied_events','UPDATE'),('public.point_balances','SELECT'),('public.point_balances','UPDATE')) required(rel,priv)) table_access,has_schema_privilege('public','CREATE') schema_create,(SELECT proowner::regrole::text=current_user FROM pg_proc WHERE oid=$1::regprocedure) trigger_owner",
+        "SELECT (SELECT bool_and(has_table_privilege(rel,priv)) FROM (VALUES('public.applied_events','SELECT'),('public.applied_events','INSERT'),('public.applied_events','UPDATE'),('public.point_balances','SELECT'),('public.point_balances','UPDATE')) required(rel,priv)) table_access,has_schema_privilege('public','CREATE') schema_create,(SELECT pg_has_role(current_user,proowner,'USAGE') FROM pg_proc WHERE oid=$1::regprocedure) trigger_owner",
         TRIGGER,
     )
     if not all(permissions.values()):
