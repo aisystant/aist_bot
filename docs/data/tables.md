@@ -1028,3 +1028,97 @@ channel_mentions_log — standalone (по channel_id + message_id)
 | 2026-04-11 | **Переписан полностью:** 38 таблиц + 3 VIEW вместо 7 из 2026-01-23. Отражена миграция WP-82 Ф3 (`interns` → `users` + `user_state`), добавлены P-09 `notification_log`, P-10 `ory_tokens`/`dt_tokens`, WP-45 `error_logs`/`pending_fixes`/`feedback_triage`, WP-55 training_*, SC.118 channel_*, WP-52 tier_events, P-11 marathon_content, content_cache, request_traces, user_sessions, conversion_events, feedback_reports. Digital twins убраны — они НЕ в bot DB. |
 | 2026-02-03 | Добавлено поле `current_state` для State Machine |
 | 2026-01-23 | Создание документа. Полный реестр из `db/models.py` |
+
+
+## WP-5 F80: stage and subscription evidence for rewards
+
+Manual migration `db/migrations/052_wp5_f80.py` updates the existing rewards
+function without replaying events or changing recorded balances. It is not
+registered in bot startup migrations. The SQL preserves the deployed owner,
+caller privileges, event/account advisory locks, event-key deduplication,
+semantic-key deduplication, qualification mapping, caps and streak rules.
+
+For Student qualification, confirmed upward transitions take precedence. The
+fallbacks are profile RCS, canonical qualification in the profile (then its
+legacy location), and confirmed qualification in the digital twin. Canonical
+stage identifiers precede numeric values because legacy numeric values can be
+zero-based. Profiler/v5 estimates are excluded even when mirrored into a
+confirmed key. No evidence means the initial stage 1, explicitly recorded as
+`initial_no_evidence`; invalid-only evidence raises an error. Read failures are
+never converted into an initial stage. Other qualifications retain their
+qualification multiplier and do not depend on Student stage availability.
+Stage and qualification remain current at processing time, as in the existing
+calculation; this migration does not reconstruct historical multipliers.
+Both nested and legacy flat profile qualification locations exist in stored
+data. A missing location is skipped; a present invalid value is not absence.
+
+Bonus eligibility is independent of stage. It uses a subscription interval
+`[valid_from, valid_to)` covering the journal's `occurred_at`. With no lifecycle
+history, both `active` and `expired` contracts can prove past entitlement;
+other overlapping statuses are insufficient evidence and cause a retryable
+failure. When lifecycle history exists, the latest complete snapshot at the
+action time supplies status and interval. Known paused/cancelled/pending
+snapshots deny entitlement; missing or malformed history remains unknown.
+Any proven eligible overlapping contract is sufficient. Rule selection,
+limits, streak and `applied_at` still use ingestion time. Both timestamps and
+stage/subscription provenance are saved in `payload_snapshot`.
+History that starts after the action cannot prove the earlier entitlement;
+the helper refuses to substitute today's contract status for missing history.
+
+The same subscription policy covers the fixed referral amount. Ineligible
+amounts still increase `earned_total`; the function returns zero so the worker
+does not add spendable points. The worker's derived first-payment/referral
+negative event IDs resolve to their source payment journal row, preserving
+the existing synthetic-key deduplication. The trusted worker still resolves
+the referrer from onboarding. New calls from the historical ETL negative-ID
+namespace require a separate audited time/identity source and are refused;
+replays of already applied IDs continue to return zero before any source read.
+As before, all recorded effective amounts count towards the daily earned cap,
+including actions that do not produce spendable bonuses. The function's UTC
+setting governs day boundaries. Only a collision on the existing semantic-key
+index is treated as a duplicate; unrelated uniqueness errors abort the call.
+
+Deployment order (after peer review and deployment approval):
+
+1. Run the explicit reader preparation from `052_wp5_f80_readers.py`. It exposes
+   only confirmed stage and contract-history fields through dedicated views,
+   and provisions a narrow subscription reader. No administrator mapping is
+   substituted for the engine. Distributed access preparation can leave read
+   objects after a later failure; inspect its documented rollback before retry.
+2. Run `052_wp5_f80.py` with `REWARDS_URL` supplied securely. Default mode only
+   checks the reviewed function fingerprints and dedicated mappings. The
+   engine role must be able to read the new source views before applying.
+3. Apply with `--apply --rollback /private/tmp/WP-5-F80-rollback.sql`. The file
+   must be new and outside this repository; it is created with mode 0600.
+   The runner creates the narrow foreign relations, compares actual source-row
+   visibility as administrator and as the engine owner, and installs functions
+   in one rewards transaction. It never calls the accrual function in production.
+   The accrual definition is replaced under its existing owner role, including
+   when the administrator's membership is NOINHERIT. Schema CREATE, if needed,
+   is granted and revoked inside that transaction; no new runtime creation
+   privilege remains. The saved rollback uses the same owner-role procedure.
+4. Observe subsequent real events. The worker has a 30-second command deadline
+   and finite retries followed by its dead-letter queue; a persistent source
+   failure requires operator action, not an assumption of unlimited retries.
+
+Rollback restores the prior two function definitions from the saved file.
+It does not reverse any subsequent accruals and does not remove the separately
+prepared read-only objects. Historical backfill, the 34 attribution pairs and
+ownerless LMS events remain outside this forward calculation patch. Exact
+backfill totals must be computed on a database copy and approved separately.
+
+Validation: `tests/test_wp5_f80.py` starts a temporary PostgreSQL 16 cluster
+on a Unix socket with synthetic data, installs the actual function SQL and
+production earned-total trigger, and exercises the engine owner plus restricted
+caller. It covers source precedence, malformed/estimated stage evidence,
+subscription boundaries and lifecycle history, ordinary and referral balances,
+derived payment IDs, rollback of failed calls and idempotency.
+`tests/test_wp5_f80_readers.py` creates a separate local cluster with
+password-authenticated FDW connections. It checks actual engine reads of all
+required columns, minimal projections, access denial, repeated setup without
+credential rotation and refusal to overwrite unknown objects. It also verifies
+that a failed read restores the prior role and preserves the original error.
+
+CI runs the F80 tests in the PostgreSQL 16 job with an explicit binary path
+and rejects skipped cases. They are separate from the offline release smoke
+profile, which forbids network connections.

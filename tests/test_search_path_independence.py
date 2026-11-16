@@ -6,7 +6,6 @@ import ast
 import re
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).parents[1]
 EXCLUDED_PATH_PARTS = {
     ".git",
@@ -91,9 +90,7 @@ def _runtime_queries(path: Path) -> list[tuple[int, str]]:
         if isinstance(node, (ast.Assign, ast.AnnAssign))
         and isinstance(node.value, ast.Constant)
         and isinstance(node.value.value, str)
-        for target in (
-            node.targets if isinstance(node, ast.Assign) else [node.target]
-        )
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
         if isinstance(target, ast.Name)
     }
     queries: list[tuple[int, str]] = []
@@ -128,12 +125,16 @@ def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
         cte_names = {match.group(1).lower() for match in CTE_NAME.finditer(query)}
         for match in RELATION_AFTER_SQL_KEYWORD.finditer(query):
             relation = match.group(1).lower()
-            followed_by_call = query[match.end(1):].lstrip().startswith("(")
+            followed_by_call = query[match.end(1) :].lstrip().startswith("(")
             if (
                 "." not in relation
                 and relation not in cte_names
                 and relation not in NON_RELATION_SQL_KEYWORDS
                 and not followed_by_call
+                # A REVOKE statement names roles after FROM, not relations.
+                and not re.search(
+                    r"\bREVOKE\b[^;]*\bFROM\s*$", query[: match.start(1)], re.IGNORECASE
+                )
             ):
                 violations.append((query_lineno, relation))
         for pattern in (
@@ -172,13 +173,11 @@ def test_guard_accepts_explicit_runtime_schema(tmp_path: Path) -> None:
 def test_guard_covers_ddl_and_regclass_targets(tmp_path: Path) -> None:
     source = tmp_path / "query.py"
     source.write_text(
-        "\n".join(
-            (
-                'conn.execute("CREATE INDEX idx_training ON training_setting(chat_id)")',
-                'conn.execute("CREATE TRIGGER trg_training AFTER INSERT ON training_setting EXECUTE FUNCTION notify()")',
-                'conn.fetch("SELECT \'training_setting\'::regclass")',
-                'conn.fetch("SELECT to_regclass(\'training_setting\')")',
-            )
+        (
+            'conn.execute("CREATE INDEX idx_training ON training_setting(chat_id)")\n'
+            'conn.execute("CREATE TRIGGER trg_training AFTER INSERT ON training_setting EXECUTE FUNCTION notify()")\n'
+            "conn.fetch(\"SELECT 'training_setting'::regclass\")\n"
+            "conn.fetch(\"SELECT to_regclass('training_setting')\")"
         ),
         encoding="utf-8",
     )
@@ -225,3 +224,13 @@ def test_runtime_pgcrypto_calls_are_schema_qualified_and_typed() -> None:
 
     assert call_count == 7, "Update the pgcrypto guard when adding a runtime call"
     assert not violations, "\n".join(violations)
+
+
+def test_guard_distinguishes_revoke_roles_from_table_references(tmp_path: Path) -> None:
+    source = tmp_path / "query.py"
+    source.write_text(
+        'conn.execute("CREATE TABLE public.audit(id integer); REVOKE ALL ON public.audit FROM PUBLIC; SELECT * FROM public")\n',
+        encoding="utf-8",
+    )
+    # PUBLIC after REVOKE is a role. A table named public still needs a schema.
+    assert _unqualified_runtime_relations(source) == [(1, "public")]
