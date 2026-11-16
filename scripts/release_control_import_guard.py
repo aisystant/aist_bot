@@ -14,6 +14,12 @@ flagged this guard's own workflow. A branch opts in through
 release contract itself has the cutover enabled - otherwise one line of JSON
 would switch the guard off while the gate stays dormant.
 
+The newer fast-forward release path is accepted separately on `new-architecture`:
+the legacy cutover must remain disabled, the old enforcement marker must be absent,
+and both the contour declaration and the release workflow must match their reviewed
+versions byte-for-byte. Any edit to either file fails closed until this guard is
+reviewed and its pins are updated.
+
 Known limit: the declared list goes stale if a new contour file lands on `pilot`
 without being added here. That is a review duty, not something this script can see.
 """
@@ -21,6 +27,7 @@ without being added here. That is a review duty, not something this script can s
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -29,10 +36,59 @@ from pathlib import Path
 CONTOUR_FILE = ".github/release-control-contour.json"
 ENFORCEMENT_FILE = ".github/release-control-enforcement.json"
 CONTRACT_FILE = ".github/release-control-contract.json"
+FAST_FORWARD_BRANCH = "new-architecture"
+FAST_FORWARD_WORKFLOW = ".github/workflows/release-promote.yml"
+FAST_FORWARD_CONTOUR_SHA256 = (
+    "0d116092cee695b8bf33646918f11ebe24f9b366536dd17fba3f379240ff47b2"
+)
+FAST_FORWARD_WORKFLOW_SHA256 = (
+    "af4e1709b8d9d1ca32b82c30c73121bbea2498f148379c15f48b5032a87b0dc4"
+)
 
 
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _tracked_blob(repo_root: Path, path: str, commit: str = "HEAD") -> bytes | None:
+    tree = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-tree", commit, "--", path],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if tree.returncode != 0:
+        return None
+    listing = tree.stdout.splitlines()
+    if len(listing) != 1:
+        return None
+    mode, object_type, oid, listed_path = listing[0].split(None, 3)
+    if listed_path != path or mode not in {"100644", "100755"} or object_type != "blob":
+        return None
+    blob = subprocess.run(
+        ["git", "-C", str(repo_root), "cat-file", "blob", oid],
+        check=False,
+        capture_output=True,
+    )
+    return blob.stdout if blob.returncode == 0 else None
+
+
+def _tracked_entry_exists(repo_root: Path, path: str, commit: str = "HEAD") -> bool:
+    return (
+        subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "-e", f"{commit}:{path}"],
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+def _matches_pin(
+    repo_root: Path, path: str, expected_sha256: str, commit: str = "HEAD"
+) -> bool:
+    blob = _tracked_blob(repo_root, path, commit)
+    return blob is not None and hashlib.sha256(blob).hexdigest() == expected_sha256
 
 
 def read_gated_paths(repo_root: Path) -> list[str]:
@@ -73,6 +129,27 @@ def branch_enforces(repo_root: Path, branch: str) -> bool:
     return cutover.get("enabled") is True
 
 
+def fast_forward_enforces(repo_root: Path, branch: str, commit: str = "HEAD") -> bool:
+    if branch != FAST_FORWARD_BRANCH:
+        return False
+    if _tracked_entry_exists(repo_root, ENFORCEMENT_FILE, commit):
+        return False
+    if not (
+        _matches_pin(repo_root, CONTOUR_FILE, FAST_FORWARD_CONTOUR_SHA256, commit)
+        and _matches_pin(
+            repo_root, FAST_FORWARD_WORKFLOW, FAST_FORWARD_WORKFLOW_SHA256, commit
+        )
+    ):
+        return False
+    contract = _tracked_blob(repo_root, CONTRACT_FILE, commit)
+    if contract is None:
+        return False
+    cutover = json.loads(contract.decode("utf-8")).get("cutover", {})
+    if not isinstance(cutover, dict):
+        raise TypeError(f"{CONTRACT_FILE}: cutover must be an object")
+    return cutover.get("enabled") is False
+
+
 def find_violations(
     tracked_paths: list[str], gated_paths: list[str], enforced: bool
 ) -> list[str]:
@@ -111,16 +188,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root", default=".", help="any path inside the repository (default: cwd)"
     )
+    parser.add_argument(
+        "--commit",
+        default="HEAD",
+        help="tree to inspect for the fast-forward pin (default: checked-out HEAD)",
+    )
     args = parser.parse_args(argv)
 
     repo_root = repo_root_of(Path(args.repo_root).resolve())
+    fast_forward = fast_forward_enforces(repo_root, args.branch, args.commit)
     violations = find_violations(
         tracked_files(repo_root),
         read_gated_paths(repo_root),
-        branch_enforces(repo_root, args.branch),
+        branch_enforces(repo_root, args.branch) or fast_forward,
     )
     if not violations:
-        print(f"release-control import guard: OK for branch {args.branch}")
+        if fast_forward:
+            print(
+                f"release-control import guard: OK for branch {args.branch} "
+                "via pinned fast-forward gate; legacy cutover remains disabled"
+            )
+        else:
+            print(f"release-control import guard: OK for branch {args.branch}")
         return 0
 
     print(

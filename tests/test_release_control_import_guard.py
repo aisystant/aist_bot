@@ -154,3 +154,152 @@ def test_cli_from_a_subdirectory_still_sees_the_whole_repository(tmp_path):
     repo = _repo(tmp_path, GATED)
     subdir = repo / "scripts"
     assert guard.main(["--branch", "new-architecture", "--repo-root", str(subdir)]) == 1
+
+
+def _commit_fixture_path(repo: Path, path: str, message: str) -> None:
+    subprocess.run(["git", "-C", str(repo), "add", "--", path], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", message, "--", path],
+        check=True,
+    )
+
+
+def _fast_forward_repo(tmp_path: Path) -> Path:
+    repo = _repo(tmp_path, GATED)
+    source = Path(__file__).resolve().parents[1]
+    pinned_paths = [
+        guard.CONTOUR_FILE,
+        guard.FAST_FORWARD_WORKFLOW,
+        guard.CONTRACT_FILE,
+    ]
+    for rel in pinned_paths:
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if rel == guard.CONTRACT_FILE:
+            target.write_text(
+                json.dumps({"cutover": {"enabled": False}}), encoding="utf-8"
+            )
+        else:
+            target.write_bytes((source / rel).read_bytes())
+    for rel in pinned_paths:
+        _commit_fixture_path(repo, rel, f"fixture: {rel}")
+    return repo
+
+
+def test_pinned_fast_forward_gate_does_not_enable_legacy_cutover(tmp_path, capsys):
+    repo = _fast_forward_repo(tmp_path)
+    assert guard.fast_forward_enforces(repo, "new-architecture") is True
+    assert guard.branch_enforces(repo, "new-architecture") is False
+    assert guard.main(["--branch", "new-architecture", "--repo-root", str(repo)]) == 0
+    assert "legacy cutover remains disabled" in capsys.readouterr().out
+
+
+def test_fast_forward_pin_is_limited_to_production_branch(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    assert guard.fast_forward_enforces(repo, "pilot") is False
+
+
+def test_fast_forward_pin_is_checked_at_the_requested_commit(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (repo / guard.FAST_FORWARD_WORKFLOW).write_text("# changed\n", encoding="utf-8")
+    _commit_fixture_path(repo, guard.FAST_FORWARD_WORKFLOW, "change workflow")
+    assert guard.fast_forward_enforces(repo, "new-architecture", base) is True
+    assert guard.fast_forward_enforces(repo, "new-architecture", "HEAD") is False
+
+
+def test_fast_forward_rejects_changed_workflow(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    (repo / guard.FAST_FORWARD_WORKFLOW).write_text("# changed\n", encoding="utf-8")
+    _commit_fixture_path(repo, guard.FAST_FORWARD_WORKFLOW, "change workflow")
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_missing_workflow(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo), "rm", "-q", "--", guard.FAST_FORWARD_WORKFLOW],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", "remove workflow"],
+        check=True,
+    )
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_untracked_pinned_file(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo), "rm", "--cached", "--", guard.FAST_FORWARD_WORKFLOW],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", "untrack workflow"],
+        check=True,
+    )
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_symlinked_workflow(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    workflow = repo / guard.FAST_FORWARD_WORKFLOW
+    source = Path(__file__).resolve().parents[1] / guard.FAST_FORWARD_WORKFLOW
+    workflow.unlink()
+    workflow.symlink_to(source)
+    _commit_fixture_path(repo, guard.FAST_FORWARD_WORKFLOW, "symlink workflow")
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_changed_contour_declaration(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    declared = json.loads((repo / guard.CONTOUR_FILE).read_text(encoding="utf-8"))
+    declared["gated_paths"].append("scripts/new_release_control.py")
+    (repo / guard.CONTOUR_FILE).write_text(json.dumps(declared), encoding="utf-8")
+    _commit_fixture_path(repo, guard.CONTOUR_FILE, "change contour")
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_legacy_enforcement_marker(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    (repo / guard.ENFORCEMENT_FILE).write_text(
+        json.dumps({"enforced_branches": ["new-architecture"]}), encoding="utf-8"
+    )
+    _commit_fixture_path(repo, guard.ENFORCEMENT_FILE, "legacy marker")
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_broken_symlink_marker(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    marker = repo / guard.ENFORCEMENT_FILE
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.symlink_to("missing-enforcement-target")
+    _commit_fixture_path(repo, guard.ENFORCEMENT_FILE, "broken symlink marker")
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_missing_contract(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo), "rm", "-q", "--", guard.CONTRACT_FILE],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", "remove contract"],
+        check=True,
+    )
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False
+
+
+def test_fast_forward_rejects_enabled_legacy_cutover(tmp_path):
+    repo = _fast_forward_repo(tmp_path)
+    (repo / guard.CONTRACT_FILE).write_text(
+        json.dumps({"cutover": {"enabled": True}}), encoding="utf-8"
+    )
+    _commit_fixture_path(repo, guard.CONTRACT_FILE, "enable legacy cutover")
+    assert guard.fast_forward_enforces(repo, "new-architecture") is False

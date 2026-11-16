@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   release-control-import-guard:
@@ -27,3 +28,22 @@ jobs:
 
       - name: Refuse unenforced release-control files on the built branch
         run: python3 scripts/release_control_import_guard.py --branch new-architecture
+
+      - name: Verify production approval gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          reviewers=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production" \
+            --jq '[.protection_rules[] | select(.type == "required_reviewers") | .reviewers[].reviewer.login] | sort')
+          branch_policy=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production" \
+            --jq '[.protection_rules[].type] | index("branch_policy") != null')
+          policy_count=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production/deployment-branch-policies" \
+            --jq '.total_count')
+          production_branches=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production/deployment-branch-policies" \
+            --jq '[.branch_policies[] | select(.type == "branch") | .name] | sort')
+          if [[ "$reviewers" != '["TserenTserenov"]' || "$branch_policy" != "true" \
+            || "$policy_count" != "1" || "$production_branches" != '["new-architecture"]' ]]; then
+            echo "::error::Production approval gate is weakened: reviewers=$reviewers branch_policy=$branch_policy policy_count=$policy_count production_branches=$production_branches"
+            exit 1
+          fi
