@@ -3317,7 +3317,7 @@ async def _discourse_scheduled_publish():
                         pub["chat_id"],
                         f"Опубликовано в клуб: «{pub['title']}»\n"
                         f"{url}\n"
-                        f"В очереди: {queue_count}",
+                        f"Осталось постов в очереди на публикацию: {queue_count}",
                     )
                 logger.info(f"[Publisher] Scheduled post published: topic_id={topic_id}, queue={queue_count}")
             except Exception as e:

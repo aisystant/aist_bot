@@ -1413,7 +1413,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
             url = f"https://systemsworld.club/t/{slug}/{topic_id}"
             queue = await get_scheduled_count(chat_id)
             await callback.message.answer(
-                f"✅ Опубликовано: «{pub['title']}»\n{url}\nВ очереди: {queue}",
+                f"✅ Опубликовано: «{pub['title']}»\n{url}\nОсталось постов в очереди на публикацию: {queue}",
             )
         except Exception as e:
             logger.error(f"Smart publish (scheduled no-file) error: {e}")
