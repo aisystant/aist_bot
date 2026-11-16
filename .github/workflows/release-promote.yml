@@ -56,6 +56,7 @@ jobs:
         with:
           ref: new-architecture
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       - name: Candidate is in pilot and production is its ancestor
         id: check
@@ -103,6 +104,38 @@ jobs:
             --jq '.total_count')
           if [ "$ok" -lt 1 ]; then
             echo "::error::No successful 'Smoke Tests (L1+L2)' push run on pilot for ${SHA}."
+            exit 1
+          fi
+      - name: Pinned contour gate for the candidate
+        env:
+          SHA: ${{ steps.check.outputs.sha }}
+          PINNED_GUARD_REF: refs/tags/wp562-guard-v1
+          PINNED_GUARD_PATH: scripts/release_control_import_guard.py
+        run: |
+          set -euo pipefail
+          guard_file=$(mktemp)
+          trap 'rm -f "${guard_file}"' EXIT
+          git show "${PINNED_GUARD_REF}:${PINNED_GUARD_PATH}" > "${guard_file}"
+          python3 "${guard_file}" \
+            --branch new-architecture \
+            --repo-root . \
+            --commit "${SHA}"
+      - name: Verify production approval gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          reviewers=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production" \
+            --jq '[.protection_rules[] | select(.type == "required_reviewers") | .reviewers[].reviewer.login] | sort')
+          branch_policy=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production" \
+            --jq '[.protection_rules[].type] | index("branch_policy") != null')
+          policy_count=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production/deployment-branch-policies" \
+            --jq '.total_count')
+          production_branches=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production/deployment-branch-policies" \
+            --jq '[.branch_policies[] | select(.type == "branch") | .name] | sort')
+          if [[ "$reviewers" != '["TserenTserenov"]' || "$branch_policy" != "true" \
+            || "$policy_count" != "1" || "$production_branches" != '["new-architecture"]' ]]; then
+            echo "::error::Production approval gate is weakened: reviewers=$reviewers branch_policy=$branch_policy policy_count=$policy_count production_branches=$production_branches"
             exit 1
           fi
 
