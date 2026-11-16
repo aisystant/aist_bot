@@ -517,3 +517,49 @@ async def test_handler_shows_suppressed_repeats_on_the_next_delivered_message(no
     later = await post(client, body)
     assert later.status == 200 and bot.send_message.await_count == 2
     assert "ещё 2 таких сообщения" in bot.send_message.await_args.kwargs["text"]
+
+
+def test_mixed_unknown_and_error_never_says_nothing_to_do():
+    from core.reindex_alert import render_reindex_alert
+
+    text = render_reindex_alert(
+        {"source": "S", "failed": [_UNKNOWN, {"target": "personal", "error": "HTTP 403 denied"}]}
+    )
+    assert "Запросы завершились с ошибкой" in text
+    assert "Что делать: пока ничего" not in text
+
+
+@pytest.mark.asyncio
+async def test_payload_without_source_has_no_shared_window():
+    import core.ops_alert_dedup as dedup
+
+    dedup.reset_ops_alert_dedup()
+    nameless = {"failed": [_UNKNOWN]}
+    accepted, key, token = await dedup.reserve_reindex_alert(nameless)
+    assert accepted and not key.startswith("reindex-unknown:")
+    dedup.mark_alert_sent(key, token)
+    # a different nameless payload (other target) is a different signal
+    other = {"failed": [{"target": "personal", "error": "timeout 20s: result unknown"}]}
+    accepted, other_key, other_token = await dedup.reserve_reindex_alert(other)
+    assert accepted
+    dedup.release_reservation(other_key, other_token)
+
+
+@pytest.mark.asyncio
+async def test_expired_dedup_state_is_pruned(monkeypatch):
+    import core.ops_alert_dedup as dedup
+
+    dedup.reset_ops_alert_dedup()
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    for hour in range(5):
+        accepted, key, token = await dedup.reserve_reindex_alert({"source": f"S{hour}", "failed": [{"target": "t", "error": f"HTTP {400 + hour}"}]})
+        dedup.mark_alert_sent(key, token)
+        clock["now"] += 3600
+    assert len(dedup._LAST_SENT) == 5
+    dedup._SUPPRESSED["reindex:gone:1:abc"] = 3
+    clock["now"] += 2 * 86_400
+    accepted, key, token = await dedup.reserve_reindex_alert({"source": "fresh", "failed": []})
+    assert accepted
+    assert not dedup._LAST_SENT and "reindex:gone:1:abc" not in dedup._SUPPRESSED
+    dedup.release_reservation(key, token)
