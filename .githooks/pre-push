@@ -11,6 +11,21 @@ remote="$1"
 while read local_ref local_sha remote_ref remote_sha; do
     if echo "$remote_ref" | grep -q "refs/heads/${PROTECTED_BRANCH}"; then
 
+        # WP-7 F310 (2026-11-16): compare against the server's pilot, never the
+        # local branch. In a shared checkout local `pilot` goes stale (it can be
+        # checked out in another agent's worktree and is never fast-forwarded),
+        # which produced a false "92 prod commits missing from pilot" block on a
+        # clean fast-forward. Fail closed: without a fresh pilot the Pilot-First
+        # checks below cannot be evaluated.
+        if ! git fetch --quiet --no-tags "$remote" "+refs/heads/pilot:refs/pre-push/pilot" </dev/null; then
+            echo ""
+            echo "⛔ PUSH BLOCKED: не удалось получить ветку pilot с сервера (${remote})."
+            echo "    Без неё нельзя проверить правило Pilot-First. Проверь сеть и повтори push."
+            echo ""
+            exit 1
+        fi
+        PILOT_REF="refs/pre-push/pilot"
+
         # ─── WP-7: детекция дубль-коммитов (peer-session 2026-06-01-44) ───
         # Escape-hatch: осознанный обход при инциденте или cherry-pick
         has_escape_hatch=false
@@ -20,18 +35,18 @@ while read local_ref local_sha remote_ref remote_sha; do
             fi
         fi
 
-        if [ "$has_escape_hatch" = false ] && [ "$remote_sha" != "0000000000000000000000000000000000000000" ] && git show-ref --verify --quiet refs/heads/pilot; then
+        if [ "$has_escape_hatch" = false ] && [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
             duplicate_found=false
             while read commit_sha; do
                 [ -z "$commit_sha" ] && continue
                 # Пропускаем коммиты, которые уже есть на pilot (legitimate merge)
-                if git branch --contains "$commit_sha" 2>/dev/null | grep -q "pilot"; then
+                if git merge-base --is-ancestor "$commit_sha" "$PILOT_REF" 2>/dev/null; then
                     continue
                 fi
                 should_break=false
                 while IFS= read -r file; do
                     [ -z "$file" ] && continue
-                    if git log pilot --since="24 hours ago" --oneline -- "$file" 2>/dev/null | grep -q .; then
+                    if git log "$PILOT_REF" --since="24 hours ago" --oneline -- "$file" 2>/dev/null | grep -q .; then
                         echo ""
                         echo "⚠️  DUPLICATE WARNING: '$file' менялся на pilot за последние 24ч."
                         echo "    Возможно, этот фикс уже есть на pilot — сделай merge вместо повторной правки."
@@ -74,34 +89,32 @@ while read local_ref local_sha remote_ref remote_sha; do
         # инцидент нельзя тормозить порогом. [cherry-pick-ok] (плановый перенос) —
         # НЕ пробивает при drift>10: если разрыв уже большой, плановый cherry-pick
         # обязан подождать раунда синхронизации, а не откладывать его дальше.
-        if git show-ref --verify --quiet refs/heads/pilot; then
-            drift_count=$(git cherry pilot "$local_sha" 2>/dev/null | grep -c '^+')
-            if [ "$drift_count" -gt 10 ]; then
-                has_incident_hatch=false
-                if [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
-                    if git log --format="%s %b" "${remote_sha}..${local_sha}" 2>/dev/null | grep -qE '\[incident-ok\]'; then
-                        has_incident_hatch=true
-                    fi
+        drift_count=$(git cherry "$PILOT_REF" "$local_sha" 2>/dev/null | grep -c '^+')
+        if [ "$drift_count" -gt 10 ]; then
+            has_incident_hatch=false
+            if [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
+                if git log --format="%s %b" "${remote_sha}..${local_sha}" 2>/dev/null | grep -qE '\[incident-ok\]'; then
+                    has_incident_hatch=true
                 fi
-                if [ "$has_incident_hatch" = true ]; then
-                    echo ""
-                    echo "🔶 BACKPORT DRIFT: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
-                    echo "    в pilot. Порог 10 превышен, но [incident-ok] пробивает блок."
-                    echo "    → Backport этого хотфикса в pilot остаётся критерием закрытия"
-                    echo "      инцидента (не отложенный шаг)."
-                    echo ""
-                else
-                    echo ""
-                    echo "⛔ PUSH BLOCKED: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
-                    echo "    в pilot (git cherry, по содержимому патча). Порог 10 превышен."
-                    echo "    Плановый cherry-pick ([cherry-pick-ok]) заблокирован, пока разрыв"
-                    echo "    не разобран — раунд синхронизации (пир-сессия DP.SC.154, по"
-                    echo "    образцу PRODSYNC1/PRODSYNC2) идёт впереди новых переносов."
-                    echo "    Если это осознанный инцидент, не плановый перенос: используй"
-                    echo "    [incident-ok] вместо [cherry-pick-ok] в сообщении коммита."
-                    echo ""
-                    exit 1
-                fi
+            fi
+            if [ "$has_incident_hatch" = true ]; then
+                echo ""
+                echo "🔶 BACKPORT DRIFT: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
+                echo "    в pilot. Порог 10 превышен, но [incident-ok] пробивает блок."
+                echo "    → Backport этого хотфикса в pilot остаётся критерием закрытия"
+                echo "      инцидента (не отложенный шаг)."
+                echo ""
+            else
+                echo ""
+                echo "⛔ PUSH BLOCKED: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
+                echo "    в pilot (git cherry, по содержимому патча). Порог 10 превышен."
+                echo "    Плановый cherry-pick ([cherry-pick-ok]) заблокирован, пока разрыв"
+                echo "    не разобран — раунд синхронизации (пир-сессия DP.SC.154, по"
+                echo "    образцу PRODSYNC1/PRODSYNC2) идёт впереди новых переносов."
+                echo "    Если это осознанный инцидент, не плановый перенос: используй"
+                echo "    [incident-ok] вместо [cherry-pick-ok] в сообщении коммита."
+                echo ""
+                exit 1
             fi
         fi
     fi

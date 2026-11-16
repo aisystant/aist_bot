@@ -1140,15 +1140,21 @@ async def template_update_handler(request: web.Request) -> web.Response:
     Бот — тонкий клиент: проверяет границу (helpers.template_notice) и ставит
     сообщение в Доставщик (DP.SC.177). Нет текста или он не прошёл проверку —
     короткий анонс со ссылкой на выпуск. Старый формат {version, changelog}
-    тоже получает короткий анонс. preview=true — только в DEVELOPER_CHAT_ID
-    (предпросмотр автору перед рассылкой), ключ зависит от текста.
+    тоже получает короткий анонс. Для version="security <SHA>" changelog —
+    это текст security-строк, который экранируется и сохраняется в сообщении.
+    preview=true — только в DEVELOPER_CHAT_ID (предпросмотр автору перед
+    рассылкой), ключ зависит от текста.
     """
     import os
     import json
     import hashlib
     from config import DEVELOPER_CHAT_ID
     from core.notification_service import enqueue, CLASS_TRANSACTIONAL
-    from helpers.template_notice import build_template_notice, parse_release_version
+    from helpers.template_notice import (
+        build_security_notice,
+        build_template_notice,
+        parse_release_version,
+    )
 
     expected_secret = os.getenv('TEMPLATE_WEBHOOK_SECRET', '')
     provided_secret = request.headers.get('X-Webhook-Secret', '')
@@ -1166,8 +1172,12 @@ async def template_update_handler(request: web.Request) -> web.Response:
         logger.warning("[TemplateUpdate] No release version in payload")
         return web.Response(text="Bad request: version", status=400)
 
-    message_html = body.get('message_html')
-    message_text, notice_kind = build_template_notice(version, message_html if isinstance(message_html, str) else '')
+    if version.startswith("security "):
+        changelog = body.get("changelog")
+        message_text, notice_kind = build_security_notice(version, changelog if isinstance(changelog, str) else "")
+    else:
+        message_html = body.get('message_html')
+        message_text, notice_kind = build_template_notice(version, message_html if isinstance(message_html, str) else '')
     logger.info("[TemplateUpdate] version=%s notice=%s length=%d", version, notice_kind, len(message_text))
 
     if body.get('preview') is True:
