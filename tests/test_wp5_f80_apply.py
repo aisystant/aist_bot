@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import json
 import shlex
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -287,6 +288,42 @@ def test_bonus_only_preserves_earned_under_non_superuser_noinherit_owner(db):
             assert (balance["points"], balance["earned_total"]) == (97, 100)
             assert await app.trigger_state(conn) == original
             assert await conn.fetchval("SELECT count(*) FROM wp5_f80_items") == 1
+        finally:
+            await conn.close()
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    "occurred", [None, "2026-12-31T00:00:00+00:00", "2027-01-02T00:00:00+00:00"]
+)
+def test_post_snapshot_award_date_preserves_historical_budget_guard(db, occurred):
+    async def check():
+        plan = await fixture_plan(db)
+        conn = await connect(db)
+        try:
+            if occurred is not None:
+                await conn.execute(
+                    "INSERT INTO _foreign_learning.domain_event(id,account_id,event_type,occurred_at) VALUES(9,$1,'practice',$2)",
+                    UUID(ACCOUNT),
+                    datetime.fromisoformat(occurred),
+                )
+            await conn.execute(
+                "INSERT INTO public.applied_events(event_id,account_id,event_type,effective,applied_at) VALUES(9,$1,'practice',1,'2027-01-01T00:00:00+00:00')",
+                UUID(ACCOUNT),
+            )
+            if occurred is None or occurred.startswith("2026"):
+                with pytest.raises(
+                    RuntimeError, match="Post-snapshot historical award"
+                ):
+                    await app.settle(conn, plan)
+                assert await conn.fetchval("SELECT points FROM point_balances") == 100
+                assert not await conn.fetchval(
+                    "SELECT to_regclass('public.wp5_f80_batches') IS NOT NULL"
+                )
+            else:
+                assert await app.settle(conn, plan) == "applied"
+                assert await conn.fetchval("SELECT points FROM point_balances") == 112
         finally:
             await conn.close()
 

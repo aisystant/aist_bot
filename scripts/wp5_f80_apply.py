@@ -263,13 +263,27 @@ async def preflight(conn, plan):
     # New post-snapshot grants may carry an old occurrence date. Refuse those
     # instead of silently sharing the old day's budget with stale results.
     late = await conn.fetch(
-        "SELECT a.event_id,a.account_id,e.occurred_at FROM public.applied_events a LEFT JOIN _foreign_learning.domain_event e ON e.id=a.event_id WHERE a.account_id=ANY($1::uuid[]) AND a.applied_at>$2::timestamptz",
+        "SELECT event_id,account_id FROM public.applied_events WHERE account_id=ANY($1::uuid[]) AND applied_at>$2::timestamptz",
         accounts,
         datetime.fromisoformat(plan["snapshot_at"]),
     )
+    # A local/foreign JOIN can pull the complete remote event table. Fetch the
+    # small local ID set first, then send that predicate to the foreign server.
+    source_dates = (
+        await conn.fetch(
+            "SELECT id,occurred_at FROM _foreign_learning.domain_event WHERE id=ANY($1::bigint[])",
+            [row["event_id"] for row in late],
+        )
+        if late
+        else []
+    )
+    occurrences = {row["id"]: row["occurred_at"] for row in source_dates}
+    if len(occurrences) != len(source_dates):
+        raise RuntimeError("Post-snapshot source event is ambiguous")
     for row in late:
         limit = datetime.fromisoformat(plan["last_occurrence"][str(row["account_id"])])
-        if row["occurred_at"] is None or row["occurred_at"] <= limit:
+        occurred_at = occurrences.get(row["event_id"])
+        if occurred_at is None or occurred_at <= limit:
             raise RuntimeError("Post-snapshot historical award requires recalculation")
     for item in plan["items"]:
         key = int(item["event_id"])
