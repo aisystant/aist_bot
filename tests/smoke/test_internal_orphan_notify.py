@@ -491,3 +491,29 @@ def test_repeat_line_agrees_with_the_number(count, phrase):
     from core.reindex_alert import render_reindex_alert
 
     assert phrase in render_reindex_alert({"source": "S", "failed": [_UNKNOWN]}, count)
+
+
+@pytest.mark.asyncio
+async def test_handler_shows_suppressed_repeats_on_the_next_delivered_message(notify, monkeypatch):
+    """End to end through /internal/notify: repeats are swallowed, then counted in the next chat message."""
+    import core.ops_alert_dedup as dedup
+
+    client, bot, _ = notify
+    clock = {"now": 1_800_000_000.0}
+    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
+    body = {"type": "ops_alert", "source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+
+    first = await post(client, body)
+    assert first.status == 200 and bot.send_message.await_count == 1
+    assert "ещё" not in bot.send_message.await_args.kwargs["text"]
+
+    for _ in range(2):
+        clock["now"] += 40 * 60
+        again = await post(client, body)
+        assert (await again.json()) == {"ok": True, "deduped": True}
+    assert bot.send_message.await_count == 1  # nothing new reached the chat
+
+    clock["now"] += dedup.UNKNOWN_RESULT_WINDOW_SECONDS
+    later = await post(client, body)
+    assert later.status == 200 and bot.send_message.await_count == 2
+    assert "ещё 2 таких сообщения" in bot.send_message.await_args.kwargs["text"]
