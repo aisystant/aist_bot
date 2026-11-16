@@ -14,6 +14,22 @@ _TARGET_NAMES = {
 }
 
 
+def is_unknown_result(error: object) -> bool:
+    """True for a request that timed out without a verdict (the job may still have run)."""
+    return bool(_UNKNOWN_TIMEOUT.match(str(error)))
+
+
+def _repeats_text(count: int) -> str:
+    last_two, last = count % 100, count % 10
+    if last == 1 and last_two != 11:
+        word = "такое сообщение"
+    elif 2 <= last <= 4 and not 12 <= last_two <= 14:
+        word = "таких сообщения"
+    else:
+        word = "таких сообщений"
+    return f"С прошлого сообщения такого вида пришло ещё {count} {word}, повторы не показывались."
+
+
 def _target_name(value: object) -> str:
     return _TARGET_NAMES.get(str(value)) or _escaped(value, 60)
 
@@ -24,7 +40,7 @@ def _escaped(value: object, limit: int) -> str:
     return html.escape(text if len(text) <= limit else text[: limit - 1] + "…")
 
 
-def render_reindex_alert(body: dict) -> str:
+def render_reindex_alert(body: dict, suppressed: int = 0) -> str:
     source = _escaped(body.get("source", "?"), 120)
     entries = body.get("failed", [])
     if not isinstance(entries, list):
@@ -36,7 +52,7 @@ def render_reindex_alert(body: dict) -> str:
             continue
         error = str(entry.get("error", "?"))
         target = _target_name(entry.get("target", "?"))
-        if _UNKNOWN_TIMEOUT.match(error):
+        if is_unknown_result(error):
             unknown.append(target)
         else:
             errors.append(f"{target}: {_escaped(error, 240)}")
@@ -56,9 +72,14 @@ def render_reindex_alert(body: dict) -> str:
         lines.extend(
             [
                 f"Результат пока неизвестен: {targets}. Ответ не пришёл вовремя; работа могла продолжиться.",
-                "Сначала проверьте итог обработки и актуальность индекса. Повторный запуск до проверки не нужен.",
+                "Повторный запуск до проверки не нужен.",
             ]
         )
+        if not errors:
+            named = f" {source}" if source != "?" else ""
+            lines.append(
+                f"Что делать: пока ничего. Если поиск по базе знаний не находит свежие правки, скажите агенту «проверь итог переиндексации{named}»."
+            )
     if errors:
         details = "; ".join(errors[:3])
         if len(errors) > 3:
@@ -73,4 +94,6 @@ def render_reindex_alert(body: dict) -> str:
         lines.append(
             "Результат пока неизвестен: подробности не получены. Проверьте журнал обработки."
         )
+    if suppressed > 0:
+        lines.append(_repeats_text(suppressed))
     return "\n".join(lines)

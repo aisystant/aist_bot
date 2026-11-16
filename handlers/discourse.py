@@ -982,7 +982,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         lines = [
             f"✅ Опубликовано: «{pub['title']}»",
             url,
-            f"В очереди: {queue}",
+            f"Осталось постов в очереди на публикацию: {queue}",
         ]
         if reschedule_result:
             lines.append(f"\n📅 Перепланировано {len(reschedule_result)} постов:")
@@ -1413,7 +1413,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
             url = f"https://systemsworld.club/t/{slug}/{topic_id}"
             queue = await get_scheduled_count(chat_id)
             await callback.message.answer(
-                f"✅ Опубликовано: «{pub['title']}»\n{url}\nВ очереди: {queue}",
+                f"✅ Опубликовано: «{pub['title']}»\n{url}\nОсталось постов в очереди на публикацию: {queue}",
             )
         except Exception as e:
             logger.error(f"Smart publish (scheduled no-file) error: {e}")
@@ -1527,7 +1527,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(
             f"✅ Опубликовано: «{post['title']}»\n"
             f"{url}\n"
-            f"В очереди: {queue}"
+            f"Осталось постов в очереди на публикацию: {queue}"
             f"{rebuild_msg}",
         )
     except Exception as e:

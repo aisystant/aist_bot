@@ -2032,7 +2032,7 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
     if notify_type == 'ops_alert':
         import asyncio as _asyncio
         from core.reindex_alert import render_reindex_alert
-        from core.ops_alert_dedup import mark_alert_sent, release_reservation, reserve_reindex_alert
+        from core.ops_alert_dedup import mark_alert_sent, release_reservation, reserve_reindex_alert, suppressed_count
         ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
         if not ops_chat_id:
             logger.warning("[InternalNotify] ops_alert получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
@@ -2047,7 +2047,7 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         try:
             await _bot_instance.send_message(
                 chat_id=int(ops_chat_id),
-                text=render_reindex_alert(body),
+                text=render_reindex_alert(body, suppressed_count(reservation)),
                 parse_mode="HTML",
             )
             mark_alert_sent(reservation, token)
