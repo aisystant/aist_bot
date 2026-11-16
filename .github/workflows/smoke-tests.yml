@@ -95,7 +95,7 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/16/bin
         run: |
-          python -m pytest tests/test_wp5_f80.py tests/test_wp5_f80_readers.py -v --tb=short \
+          python -m pytest tests/test_wp5_f80.py tests/test_wp5_f80_readers.py tests/test_wp5_f80_apply.py -v --tb=short \
             --junitxml=rewards-f80-results.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET
