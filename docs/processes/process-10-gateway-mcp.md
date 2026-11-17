@@ -137,7 +137,7 @@ async with lock:
 
 В `_do_call` при `refreshed=False`:
 ```python
-self._last_call_error = "token_expired"
+_last_call_error.set("token_expired")
 return None
 # НЕ disconnect() !
 ```
@@ -229,15 +229,17 @@ OPEN   ← 2 failures     CLOSED ← success
 
 **Что считается failure:** HTTP не-200/401/403/429, timeout, exception. НЕ считаются: 401 (token issue), 403 (subscription issue), 429 retry success, RPC error в JSON.
 
-**Что делает open circuit:** `_call` возвращает `None` с `_last_call_error = "circuit_open"`, не делает HTTP request. Caller получает `None` → graceful fallback.
+**Что делает open circuit:** `_call` возвращает `None` с кодом ошибки `circuit_open`, не делает HTTP request. Caller получает `None` → graceful fallback.
 
 **Recovery:** после 60 секунд следующий вызов пропускается (`_is_circuit_open()` returns `False`), при успехе — `_record_success()` → `CLOSED`.
 
 ---
 
-## 8. Error taxonomy (`_last_call_error`)
+## 8. Error taxonomy (`last_call_error`)
 
-После каждого `_call` caller может прочитать `gateway_mcp._last_call_error` для точного UX:
+После каждого `_call` caller может прочитать `gateway_mcp.last_call_error` для точного UX.
+
+**Код живёт в переменной контекста задачи asyncio, не в поле клиента** (`_last_call_error` — `contextvars.ContextVar` модуля, РП-417 Ф7, 17.11.2026). Один клиент обслуживает всех пользователей: в общем поле параллельный вызов другого пользователя (необязательные чтения `/progress`) затирал код, который `/consent` и `/diagnose` читали сразу после своего вызова. Теперь каждая задача видит только свой последний вызов. Следствие: код, выставленный внутри отдельной задачи (`asyncio.wait_for`, `create_task`, `gather` на 3.11), вызывающему не виден — читать `last_call_error` в той же корутине, которая дождалась вызова. Тест: `tests/test_gateway_last_call_error.py`.
 
 | Код | Когда | UX показ |
 |-----|-------|----------|
@@ -251,7 +253,7 @@ OPEN   ← 2 failures     CLOSED ← success
 | `http_error` | Другой HTTP / exception | Generic error |
 | `rpc_error` | JSON-RPC error в ответе | Лог + generic error |
 
-**⚠️ Несоответствие docstring и кода:** docstring `_last_call_error` (строка 95-96) перечисляет `"disconnected"` как один из кодов, но в реальности код его нигде не выставляет. Это артефакт ранней версии WP-209 Ф5 — сейчас disconnect перенесён в proactive cron, reactive путь использует `token_expired`. Callers, проверяющие `== "disconnected"`, не сработают. Фикс docstring — отдельным коммитом при следующем касании файла.
+Код `disconnected` не выставляется (артефакт ранней версии WP-209 Ф5; disconnect перенесён в proactive cron, reactive путь использует `token_expired`) — проверка `== "disconnected"` не сработает.
 
 ---
 
@@ -358,7 +360,7 @@ gateway_mcp = GatewayMCPClient(url=GATEWAY_MCP_URL)
 - ❌ **Disconnect в reactive пути** при 401 — теряются токены при thundering herd
 - ❌ **Хранить токены вне `_tokens`** — теряется синхронизация с refresh lock
 - ❌ **Полагаться на кеш после рестарта** — source-of-truth в БД, in-memory — производное
-- ❌ **Игнорировать `_last_call_error`** — caller должен реагировать на `not_authorized`, `no_subscription`, `token_expired` разным UX
+- ❌ **Игнорировать `last_call_error`** (и читать его после вызова, обёрнутого в отдельную задачу) — caller должен реагировать на `not_authorized`, `no_subscription`, `token_expired` разным UX
 - ❌ **Увеличивать semaphore без замера** — 12 выбрано эмпирически на burst scheduler'а, при изменении нужен замер 429
 
 ---

@@ -31,6 +31,7 @@ Auth: Ory Bearer token per-user. Gateway валидирует token и
 """
 
 import asyncio
+import contextvars
 import json
 import os
 import time
@@ -42,6 +43,16 @@ import aiohttp
 from config import GATEWAY_MCP_URL, GATEWAY_MCP_TIMEOUT, get_logger
 
 logger = get_logger(__name__)
+
+# Error code of the latest _call() made by the current asyncio task. A context variable, not an
+# instance field: one client serves every user, and with a shared field a concurrent call of
+# another user (e.g. the optional /progress reads) overwrote the code that /consent or /diagnose
+# were about to read (WP-417 Ф7 review). The code set by a call wrapped in its own task
+# (asyncio.wait_for, create_task, gather on 3.11) stays in that task and is not seen by the caller;
+# read last_call_error in the same coroutine that awaited the call.
+_last_call_error: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "gateway_last_call_error", default="ok"
+)
 
 
 class GatewayMCPClient:
@@ -135,12 +146,11 @@ class GatewayMCPClient:
         # Singleton session
         self._session: Optional[aiohttp.ClientSession] = None
 
-        # Last error code from _call() — consumed by callers to show precise UX
+        # Last error code from _call() lives in the module-level context variable
+        # _last_call_error (per asyncio task), see last_call_error.
         # Values: "ok" | "token_expired" | "no_subscription"
         #         | "http_error" | "timeout" | "circuit_open" | "rpc_error" | "not_authorized"
         #         | "rate_limited"
-        # Note: "disconnected" was an early draft value — never set in code, removed.
-        self._last_call_error: str = "ok"
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -476,11 +486,11 @@ class GatewayMCPClient:
         Returns:
             Результат вызова или None при ошибке
         """
-        self._last_call_error = "ok"
+        _last_call_error.set("ok")
 
         if self._is_circuit_open():
             logger.debug("Gateway: circuit breaker open, skipping")
-            self._last_call_error = "circuit_open"
+            _last_call_error.set("circuit_open")
             return None
 
         # WP-209 Ф4: сериализуем запросы к Gateway через global semaphore.
@@ -551,7 +561,7 @@ class GatewayMCPClient:
                 # Требуется пользовательский контекст, но токенов нет.
                 # Не делаем запрос без авторизации — gateway отобьёт 401 ещё до
                 # маршрутизации, а refresh нечего рефрешить.
-                self._last_call_error = "not_authorized"
+                _last_call_error.set("not_authorized")
                 logger.warning(
                     f"Gateway: call to '{tool_name}' for user {telegram_user_id} "
                     f"skipped — no Ory token (re-auth needed)"
@@ -600,15 +610,15 @@ class GatewayMCPClient:
                             # Окончательный disconnect — только в proactive cron
                             # после явного invalid_grant от Ory.
                             logger.warning(f"Gateway: refresh failed for user {telegram_user_id} (not disconnecting)")
-                            self._last_call_error = "token_expired"
+                            _last_call_error.set("token_expired")
                             return None
                     elif resp.status == 401:
                         logger.warning(f"Gateway: 401 for user {telegram_user_id} after retry")
-                        self._last_call_error = "token_expired"
+                        _last_call_error.set("token_expired")
                         return None
                     if resp.status == 403:
                         logger.warning(f"Gateway: 403 for user {telegram_user_id} — no subscription")
-                        self._last_call_error = "no_subscription"
+                        _last_call_error.set("no_subscription")
                         return None
                     if resp.status == 429 and attempt == 0:
                         # WP-209 Ф4: Cloudflare rate limit. Парсим Retry-After,
@@ -629,7 +639,7 @@ class GatewayMCPClient:
                         continue
                     elif resp.status == 429:
                         logger.warning(f"Gateway: 429 after retry (user={telegram_user_id})")
-                        self._last_call_error = "rate_limited"
+                        _last_call_error.set("rate_limited")
                         record_failure()
                         return None
                     if resp.status == 200:
@@ -643,22 +653,22 @@ class GatewayMCPClient:
                         if "error" in data:
                             error_msg = data["error"].get("message", str(data["error"]))
                             logger.error(f"Gateway JSON-RPC error: {error_msg}")
-                            self._last_call_error = "rpc_error"
+                            _last_call_error.set("rpc_error")
                             return None
                         logger.warning(f"Gateway: unexpected response: {list(data.keys())}")
-                        self._last_call_error = "rpc_error"
+                        _last_call_error.set("rpc_error")
                         return None
                     else:
                         error = await resp.text()
                         logger.error(f"Gateway HTTP {resp.status}: {error[:200]}")
                         last_error = f"HTTP {resp.status}"
-                        self._last_call_error = "http_error"
+                        _last_call_error.set("http_error")
                         record_failure()
                         if best_effort:
                             break
             except asyncio.TimeoutError:
                 last_error = "timeout"
-                self._last_call_error = "timeout"
+                _last_call_error.set("timeout")
                 if attempt < self.MAX_RETRIES and not best_effort:
                     logger.warning(f"Gateway timeout ({timeout}s), retry {attempt + 1}")
                     await asyncio.sleep(1)
@@ -668,7 +678,7 @@ class GatewayMCPClient:
                     break
             except Exception as e:
                 logger.error(f"Gateway exception: {e}")
-                self._last_call_error = "http_error"
+                _last_call_error.set("http_error")
                 record_failure()
                 return None
 
@@ -693,7 +703,7 @@ class GatewayMCPClient:
                     error_text = item.get("text", "")
                     break
             logger.warning(f"Gateway: MCP tool isError=true, content={error_text[:200]}")
-            self._last_call_error = "rpc_error"
+            _last_call_error.set("rpc_error")
             return None
         for item in result.get("content", []):
             if item.get("type") == "text":
@@ -743,7 +753,7 @@ class GatewayMCPClient:
             return data
 
         # B4.20: fallback — токен истёк или refresh не прошёл, но L2 публичный
-        if self._last_call_error == "token_expired" and telegram_user_id:
+        if _last_call_error.get() == "token_expired" and telegram_user_id:
             logger.info(f"Gateway: knowledge_search fallback (no auth) for user {telegram_user_id}")
             result = await self._call("knowledge_search", args, telegram_user_id=None)
             data = self._parse_text_content(result)
@@ -936,8 +946,8 @@ class GatewayMCPClient:
 
     @property
     def last_call_error(self) -> str:
-        """Причина последнего неуспешного вызова (см. _last_call_error)."""
-        return self._last_call_error
+        """Error code of the latest call made by the current asyncio task (see _last_call_error)."""
+        return _last_call_error.get()
 
     async def token_ory_id(self, telegram_user_id: int) -> Optional[str]:
         """Ory-идентичность, которой принадлежит токен пользователя; None — токена нет или ory_id не записан.
@@ -1104,7 +1114,7 @@ class GatewayMCPClient:
                       "rate_limited"}
         """
         profile = await self.dt_read("", telegram_user_id)
-        reason = self._last_call_error
+        reason = _last_call_error.get()
         if profile is None and reason == "ok":
             # Вызов успешен, но данных нет (пустой ЦД)
             reason = "empty"

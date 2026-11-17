@@ -527,7 +527,7 @@ async def on_consent_accept(callback: CallbackQuery):
             # отсутствующий/протухший ключ входа (Ory). "Попробуй позже" тут
             # ложная подсказка — повтор без входа даст тот же отказ. Показываем
             # экран с кнопкой входа (уже используется в _LINKED_BUT_SYNCING_TEXT).
-            if gateway_mcp._last_call_error in ("not_authorized", "token_expired"):
+            if gateway_mcp.last_call_error in ("not_authorized", "token_expired"):
                 await callback.answer()
                 await callback.message.answer(
                     _LINKED_BUT_SYNCING_TEXT,
