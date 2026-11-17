@@ -26,7 +26,9 @@ def open_circuit(client: GatewayMCPClient) -> None:
     client._last_failure = time.time()
 
 
-def test_concurrent_call_of_another_user_does_not_overwrite_the_code():
+def test_call_of_another_user_between_call_and_read_does_not_overwrite_the_code():
+    # Two tasks of the same client; the events force the order that loses the code with a
+    # shared field: user A calls, user B calls, user A reads.
     async def scenario():
         client = make_client()
         first_call_done = asyncio.Event()
@@ -68,17 +70,24 @@ def test_code_is_reset_by_the_next_call_of_the_same_task():
     assert after_circuit == "circuit_open"
 
 
-def test_new_task_starts_without_an_inherited_failure():
+def test_code_set_inside_a_child_task_does_not_reach_the_caller():
+    # A child task gets a copy of the caller's context: it sees the caller's code, and what it
+    # sets stays in the child (the reason to read last_call_error right after awaiting the call).
     async def scenario():
         client = make_client()
+        open_circuit(client)
+        await client._call("grant_consent", {}, telegram_user_id=None)
 
-        async def failing_call():
+        async def child_call():
+            inherited = client.last_call_error
+            client._circuit_open = False
             await client._call("grant_consent", {}, telegram_user_id=USER_WITHOUT_TOKEN)
-            return client.last_call_error
+            return inherited, client.last_call_error
 
-        inside = await asyncio.create_task(failing_call())
-        return inside, client.last_call_error
+        inherited, inside = await asyncio.create_task(child_call())
+        return inherited, inside, client.last_call_error
 
-    inside, outside = asyncio.run(scenario())
+    inherited, inside, caller = asyncio.run(scenario())
+    assert inherited == "circuit_open"
     assert inside == "not_authorized"
-    assert outside == "ok"
+    assert caller == "circuit_open"
