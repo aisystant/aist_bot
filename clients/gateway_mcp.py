@@ -1108,7 +1108,7 @@ class GatewayMCPClient:
 
         Returns:
             (profile_dict_or_None, reason)
-            reason ∈ {"ok", "empty", "disconnected", "token_expired",
+            reason ∈ {"ok", "empty", "token_expired",
                       "no_subscription", "http_error", "timeout",
                       "circuit_open", "rpc_error", "not_authorized",
                       "rate_limited"}

@@ -344,7 +344,7 @@ async def cmd_twin(message: Message):
     await message.answer(t('twin.loading_profile', lang))
 
     # WP-218 Ф2: единая точка чтения ЦД — gateway_mcp (→ dt-mcp → Neon по ory_id).
-    # Используем get_user_profile() как в /me, чтобы избежать race-condition на _last_call_error
+    # Используем get_user_profile() как в /me.
     profile = None
     if is_connected and gateway_mcp.is_connected(telegram_user_id):
         try:
