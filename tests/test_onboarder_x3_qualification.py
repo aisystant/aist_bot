@@ -63,7 +63,10 @@ def gateway(monkeypatch):
     ([STUDENT], (x3.LEARNER, None), 1),
     ([None], (x3.LEARNER, None), 1),                                   # read fine, no qualification
     (["rpc_error", REFORMER], (x3.QUALIFIED, "Реформатор"), 2),        # one retry
-    ([asyncio.TimeoutError(), "rpc_error"], (x3.UNKNOWN, None), 2),
+    (["rpc_error", "rpc_error"], (x3.UNKNOWN, None), 2),
+    ([asyncio.TimeoutError()], (x3.UNKNOWN, None), 1),                 # no retry after a timeout
+    (["token_expired"], (x3.LEARNER, None), 1),                        # lost login = not connected
+    (["not_authorized"], (x3.LEARNER, None), 1),
     ([{"level": "Реформатор", "numeric": None}], (x3.UNKNOWN, None), 1),  # no usable level number
 ])
 async def test_read_onboarding_qualification(gateway, reads, expected, calls):
@@ -130,3 +133,20 @@ def test_describe_stream_for_qualification_offers():
     assert x3.describe_stream(x3.QUALIFICATION_STREAM) == "программа по квалификации"
     assert x3.describe_stream(x3.MENTOR_STREAM) == "подбор программы с наставником"
     assert x3.describe_stream("S2").startswith("этап")
+
+
+async def test_failed_primary_read_is_not_hidden_by_an_empty_fallback_read():
+    """dt_read_degree: 3_8_degree read fails, the LMS fallback reads fine but empty → the failure code stays."""
+    gateway_module = importlib.import_module("clients.gateway_mcp")
+    client = gateway_module.GatewayMCPClient.__new__(gateway_module.GatewayMCPClient)
+    codes = iter(["rpc_error", "ok"])
+
+    async def fake_call(*args, **kwargs):
+        gateway_module._last_call_error.set(next(codes))
+        return None
+
+    client._call = fake_call
+    client._parse_text_content = lambda result: None
+
+    assert await client.dt_read_degree(42) is None
+    assert gateway_module._last_call_error.get() == "rpc_error"

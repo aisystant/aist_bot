@@ -836,12 +836,19 @@ class GatewayMCPClient:
         computed from, 2_collected.2_2_courses.qualification_level written by dt_sync from LMS.
         Same fallback as handlers/twin.py and states/utilities/mydata.py.
         """
+        first_error = "ok"
         for path in ("3_derived.3_8_degree", "2_collected.2_2_courses.qualification_level"):
             result = await self._call("dt_read_digital_twin", {"path": path},
                                       telegram_user_id, timeout=5, best_effort=True)
             parsed = self._parse_text_content(result)
             if isinstance(parsed, dict) and isinstance(parsed.get("level"), str) and parsed["level"]:
                 return parsed
+            if first_error == "ok":
+                first_error = _last_call_error.get()
+        # Each _call resets the code; a failed primary read must not hide behind an empty
+        # fallback read, or "no qualification" and "could not read it" look the same (WP-417 Ф8).
+        if first_error != "ok":
+            _last_call_error.set(first_error)
         return None
 
     async def dt_describe(self, path: str, telegram_user_id: Optional[int] = None) -> Optional[str]:

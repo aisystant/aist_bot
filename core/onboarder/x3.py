@@ -51,6 +51,8 @@ MENTOR_STREAM = "MENTOR"        # qualification has no known programme — a men
 QUALIFIED, LEARNER, UNKNOWN = "qualified", "learner", "unknown"
 # Same ceiling as the qualification read of /diagnose (handlers/diagnose.py).
 QUALIFICATION_READ_SECONDS = 8
+# Gateway codes meaning the twin login is gone, not a passing failure (clients/gateway_mcp.py).
+_NO_LOGIN_ERRORS = frozenset({"not_authorized", "token_expired"})
 
 
 def describe_stream(recommended_stream: str) -> str:
@@ -74,10 +76,12 @@ def describe_stream(recommended_stream: str) -> str:
 async def read_onboarding_qualification(chat_id: int) -> tuple[str, Optional[str]]:
     """(QUALIFIED, name) | (LEARNER, None) | (UNKNOWN, None) for the Х3 offer (pilot 18.11.2026, rule A).
 
-    LEARNER: no twin connected, the twin has no qualification, or it is below «Работник» — the
-    onboarding assigns «Ученик» to people without a qualification anyway (WP-406 Ф31).
-    UNKNOWN: the twin is connected but the read failed twice (error, timeout) or the record has
-    no usable level number — then the offer must not pick a learner stage.
+    LEARNER: no twin connected (including a lost or expired login — a retry cannot fix it), the
+    twin has no qualification, or it is below «Работник» — the onboarding assigns «Ученик» to
+    people without a qualification anyway (WP-406 Ф31).
+    UNKNOWN: the twin is connected but the read failed twice, timed out (no retry: the wait
+    already includes the gateway queue), or the record has no usable level number — then the
+    offer must not pick a learner stage.
     `asyncio.timeout`, not `wait_for`: the gateway reports errors per task, and on Python 3.11
     `wait_for` runs the call in another task.
     """
@@ -89,11 +93,16 @@ async def read_onboarding_qualification(chat_id: int) -> tuple[str, Optional[str
         try:
             async with asyncio.timeout(QUALIFICATION_READ_SECONDS):
                 degree = await gateway_mcp.dt_read_degree(chat_id)
+        except TimeoutError:
+            logger.warning("[x3] qualification read timed out (chat=%s, attempt %s)", chat_id, attempt)
+            return UNKNOWN, None
         except Exception as e:
             logger.warning("[x3] qualification read failed (chat=%s, attempt %s): %r", chat_id, attempt, e)
             continue
         if degree is None:
             if gateway_mcp.last_call_error == "ok":
+                return LEARNER, None
+            if gateway_mcp.last_call_error in _NO_LOGIN_ERRORS:
                 return LEARNER, None
             logger.warning("[x3] qualification read failed (chat=%s, attempt %s): %s",
                            chat_id, attempt, gateway_mcp.last_call_error)
