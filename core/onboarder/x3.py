@@ -22,17 +22,37 @@
     мог импортировать без циклического импорта (core → handlers запрещён).
 """
 
+import asyncio
 import datetime
+import html
 import logging
+import math
 from typing import Optional
 
-from db.queries.cp_assessment import PROGRAM_STAGE_LABELS, program_stage_for_stored_stream
+from core.qualification import QUALIFIED_NUMERIC_MIN
+from db.queries.cp_assessment import (
+    PROGRAM_STAGE_LABELS,
+    program_stage_for_stored_stream,
+    qualification_programme,
+)
 
 logger = logging.getLogger(__name__)
 
 
 _RETURN_TO_X3 = "x3_offer"
 _RETURN_TO_TTL_SECONDS = 3600  # мост устаревает через 1 час если diagnose не завершён
+
+# Х3 for «Работник» and above (WP-417 Ф8, pilot 18.11.2026, option 2A + reading rule A): the
+# offer follows the qualification, as the /diagnose result does (WP-385 Ф18). Stream codes in the
+# x3_confirm callback and the x3_completed event for these offers:
+QUALIFICATION_STREAM = "QUAL"   # programme by qualification (qualification_programme)
+MENTOR_STREAM = "MENTOR"        # qualification has no known programme — a mentor picks the path
+
+QUALIFIED, LEARNER, UNKNOWN = "qualified", "learner", "unknown"
+# Same ceiling as the qualification read of /diagnose (handlers/diagnose.py).
+QUALIFICATION_READ_SECONDS = 8
+# Gateway codes meaning the twin login is gone, not a passing failure (clients/gateway_mcp.py).
+_NO_LOGIN_ERRORS = frozenset({"not_authorized", "token_expired"})
 
 
 def describe_stream(recommended_stream: str) -> str:
@@ -41,12 +61,102 @@ def describe_stream(recommended_stream: str) -> str:
     Stored codes 'S1'..'S4' equal the stage, 'РР' is the legacy code of stage 5; the offer
     follows the admission table (WP-385 Ф18.2). An unknown code is returned as is.
     """
+    if recommended_stream == QUALIFICATION_STREAM:
+        return "программа по квалификации"
+    if recommended_stream == MENTOR_STREAM:
+        return "подбор программы с наставником"
     code = program_stage_for_stored_stream(recommended_stream)
     if code is None:
         return recommended_stream
     if code == "РР":
         return PROGRAM_STAGE_LABELS[code]
     return f"этап {PROGRAM_STAGE_LABELS[code]} программы «Личное развитие»"
+
+
+async def read_onboarding_qualification(chat_id: int) -> tuple[str, Optional[str]]:
+    """(QUALIFIED, name) | (LEARNER, None) | (UNKNOWN, None) for the Х3 offer (pilot 18.11.2026, rule A).
+
+    LEARNER: no twin connected (including a lost or expired login — a retry cannot fix it), the
+    twin has no qualification, or it is below «Работник» — the onboarding assigns «Ученик» to
+    people without a qualification anyway (WP-406 Ф31).
+    UNKNOWN: the twin is connected but the read failed twice, timed out (no retry: the wait
+    already includes the gateway queue), or the record has no usable level number — then the
+    offer must not pick a learner stage.
+    `asyncio.timeout`, not `wait_for`: the gateway reports errors per task, and on Python 3.11
+    `wait_for` runs the call in another task.
+    """
+    from clients.gateway_mcp import gateway_mcp
+
+    if not gateway_mcp.is_connected(chat_id):
+        return LEARNER, None
+    for attempt in (1, 2):
+        try:
+            async with asyncio.timeout(QUALIFICATION_READ_SECONDS):
+                degree = await gateway_mcp.dt_read_degree(chat_id)
+        except TimeoutError:
+            logger.warning("[x3] qualification read timed out (chat=%s, attempt %s)", chat_id, attempt)
+            return UNKNOWN, None
+        except Exception as e:
+            logger.warning("[x3] qualification read failed (chat=%s, attempt %s): %r", chat_id, attempt, e)
+            continue
+        if degree is None:
+            if gateway_mcp.last_call_error == "ok":
+                return LEARNER, None
+            if gateway_mcp.last_call_error in _NO_LOGIN_ERRORS:
+                return LEARNER, None
+            logger.warning("[x3] qualification read failed (chat=%s, attempt %s): %s",
+                           chat_id, attempt, gateway_mcp.last_call_error)
+            continue
+        numeric = _level_number(degree)
+        if numeric is None:
+            logger.warning("[x3] qualification record without a level number (chat=%s): %r", chat_id, degree)
+            return UNKNOWN, None
+        return (QUALIFIED, degree["level"]) if numeric >= QUALIFIED_NUMERIC_MIN else (LEARNER, None)
+    return UNKNOWN, None
+
+
+def _level_number(degree: dict) -> Optional[float]:
+    try:
+        numeric = float(degree.get("numeric"))
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+async def _show_qualified_offer(bot, chat_id: int, qualification: str, from_bridge: bool) -> None:
+    """Offer for «Работник» and above: the programme by qualification, or a mentor when it has none."""
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    programme = qualification_programme(qualification)
+    qualification = html.escape(qualification)
+    if programme:
+        stream = QUALIFICATION_STREAM
+        text = (f"🎓 Твоя квалификация — <b>{qualification}</b>.\n\n"
+                f"Тебе подходит <b>{programme}</b>.\n\nХочешь начать?")
+    else:
+        stream = MENTOR_STREAM
+        text = (f"🎓 Твоя квалификация — <b>{qualification}</b>.\n\n"
+                "Программу под неё подберёт наставник.\n\nПродолжим?")
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Да, начинаю", callback_data=f"x3_confirm:{stream}:{int(from_bridge)}"),
+    ]])
+    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
+
+
+async def _show_neutral_offer(bot, chat_id: int) -> None:
+    """Twin connected, qualification unreadable: no stage is picked; /diagnose returns here via the bridge."""
+    from core.onboarder import storage
+
+    await storage.save_onboarding_context(chat_id, {
+        "return_to": _RETURN_TO_X3,
+        "set_at": datetime.datetime.utcnow().isoformat(),
+    })
+    await bot.send_message(
+        chat_id,
+        "Подберём тебе программу. Сейчас не получилось прочитать твою квалификацию, "
+        "поэтому этап не предлагаю.\n\n"
+        "Пройди диагностику: /diagnose — или напиши наставнику.",
+    )
 
 
 async def run_x3(intern: dict, message) -> None:
@@ -63,6 +173,14 @@ async def run_x3(intern: dict, message) -> None:
 
     chat_id = intern.get("chat_id") or message.chat.id
     lang = intern.get("language", "ru") or "ru"
+
+    status, qualification = await read_onboarding_qualification(chat_id)
+    if status == QUALIFIED:
+        await _show_qualified_offer(message.bot, chat_id, qualification, from_bridge=False)
+        return
+    if status == UNKNOWN:
+        await _show_neutral_offer(message.bot, chat_id)
+        return
 
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
@@ -173,6 +291,17 @@ async def check_x3_return_to_bridge(bot, chat_id: int, profile: dict) -> None:
     if age >= _RETURN_TO_TTL_SECONDS:
         logger.debug("[x3_bridge] TTL expired (age=%.0fs), clearing stale return_to", age)
         await storage.save_onboarding_context(chat_id, {"return_to": None, "set_at": None})
+        return
+
+    status, qualification = await read_onboarding_qualification(chat_id)
+    if status != LEARNER:
+        await storage.save_onboarding_context(chat_id, {"return_to": None, "set_at": None})
+        if status == QUALIFIED:
+            await _show_qualified_offer(bot, chat_id, qualification, from_bridge=True)
+        else:
+            await bot.send_message(
+                chat_id, "Квалификацию прочитать не получилось, этап не предлагаю — напиши наставнику, "
+                         "он подберёт программу.")
         return
 
     stream = profile.get("recommended_stream", "")

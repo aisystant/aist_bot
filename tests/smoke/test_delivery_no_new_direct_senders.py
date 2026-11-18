@@ -122,6 +122,9 @@ REPLY_SENDERS: frozenset[tuple[str, str]] = frozenset({
     ("core/onboarder/x2.py", "_show_topic"),  # onboarding step driven by the user's message
     ("core/onboarder/x2.py", "run_step"),  # onboarding step driven by the user's message
     ("core/onboarder/x3.py", "_show_x3_offer"),  # onboarding offer inside the same flow
+    ("core/onboarder/x3.py", "_show_neutral_offer"),  # onboarding offer inside the same flow (WP-417 F8 2A)
+    ("core/onboarder/x3.py", "_show_qualified_offer"),  # onboarding offer inside the same flow (WP-417 F8 2A)
+    ("core/onboarder/x3.py", "check_x3_return_to_bridge"),  # offer right after the user's own /diagnose (WP-417 F8 2A)
     ("engines/feed/handlers.py", "show_topic_selection_direct"),  # answer to a feed button
     ("handlers/chat_analyst.py", "_run_self_action"),  # answer to /erase_me or /resume_me of the presser
     ("handlers/mentorship.py", "_tell_mentor"),  # usage error back to the mentor who ran the command
