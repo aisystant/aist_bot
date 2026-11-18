@@ -56,6 +56,24 @@ def whole_number(value) -> int | None:
         return None
 
 
+def week_days_text(days: int, lang: str) -> str:
+    """«3 дня за эту неделю»: active days since Monday with the plural form of the language.
+
+    Russian has three forms (1 день, 2-4 дня, 5+ дней; 11-14 always дней); the other
+    interface languages use «one» for exactly 1 and «many» otherwise.
+    """
+    if lang == "ru":
+        if days % 10 == 1 and days % 100 != 11:
+            form = "one"
+        elif days % 10 in (2, 3, 4) and days % 100 not in (12, 13, 14):
+            form = "few"
+        else:
+            form = "many"
+    else:
+        form = "one" if days == 1 else "many"
+    return t(f"progress.week_days_{form}", lang, n=days)
+
+
 def overview_week_line(calendar: list[dict], lang: str) -> str | None:
     """Text-card line for the last 7 days by place: same numbers as the widget's 7-days tab."""
     week = last_7_days(calendar)
@@ -500,15 +518,13 @@ class ProgressState(BaseState):
         longest = cache.get('longest_streak', 0)
         total_active = cache.get('active_days_total', 0)
         week_active = cache.get('days_active_week', 0)
-        complexity = cache.get('complexity_level', 1)
         reg_date = cache.get('reg_date', '—')
 
         points = cache.get('points_balance')
 
         text = f"<b>{t('progress.title_hub', lang, name=name)}</b>\n\n"
         text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest} {t('progress.days', lang)}\n"
-        text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
-        text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
+        text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_days_text(week_active, lang)}\n"
         points = whole_number(points)
         if points is not None:
             text += f"🏆 {t('progress.bonuses', lang)}: {points}\n"

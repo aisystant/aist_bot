@@ -1666,6 +1666,18 @@ progress:
     ru: "Уровень сложности"
     en: "Complexity level"
 
+  week_days_one:
+    ru: "{n} день за эту неделю"
+    en: "{n} day this week"
+
+  week_days_few:
+    ru: "{n} дня за эту неделю"
+    en: "{n} days this week"
+
+  week_days_many:
+    ru: "{n} дней за эту неделю"
+    en: "{n} days this week"
+
   since:
     ru: "Вы с нами с"
     en: "With us since"
