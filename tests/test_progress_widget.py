@@ -23,7 +23,7 @@ from integrations.telegram.widgets import (
     load_template,
     progress_widget_enabled,
 )
-from states.utilities.progress import overview_growth_line, overview_week_line
+from states.utilities.progress import overview_growth_line, overview_week_line, week_days_text
 
 
 def _calendar(start: date, pattern: str) -> list[dict]:
@@ -526,3 +526,17 @@ def test_widget_and_text_card_show_the_same_week():
         for label, place in shown:
             assert _count(view[1], label) == week["counts"][place]
             assert f"{label} {week['counts'][place]}" in line
+
+
+def test_week_days_text_uses_the_plural_form_of_the_language():
+    # WP-417 F8, pilot 18.11.2026: «3/7 за неделю» became «3 дня за эту неделю».
+    assert week_days_text(1, "ru") == "1 день за эту неделю"
+    assert week_days_text(3, "ru") == "3 дня за эту неделю"
+    assert week_days_text(0, "ru") == "0 дней за эту неделю"
+    assert week_days_text(7, "ru") == "7 дней за эту неделю"
+    assert week_days_text(11, "ru") == "11 дней за эту неделю"
+    assert week_days_text(21, "ru") == "21 день за эту неделю"
+    assert week_days_text(1, "en") == "1 day this week"
+    assert week_days_text(3, "en") == "3 days this week"
+    assert week_days_text(1, "es") == "1 día esta semana"
+    assert week_days_text(5, "fr") == "5 jours cette semaine"
