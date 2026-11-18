@@ -5502,6 +5502,9 @@ twin:
   stage_label:
     ru: "Ступень Ученика"
     en: "Student Stage"
+  stage_self_assessed:
+    ru: "самооценка по диагностике от {date}"
+    en: "self-assessment from the diagnostic on {date}"
   objective_label:
     ru: "Цель развития"
     en: "Development goal"

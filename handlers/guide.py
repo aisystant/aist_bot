@@ -78,7 +78,7 @@ async def cmd_guide(message: Message):
 async def _show_profile(message: Message, chat_id: int, lang: str):
     """Показать профиль Digital Twin через Гид."""
     from clients.gateway_mcp import gateway_mcp
-    from handlers.twin import _profile_text
+    from handlers.twin import _profile_text, profile_self_assessment
 
     intern = await get_intern(chat_id)
 
@@ -150,7 +150,8 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
     ])
 
     # Используем profile_text из twin.py, но с заголовком Гида
-    text = _profile_text(profile, lang, intern=intern)
+    self_assessment = await profile_self_assessment(profile, chat_id)
+    text = _profile_text(profile, lang, intern=intern, self_assessment=self_assessment)
     # Заменяем заголовок ЦД на Гид
     old_title = t('twin.profile_title', lang)
     text = text.replace(f"*{old_title}*", t('guide.profile_header', lang), 1)

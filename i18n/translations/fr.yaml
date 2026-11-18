@@ -1144,6 +1144,7 @@ twin:
   profile_title: "Votre Digital Twin"
   degree_label: "Degré de Qualification"
   stage_label: "Étape de l'Étudiant"
+  stage_self_assessed: "auto-évaluation du diagnostic du {date}"
   objective_label: "Objectif de développement"
   roles_label: "Rôles"
   time_budget_label: "Budget temps"

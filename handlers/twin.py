@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -16,6 +17,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from db.queries import get_intern
+from core.learner_stage import learner_stage, load_self_assessment, stage_text
 from core.qualification import degree_from_profile, qualified_level
 from handlers.dt_indicators import DTGroup
 from helpers.typing_indicator import keep_typing
@@ -73,8 +75,16 @@ def _lang(intern) -> str:
     return intern.get('language', 'ru') or 'ru'
 
 
-def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
+async def profile_self_assessment(profile: dict, chat_id: int):
+    """Self-assessment for _profile_text: read only when the stage line will need it."""
+    derived = (profile.get("_derived") or profile.get("3_derived")) or {}
+    return await load_self_assessment(derived, degree_from_profile(profile), chat_id)
+
+
+def _profile_text(profile: dict, lang: str, intern: dict = None, self_assessment: dict = None) -> str:
     """Формирует compact dashboard профиля Digital Twin.
+
+    self_assessment: latest /diagnose self-assessment (core.learner_stage.load_self_assessment).
 
     Данные: 3_derived (calculated), 2_collected (raw), 1_declarative (bot sync), indicators (Aisystant).
     """
@@ -88,12 +98,8 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     # ── Stage: only inside «Ученик»; «Работник» and above have a qualification, no stage ──
     stage = None
     if not qualified_level(degree_record):
-        qualification = derived.get(DTGroup.QUALIFICATION) or {}
-        stage_num = qualification.get("stage")
-        if stage_num is not None:
-            stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
-        else:
-            stage = profile.get("stage") or t('twin.not_set', lang)
+        stage_info = learner_stage(derived, degree_record, self_assessment, datetime.now(timezone.utc))
+        stage = stage_text(stage_info, lang) if stage_info else t('twin.not_set', lang)
 
     # ── Agency index ──
     # IND.3.10.1 Интегральный индекс агентности
@@ -401,7 +407,8 @@ async def cmd_twin(message: Message):
     ])
 
     try:
-        text = _profile_text(profile, lang, intern=intern)
+        self_assessment = await profile_self_assessment(profile, telegram_user_id)
+        text = _profile_text(profile, lang, intern=intern, self_assessment=self_assessment)
     except Exception as e:
         logger.error(f"[/twin] _profile_text raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
         await message.answer(t('twin.temporary_error', lang))
@@ -545,14 +552,15 @@ def _annotate_repos(repos_list: list) -> str:
 # ═══════════════════════════════════════════════════════════
 
 STAGE_EMOJI = {1: "🌱", 2: "🌿", 3: "🌳", 4: "⚡", 5: "🌟"}
-STAGE_NAMES_RU = {
-    1: "Случайный", 2: "Практикующий", 3: "Систематический",
-    4: "Дисциплинированный", 5: "Проактивный",
-}
+def _me_degree(engagement: dict, dt_profile: dict = None):
+    """Qualification for /me: from derived, then the DT profile, then the raw engagement view."""
+    return (degree_from_profile({"3_derived": engagement.get('_derived') or {}})
+            or degree_from_profile(dt_profile)
+            or degree_from_profile({"2_collected": engagement}))
 
 
 def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
-                        dt_profile: dict = None) -> str:
+                        dt_profile: dict = None, self_assessment: dict = None) -> str:
     """Compact dashboard из 2_collected + 3_derived + DT profile."""
     name = (intern or {}).get('name', '') or 'Участник'
 
@@ -566,19 +574,14 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     lines = [f"📋 *{name} — {t('twin.profile_title', lang)}*"]
     lines.append("")
 
-    # Degree (from derived, then the DT profile, then the raw engagement view)
-    degree_record = (degree_from_profile({"3_derived": derived})
-                     or degree_from_profile(dt_profile)
-                     or degree_from_profile({"2_collected": engagement}))
+    degree_record = _me_degree(engagement, dt_profile)
     if degree_record:
         lines.append(f"🎓 {t('twin.degree_label', lang)}: {_display_degree(degree_record['level'])}")
 
     # Stage: only inside «Ученик»; «Работник» and above have a qualification, no stage
-    qualification = derived.get('3_4_qualification') or {}
-    stage_num = qualification.get('stage')
-    if stage_num is not None and not qualified_level(degree_record):
-        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
-        lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
+    stage_info = learner_stage(derived, degree_record, self_assessment, datetime.now(timezone.utc))
+    if stage_info:
+        lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage_text(stage_info, lang)}")
 
     # Agency index
     # IND.3.10.1 Интегральный индекс агентности
@@ -965,7 +968,10 @@ async def cmd_me(message: Message):
             engagement = await _fallback_engagement(telegram_user_id)
 
         if engagement:
-            dashboard = _build_me_dashboard(engagement, intern, lang, dt_profile=dt_profile)
+            self_assessment = await load_self_assessment(
+                engagement.get('_derived'), _me_degree(engagement, dt_profile), telegram_user_id)
+            dashboard = _build_me_dashboard(engagement, intern, lang, dt_profile=dt_profile,
+                                            self_assessment=self_assessment)
             keyboard = _build_me_keyboard(tier)
             try:
                 await message.answer(dashboard, parse_mode="Markdown", reply_markup=keyboard)
@@ -1079,7 +1085,8 @@ async def callback_twin_profile(callback: CallbackQuery):
 
     profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
     if profile:
-        text = _profile_text(profile, lang, intern=intern)
+        self_assessment = await profile_self_assessment(profile, telegram_user_id)
+        text = _profile_text(profile, lang, intern=intern, self_assessment=self_assessment)
         try:
             await callback.message.answer(text, parse_mode="Markdown")
         except Exception as e:

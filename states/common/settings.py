@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
+from core.learner_stage import learner_stage, load_self_assessment, stage_text
 from core.qualification import degree_from_profile, qualified_level
 from states.base import BaseState
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
@@ -1276,10 +1278,11 @@ class SettingsState(BaseState):
                 derived = (profile.get('_derived') or profile.get('3_derived')) or {}
                 degree = degree_from_profile(profile)
                 lines.append(f"🎓 {t('twin.degree_label', lang)}: *{degree['level'] if degree else t('twin.not_set_m', lang)}*")
-                # Stage: 3_derived.3_4_qualification; only inside «Ученик», none from «Работник» up
+                # Stage: one order of sources for every screen (core/learner_stage.py, WP-417 Ф8 1A)
                 if not qualified_level(degree):
-                    qual_s = derived.get('3_4_qualification') or {}
-                    stage = qual_s.get('stage') or profile.get('stage') or t('twin.not_set_m', lang)
+                    self_assessment = await load_self_assessment(derived, degree, chat_id)
+                    stage_info = learner_stage(derived, degree, self_assessment, datetime.now(timezone.utc))
+                    stage = stage_text(stage_info, lang) if stage_info else t('twin.not_set_m', lang)
                     lines.append(f"📊 {t('twin.stage_label', lang)}: *{stage}*")
 
             buttons = [
