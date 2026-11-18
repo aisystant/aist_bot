@@ -14,11 +14,13 @@ Ref: DP.D.028 (User Data Tiers), DP.ARCH.002 (Service Tiers).
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
-from core.qualification import degree_from_profile, qualified_level
+from core.learner_stage import learner_stage, load_self_assessment, stage_text
+from core.qualification import degree_from_profile
 from states.base import BaseState
 from i18n import t
 
@@ -588,15 +590,11 @@ class MyDataState(BaseState):
             degree = degree_from_profile(profile)
             if degree:
                 result['Степень квалификации'] = degree['level']
-            # Stage: 3_derived.3_4_qualification; only inside «Ученик», none from «Работник» up
-            from handlers.twin import STAGE_NAMES_RU
-            qual_s = derived.get('3_4_qualification') or {}
-            stage_num = qual_s.get('stage')
-            if stage_num is not None and not qualified_level(degree):
-                stage_name = STAGE_NAMES_RU.get(stage_num, '?')
-                result['Ступень ученика'] = f"{stage_name} ({stage_num}/5)"
-            # Note: profile.get('stage') is legacy — removed to avoid stale data.
-            # Always use 3_derived.3_4_qualification as source of truth.
+            # Stage: one order of sources for every screen (core/learner_stage.py, WP-417 Ф8 1A)
+            self_assessment = await load_self_assessment(derived, degree, chat_id)
+            stage_info = learner_stage(derived, degree, self_assessment, datetime.now(timezone.utc))
+            if stage_info:
+                result['Ступень ученика'] = stage_text(stage_info, 'ru')
             indicators = profile.get('indicators', {})
             pref = indicators.get('IND.1.PREF', {})
             if pref.get('objective'):

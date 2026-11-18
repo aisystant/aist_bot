@@ -148,7 +148,44 @@ async def test_settings_twin_hides_stage_for_reformer(monkeypatch):
 async def test_settings_twin_keeps_stage_for_student(monkeypatch):
     text = await _settings_text(monkeypatch, _profile(degree=STUDENT))
 
-    assert "📊" in text and "*5*" in text
+    assert "📊" in text and "*Проактивный (5/5)*" in text
+
+
+# ── One order of stage sources on every screen (WP-417 Ф8, pilot 18.11.2026, option 1A) ──
+
+_SELF_ASSESSMENT = {"stage": 3, "assessed_at": "2026-11-10T09:00:00+00:00", "valid_until": "2027-05-09T09:00:00+00:00"}
+
+
+def _legacy_only(degree=STUDENT) -> dict:
+    """Empty nightly stage, only the legacy profile field — the case where screens used to diverge."""
+    return dict(_profile(degree=degree, stage=None), stage=4)
+
+
+async def test_screens_fill_an_empty_nightly_stage_from_the_self_assessment(monkeypatch):
+    monkeypatch.setattr("db.queries.cp_assessment.get_latest_cp_assessment", AsyncMock(return_value=_SELF_ASSESSMENT))
+    monkeypatch.setattr("helpers.dual_write.resolve_ory_id_from_chat", AsyncMock(return_value="acc-1"))
+    expected = "Систематический (3/5) — самооценка по диагностике от 10.11.2026"
+
+    assert f"*{expected}*" in await _settings_text(monkeypatch, _legacy_only())
+    assert (await _mydata_fields(monkeypatch, _legacy_only()))["Ступень ученика"] == expected
+
+
+async def test_screens_never_show_the_legacy_stage_field(monkeypatch):
+    monkeypatch.setattr("db.queries.cp_assessment.get_latest_cp_assessment", AsyncMock(return_value=None))
+    monkeypatch.setattr("helpers.dual_write.resolve_ory_id_from_chat", AsyncMock(return_value="acc-1"))
+
+    settings = await _settings_text(monkeypatch, _legacy_only())
+    assert "Ступень Ученика" in settings and "*4*" not in settings
+    assert "Ступень ученика" not in await _mydata_fields(monkeypatch, _legacy_only())
+
+
+async def test_no_self_assessment_read_when_the_nightly_stage_exists(monkeypatch):
+    read = AsyncMock(return_value=_SELF_ASSESSMENT)
+    monkeypatch.setattr("db.queries.cp_assessment.get_latest_cp_assessment", read)
+
+    await _settings_text(monkeypatch, _profile(degree=STUDENT))
+    await _settings_text(monkeypatch, _profile(degree=REFORMER, stage=None))
+    read.assert_not_awaited()
 
 
 # ── /progress → «Диагностический профиль» ──
