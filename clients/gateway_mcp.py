@@ -200,6 +200,19 @@ class GatewayMCPClient:
             "ory_id": ory_id,
         }
 
+    async def access_token_for(self, telegram_user_id: int) -> Optional[str]:
+        """Пропуск человека для внешнего агента платформы (РП-262 Ф4).
+
+        Берёт токен из памяти; если его нет (рестарт, гонка с входом), пробует освежить из БД тем же
+        путём, что и вызовы шлюза. Возвращает None, если человек не вошёл. Токен не пишется в журнал.
+        """
+        token = self._get_access_token(telegram_user_id)
+        if token:
+            return token
+        if await asyncio.shield(self._refresh_single_token(telegram_user_id)):
+            return self._get_access_token(telegram_user_id)
+        return None
+
     def is_connected(self, telegram_user_id: int) -> bool:
         """Проверить, есть ли Ory tokens для пользователя."""
         return telegram_user_id in self._tokens
