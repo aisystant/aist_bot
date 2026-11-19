@@ -779,6 +779,11 @@ class ConsultationState(BaseState):
         # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
 
+        # РП-262 Ф4: для людей из флага отвечает агент платформы (бот только окно). Любой сбой агента
+        # возвращает False, и ниже идёт прежний путь. Стоит до быстрых ответов: они перехватывали вопросы.
+        if not is_refinement and await self._answer_via_interlocutor(user, chat_id, question, session_ctx, lang):
+            return None
+
         # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---
         if not is_refinement:
             meta_answer = _match_meta_question(question, lang)
@@ -1120,6 +1125,35 @@ class ConsultationState(BaseState):
 
         # Persistent session: остаёмся в стейте
         return None
+
+    async def _answer_via_interlocutor(self, user, chat_id, question: str, session_ctx: dict, lang: str) -> bool:
+        """Ответ агента платформы (РП-262 Ф4). True - ответ показан, False - работает прежний путь."""
+        from engines.shared import interlocutor_client
+
+        if not interlocutor_client.is_enabled_for(chat_id):
+            return False
+        await self.send(user, t('consultation.thinking', lang))
+        typing_task = self._keep_typing(chat_id)
+        try:
+            result = await interlocutor_client.ask(
+                chat_id, question, session_ctx.get('consultation_history'), lang
+            )
+        finally:
+            typing_task.cancel()
+        if not result:
+            return False
+        answer = result["text"].strip()
+        response = self._format_response(answer, interlocutor_client.source_labels(result.get("sources")), lang)
+        for part in prepare_html_parts(response):
+            await self.send(user, part, parse_mode="HTML")
+        try:
+            self._append_history(session_ctx, question, answer)
+            await self._save_session_context(chat_id, session_ctx)
+            from db.queries.activity import record_active_day
+            asyncio.create_task(record_active_day(chat_id, 'question_asked', mode=self._get_mode(user)))
+        except Exception as e:
+            logger.warning(f"[Consultation] interlocutor history save error: {type(e).__name__}")
+        return True
 
     def _format_response(self, answer: str, sources: list, lang: str) -> str:
         """Форматируем ответ с источниками."""
