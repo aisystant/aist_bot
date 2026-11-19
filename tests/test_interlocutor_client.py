@@ -190,3 +190,43 @@ async def test_state_does_not_call_the_agent_for_people_outside_the_flag(flag_on
     assert handled is False
     ask.assert_not_awaited()
     state.send.assert_not_awaited()  # not even the "thinking" message: nothing changes for them
+
+
+# ---- свежесть пропуска (агент отвергает истёкший, журнал агента: token_expired)
+
+
+def _client_with_token(expires_in_s, *, refresh_ok=True, refreshed_to="fresh-pass"):
+    from datetime import datetime, timedelta
+
+    from clients.gateway_mcp import GatewayMCPClient
+
+    client = GatewayMCPClient("https://gw.test/mcp")
+    expires = None if expires_in_s is None else datetime.utcnow() + timedelta(seconds=expires_in_s)
+    client._tokens[OWNER] = {"access_token": "old-pass", "refresh_token": "r", "expires_at": expires, "ory_id": None}
+
+    async def fake_refresh(user_id):
+        if refresh_ok and user_id in client._tokens:
+            client._tokens[user_id]["access_token"] = refreshed_to
+            return True
+        return False
+
+    client._refresh_single_token = fake_refresh
+    return client
+
+
+async def test_a_pass_with_time_left_is_returned_as_is():
+    assert await _client_with_token(3600).access_token_for(OWNER) == "old-pass"
+
+
+async def test_an_expired_or_nearly_expired_pass_is_refreshed_before_it_is_returned():
+    assert await _client_with_token(-30).access_token_for(OWNER) == "fresh-pass"
+    assert await _client_with_token(20).access_token_for(OWNER) == "fresh-pass"  # under a minute left
+
+
+async def test_when_refresh_fails_the_stale_pass_is_not_handed_out():
+    assert await _client_with_token(-30, refresh_ok=False).access_token_for(OWNER) is None
+
+
+async def test_unknown_expiry_is_left_to_the_agent_and_a_missing_person_gives_nothing():
+    assert await _client_with_token(None).access_token_for(OWNER) == "old-pass"
+    assert await _client_with_token(3600).access_token_for(OTHER) is None  # not signed in, nothing to refresh
