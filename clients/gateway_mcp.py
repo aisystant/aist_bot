@@ -55,6 +55,9 @@ _last_call_error: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 
+# Пропуск, который проживёт меньше, обновляется перед отправкой внешнему агенту (РП-262 Ф4)
+ACCESS_TOKEN_MIN_LIFETIME_S = 60
+
 class GatewayMCPClient:
     """Клиент для Gateway MCP с per-user Ory auth.
 
@@ -203,12 +206,20 @@ class GatewayMCPClient:
     async def access_token_for(self, telegram_user_id: int) -> Optional[str]:
         """Пропуск человека для внешнего агента платформы (РП-262 Ф4).
 
-        Берёт токен из памяти; если его нет (рестарт, гонка с входом), пробует освежить из БД тем же
-        путём, что и вызовы шлюза. Возвращает None, если человек не вошёл. Токен не пишется в журнал.
+        Отдаёт токен из памяти, только если он проживёт ещё минуту: агент проверяет срок сам и
+        отвергает истёкший (шлюз прощает такое повтором после 401, внешний агент - нет). Токена нет
+        (рестарт, гонка с входом) или он истекает - освежает тем же путём, что и вызовы шлюза.
+        Возвращает None, если человек не вошёл или обновить не удалось. Токен не пишется в журнал.
         """
-        token = self._get_access_token(telegram_user_id)
-        if token:
-            return token
+        data = self._tokens.get(telegram_user_id)
+        if data:
+            expires_at = data.get("expires_at")
+            if not isinstance(expires_at, datetime):
+                return data["access_token"]  # срок неизвестен: решает агент
+            if expires_at.tzinfo is not None:
+                expires_at = expires_at.replace(tzinfo=None)
+            if expires_at > datetime.utcnow() + timedelta(seconds=ACCESS_TOKEN_MIN_LIFETIME_S):
+                return data["access_token"]
         if await asyncio.shield(self._refresh_single_token(telegram_user_id)):
             return self._get_access_token(telegram_user_id)
         return None
