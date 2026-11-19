@@ -1251,8 +1251,9 @@ class GatewayMCPClient:
         Вызывается при старте бота и как background refresh (TTL 15 мин).
         При ошибке возвращает stale-кэш (или пустой список при cold start).
         Gateway требует Ory Bearer даже для discovery — используем токен
-        одного из загруженных пользователей (результат не зависит от того,
-        чей именно). При 401 обновляем токен ЭТОГО пользователя и повторяем
+        одного из загруженных пользователей. Шлюз урезает список по тарифу
+        этого пользователя, поэтому видимость инструмента не доказывает право
+        другого пользователя: шлюз проверяет тариф заново при каждом вызове. При 401 обновляем токен ЭТОГО пользователя и повторяем
         один раз — тот же паттерн, что и в `_do_call` (не перебор чужих
         токенов: рефреш чужого пользователя не чинит и не имеет смысла).
 
@@ -1293,11 +1294,15 @@ class GatewayMCPClient:
                     if resp.status == 200:
                         data = await resp.json()
                         mcp_tools = data.get("result", {}).get("tools", [])
-                        converted = (self._mcp_to_anthropic_tool(t) for t in mcp_tools)
+                        read_only = [t for t in mcp_tools if self._is_read_only(t)]
+                        converted = (self._mcp_to_anthropic_tool(t) for t in read_only)
                         tools = [t for t in converted if t is not None]
                         self._tools_cache = tools
                         self._tools_cache_ts = time.time()
-                        logger.info(f"Gateway: discovery loaded {len(tools)} tools")
+                        logger.info(
+                            f"Gateway: discovery loaded {len(tools)} read-only tools, "
+                            f"withheld {len(mcp_tools) - len(read_only)} write tools"
+                        )
                         return tools
                     if resp.status == 401 and discovery_user_id is not None and attempt == 0:
                         logger.info(f"Gateway: discovery 401 for user {discovery_user_id}, attempting refresh")
@@ -1335,6 +1340,22 @@ class GatewayMCPClient:
         else:
             logger.warning("Gateway: discovery still empty after startup retries")
         return count
+
+    @staticmethod
+    def _is_read_only(mcp_tool: Dict) -> bool:
+        """True only when the gateway marks the tool read-only and non-destructive.
+
+        Discovered tools go straight to the free-chat model, and the chat has no
+        way to ask the user before a write (WP-262 F4, stage 1, 2026-11-19: the
+        model was handed personal_write, personal_delete, create_wp and ~90 other
+        tools). Missing or malformed annotations count as a write (fail-closed).
+        This is the window's rule, not an authorization boundary: the gateway
+        still checks tier, subscription and scope on every call.
+        """
+        annotations = mcp_tool.get("annotations")
+        if not isinstance(annotations, dict):
+            return False
+        return annotations.get("readOnlyHint") is True and annotations.get("destructiveHint") is False
 
     def _mcp_to_anthropic_tool(self, mcp_tool: Dict) -> Optional[Dict]:
         """MCP tool format → Anthropic API format (inputSchema → input_schema).
