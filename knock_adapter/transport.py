@@ -21,6 +21,7 @@ import random
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -56,6 +57,8 @@ class AdapterConfig:
     trigger_idempotency_verified: bool = False
 
     def __post_init__(self) -> None:
+        if urllib.parse.urlparse(self.base_url).scheme not in ("http", "https"):
+            raise ValueError("base_url must use http or https")  # no file:/ or custom schemes
         for name in ("call_timeout", "batch_timeout"):
             value = getattr(self, name)
             if not 0 < value <= self.max_timeout:
@@ -68,7 +71,8 @@ class AdapterConfig:
 
 def default_opener(request: urllib.request.Request, timeout: float):
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # nosec B310: the scheme is restricted to http/https in AdapterConfig.__post_init__
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             return response.status, dict(response.headers), response.read()
     except urllib.error.HTTPError as error:
         return error.code, dict(error.headers or {}), error.read()

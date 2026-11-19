@@ -166,6 +166,12 @@ def test_configuration_is_validated():
         KnockTransport("", AdapterConfig())
 
 
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://example.com", "api.knock.app/v1", ""])
+def test_only_http_and_https_base_urls_are_accepted(url):
+    with pytest.raises(ValueError, match="http or https"):
+        AdapterConfig(base_url=url)
+
+
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (stdlib naming)
         if self.path == "/hang":
