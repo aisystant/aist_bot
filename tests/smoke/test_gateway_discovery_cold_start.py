@@ -31,12 +31,24 @@ class _PostCtx:
         return False
 
 
+READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
+
+
+def _tool(name, annotations=READ_ONLY):
+    tool = {"name": name, "description": "d", "inputSchema": {"type": "object"}}
+    if annotations is not None:
+        tool["annotations"] = annotations
+    return tool
+
+
 def _tools_response(names):
+    return _raw_tools_response([_tool(n) for n in names])
+
+
+def _raw_tools_response(tools):
     resp = AsyncMock()
     resp.status = 200
-    resp.json = AsyncMock(return_value={"result": {"tools": [
-        {"name": n, "description": "d", "inputSchema": {"type": "object"}} for n in names
-    ]}})
+    resp.json = AsyncMock(return_value={"result": {"tools": tools}})
     return resp
 
 
@@ -152,3 +164,30 @@ async def test_discovery_does_not_take_user_call_semaphore_slot():
         await task
 
     assert seen_free_slots == [12]
+
+
+@pytest.mark.asyncio
+async def test_discovery_withholds_write_and_unannotated_tools(caplog):
+    """WP-262 F4 stage 1 (2026-11-19): the free-chat model gets read tools only.
+
+    Live prod log 19.11 showed personal_write, personal_delete, create_wp and
+    ~90 other gateway tools handed to the model with no user confirmation.
+    """
+    client = GatewayMCPClient(url="http://gateway.test")
+    session = MagicMock()
+    session.post = MagicMock(return_value=_PostCtx(_raw_tools_response([
+        _tool("personal_search"),
+        _tool("personal_write", {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}),
+        _tool("personal_delete", {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}),
+        _tool("odd_read", {"readOnlyHint": True, "destructiveHint": True, "openWorldHint": False}),
+        _tool("no_annotations", annotations=None),
+        _tool("broken_annotations", annotations="readOnly"),
+    ])))
+
+    with patch.object(client, "_get_session", new=AsyncMock(return_value=session)), \
+         caplog.at_level(logging.INFO):
+        tools = await client.list_tools()
+
+    assert [t["name"] for t in tools] == ["personal_search"]
+    assert [t["name"] for t in client.get_discovered_tools()] == ["personal_search"]
+    assert "withheld 5 write tools" in caplog.text
