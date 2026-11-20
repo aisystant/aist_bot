@@ -46,11 +46,12 @@ async def test_upd_mode_routes_via_dispatcher_when_sm_active():
 
 
 @pytest.mark.asyncio
-async def test_upd_mode_falls_back_to_legacy_without_sm():
-    """SM выключена (get_dispatcher() → None) → прежнее поведение: legacy cmd_mode()."""
+async def test_upd_mode_without_sm_points_to_mode_command_not_dead_buttons():
+    """SM inactive (get_dispatcher() → None) → text pointing to /mode, legacy cmd_mode() is not drawn (WP-262 F3a)."""
     from handlers.settings import on_upd_mode
 
     callback = _fake_callback()
+    callback.message.edit_text = AsyncMock()
     state = AsyncMock()
 
     with patch("handlers.get_dispatcher", return_value=None), \
@@ -58,4 +59,6 @@ async def test_upd_mode_falls_back_to_legacy_without_sm():
          patch("engines.mode_selector.cmd_mode", new_callable=AsyncMock) as mock_cmd_mode:
         await on_upd_mode(callback, state)
 
-    mock_cmd_mode.assert_called_once_with(callback.message)
+    mock_cmd_mode.assert_not_called()
+    callback.message.edit_text.assert_awaited_once()
+    assert "/mode" in callback.message.edit_text.call_args[0][0]
