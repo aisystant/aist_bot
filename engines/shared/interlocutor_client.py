@@ -72,7 +72,9 @@ async def ask(
     history_pairs: Optional[List[Dict[str, str]]],
     language: str,
 ) -> Optional[Dict[str, Any]]:
-    """Один ход. Возвращает ответ агента только при коде «answer» с текстом, иначе None."""
+    """Один ход. Возвращает ответ агента при коде «answer» с текстом, а также сообщение агента,
+    которое нельзя подменять другим ответом (fallback_allowed=false: например, ключ человека
+    к модели отклонён и любой другой ответ оплатила бы платформа). Иначе None."""
     from clients.gateway_mcp import gateway_mcp
 
     url = os.getenv("INTERLOCUTOR_URL", "").strip()
@@ -95,7 +97,8 @@ async def ask(
         return None
     outcome = data.get("outcome") if data else None
     logger.info("[Interlocutor] outcome=%s in %dms", outcome, int((time.monotonic() - started) * 1000))
-    if outcome == "answer" and isinstance(data.get("text"), str) and data["text"].strip():
+    has_text = bool(data) and isinstance(data.get("text"), str) and bool(data["text"].strip())
+    if has_text and (outcome == "answer" or data.get("fallback_allowed") is False):
         return data
     return None
 
