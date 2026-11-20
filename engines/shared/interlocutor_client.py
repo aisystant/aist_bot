@@ -5,8 +5,8 @@
 агент. Любой сбой агента возвращает None, и бот отвечает прежним путём (запасной до этапа 6).
 
 Флаг (без перевыкладки кода, откат тем же способом):
-  INTERLOCUTOR_URL     - адрес POST /v1/turn; пусто = выключено
-  INTERLOCUTOR_TG_IDS  - номера Telegram через запятую; только эти люди идут к агенту
+  INTERLOCUTOR_URL     - адрес POST /v1/turn; пусто = выключено для всех.
+  Кому отвечает агент, решает вызывающий: всем, кто прошёл проверку подписки (WP-262 F4, 20.11).
 
 В журнал пишутся только длительность и код исхода: вопросы, ответы и пропуск не пишутся.
 """
@@ -25,20 +25,9 @@ MAX_HISTORY_PAIRS = 5
 MAX_TEXT_CHARS = 4000
 
 
-def _owner_ids(raw: str) -> set:
-    ids = set()
-    for part in raw.split(","):
-        part = part.strip()
-        if part.isdigit():
-            ids.add(int(part))
-    return ids
-
-
-def is_enabled_for(chat_id: Optional[int]) -> bool:
-    """Включён ли агент для этого человека (читается из окружения при каждом вызове)."""
-    if not chat_id or not os.getenv("INTERLOCUTOR_URL", "").strip():
-        return False
-    return chat_id in _owner_ids(os.getenv("INTERLOCUTOR_TG_IDS", ""))
+def is_enabled() -> bool:
+    """Is the platform agent switched on (read from the environment on every call)."""
+    return bool(os.getenv("INTERLOCUTOR_URL", "").strip())
 
 
 def build_history(pairs: Optional[List[Dict[str, str]]]) -> List[Dict[str, str]]:

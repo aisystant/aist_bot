@@ -34,25 +34,15 @@ PASS_VALUE = "person-pass-that-must-never-be-logged"
 @pytest.fixture
 def flag_on(monkeypatch):
     monkeypatch.setenv("INTERLOCUTOR_URL", URL)
-    monkeypatch.setenv("INTERLOCUTOR_TG_IDS", f"{OWNER}, bad ,{OTHER + 1}")
 
 
-def test_flag_is_off_without_url_or_for_people_not_listed(monkeypatch):
+def test_flag_is_on_only_with_a_url(monkeypatch):
     monkeypatch.delenv("INTERLOCUTOR_URL", raising=False)
-    monkeypatch.setenv("INTERLOCUTOR_TG_IDS", str(OWNER))
-    assert ic.is_enabled_for(OWNER) is False
+    assert ic.is_enabled() is False
+    monkeypatch.setenv("INTERLOCUTOR_URL", "   ")
+    assert ic.is_enabled() is False
     monkeypatch.setenv("INTERLOCUTOR_URL", URL)
-    assert ic.is_enabled_for(OWNER) is True
-    assert ic.is_enabled_for(OTHER) is False
-    assert ic.is_enabled_for(None) is False
-    monkeypatch.setenv("INTERLOCUTOR_TG_IDS", "")
-    assert ic.is_enabled_for(OWNER) is False  # empty list means nobody, not everybody
-
-
-def test_flag_ignores_garbage_in_the_list(flag_on):
-    assert ic.is_enabled_for(OWNER) is True
-    assert ic.is_enabled_for(OTHER + 1) is True
-    assert ic.is_enabled_for(OTHER) is False
+    assert ic.is_enabled() is True
 
 
 def test_history_keeps_the_last_five_pairs_in_contract_form():
@@ -174,7 +164,7 @@ async def test_state_shows_the_agent_answer_and_remembers_the_pair(flag_on):
     with patch.object(ic, "ask", AsyncMock(return_value=reply)), patch(
         "db.queries.activity.record_active_day", AsyncMock()
     ):
-        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru")
+        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru", paid_access=True)
         await asyncio.sleep(0)
     assert handled is True
     shown = " ".join(str(call.args[1]) for call in state.send.await_args_list)
@@ -189,7 +179,7 @@ async def test_state_shows_a_refused_key_message_and_does_not_fall_back_or_remem
     ctx = {}
     refused = {"outcome": "source_unavailable", "text": "ваш ключ отклонён", "fallback_allowed": False}
     with patch.object(ic, "ask", AsyncMock(return_value=refused)):
-        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru")
+        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru", paid_access=True)
     assert handled is True  # the old path, paid by the platform, does not run
     shown = " ".join(str(call.args[1]) for call in state.send.await_args_list)
     assert "ваш ключ отклонён" in shown
@@ -201,17 +191,35 @@ async def test_state_falls_back_when_the_agent_gives_nothing(flag_on):
     state = make_state()
     ctx = {}
     with patch.object(ic, "ask", AsyncMock(return_value=None)):
-        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru")
+        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru", paid_access=True)
     assert handled is False  # the old path continues
     assert "consultation_history" not in ctx
     state._save_session_context.assert_not_awaited()
 
 
-async def test_state_does_not_call_the_agent_for_people_outside_the_flag(flag_on):
+async def test_state_calls_the_agent_for_any_subscriber_not_a_listed_few(flag_on, monkeypatch):
+    monkeypatch.setenv("INTERLOCUTOR_TG_IDS", str(OWNER))  # the old per-person list no longer matters
+    state = make_state()
+    reply = {"outcome": "answer", "text": "ответ агента", "sources": []}
+    ask = AsyncMock(return_value=reply)
+    with patch.object(ic, "ask", ask), patch("db.queries.activity.record_active_day", AsyncMock()):
+        handled = await state._answer_via_interlocutor(
+            SimpleNamespace(), OTHER, "вопрос", {}, "ru", paid_access=True
+        )
+        await asyncio.sleep(0)
+    assert handled is True
+    assert ask.await_args.args[0] == OTHER
+
+
+@pytest.mark.parametrize("paid_access, url", [(False, URL), (True, "")])
+async def test_state_keeps_the_old_path_for_free_roles_or_when_switched_off(monkeypatch, paid_access, url):
+    monkeypatch.setenv("INTERLOCUTOR_URL", url)
     state = make_state()
     ask = AsyncMock()
     with patch.object(ic, "ask", ask):
-        handled = await state._answer_via_interlocutor(SimpleNamespace(), OTHER, "вопрос", {}, "ru")
+        handled = await state._answer_via_interlocutor(
+            SimpleNamespace(), OTHER, "вопрос", {}, "ru", paid_access=paid_access
+        )
     assert handled is False
     ask.assert_not_awaited()
     state.send.assert_not_awaited()  # not even the "thinking" message: nothing changes for them
