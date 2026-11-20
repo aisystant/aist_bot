@@ -779,9 +779,12 @@ class ConsultationState(BaseState):
         # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
 
-        # РП-262 Ф4: для людей из флага отвечает агент платформы (бот только окно). Любой сбой агента
+        # РП-262 Ф4: каждому, кто прошёл проверку подписки выше, отвечает агент платформы (бот только
+        # окно); бесплатные роли (без проверки подписки) остаются на прежнем пути. Любой сбой агента
         # возвращает False, и ниже идёт прежний путь. Стоит до быстрых ответов: они перехватывали вопросы.
-        if not is_refinement and await self._answer_via_interlocutor(user, chat_id, question, session_ctx, lang):
+        if not is_refinement and await self._answer_via_interlocutor(
+            user, chat_id, question, session_ctx, lang, paid_access=not _paywall_exempt
+        ):
             return None
 
         # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---
@@ -1126,11 +1129,16 @@ class ConsultationState(BaseState):
         # Persistent session: остаёмся в стейте
         return None
 
-    async def _answer_via_interlocutor(self, user, chat_id, question: str, session_ctx: dict, lang: str) -> bool:
-        """Ответ агента платформы (РП-262 Ф4). True - ответ показан, False - работает прежний путь."""
+    async def _answer_via_interlocutor(
+        self, user, chat_id, question: str, session_ctx: dict, lang: str, *, paid_access: bool
+    ) -> bool:
+        """Ответ агента платформы (РП-262 Ф4). True - ответ показан, False - работает прежний путь.
+
+        paid_access: человек прошёл проверку подписки (не бесплатная роль).
+        """
         from engines.shared import interlocutor_client
 
-        if not interlocutor_client.is_enabled_for(chat_id):
+        if not chat_id or not paid_access or not interlocutor_client.is_enabled():
             return False
         await self.send(user, t('consultation.thinking', lang))
         typing_task = self._keep_typing(chat_id)
