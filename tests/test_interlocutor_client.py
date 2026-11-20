@@ -108,6 +108,8 @@ async def test_ask_sends_the_persons_pass_and_returns_an_answer(flag_on):
         {"outcome": "need_login", "text": "войдите"},
         {"outcome": "tool_timeout", "text": "не успел"},
         {"outcome": "source_unavailable", "text": "нет доступа"},
+        {"outcome": "source_unavailable", "text": "нет доступа", "fallback_allowed": True},
+        {"outcome": "source_unavailable", "text": "  ", "fallback_allowed": False},
         {"outcome": "answer", "text": "   "},
         {"outcome": "answer"},
         None,
@@ -119,6 +121,16 @@ async def test_ask_returns_nothing_unless_the_agent_really_answered(flag_on, rep
 
     with _patch_token(PASS_VALUE), patch.object(ic, "_post_json", fake_post):
         assert await ic.ask(OWNER, "вопрос", None, "ru") is None
+
+
+async def test_ask_returns_a_message_the_agent_forbids_to_replace(flag_on):
+    refused = {"outcome": "source_unavailable", "text": "ключ отклонён", "fallback_allowed": False}
+
+    async def fake_post(url, token, payload, timeout_s):
+        return refused
+
+    with _patch_token(PASS_VALUE), patch.object(ic, "_post_json", fake_post):
+        assert await ic.ask(OWNER, "вопрос", None, "ru") == refused
 
 
 async def test_ask_survives_network_failure_and_missing_pass(flag_on):
@@ -170,6 +182,19 @@ async def test_state_shows_the_agent_answer_and_remembers_the_pair(flag_on):
     assert ctx["consultation_history"][-1]["q"] == "вопрос"
     assert "ответ агента" in ctx["consultation_history"][-1]["a"]
     state._save_session_context.assert_awaited()
+
+
+async def test_state_shows_a_refused_key_message_and_does_not_fall_back_or_remember_it(flag_on):
+    state = make_state()
+    ctx = {}
+    refused = {"outcome": "source_unavailable", "text": "ваш ключ отклонён", "fallback_allowed": False}
+    with patch.object(ic, "ask", AsyncMock(return_value=refused)):
+        handled = await state._answer_via_interlocutor(SimpleNamespace(), OWNER, "вопрос", ctx, "ru")
+    assert handled is True  # the old path, paid by the platform, does not run
+    shown = " ".join(str(call.args[1]) for call in state.send.await_args_list)
+    assert "ваш ключ отклонён" in shown
+    assert "consultation_history" not in ctx
+    state._save_session_context.assert_not_awaited()
 
 
 async def test_state_falls_back_when_the_agent_gives_nothing(flag_on):

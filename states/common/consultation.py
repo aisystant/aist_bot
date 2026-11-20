@@ -1146,6 +1146,9 @@ class ConsultationState(BaseState):
         response = self._format_response(answer, interlocutor_client.source_labels(result.get("sources")), lang)
         for part in prepare_html_parts(response):
             await self.send(user, part, parse_mode="HTML")
+        if result.get("outcome") != "answer":
+            # A status from the agent (e.g. own model key refused) is shown, not remembered.
+            return True
         try:
             self._append_history(session_ctx, question, answer)
             await self._save_session_context(chat_id, session_ctx)
