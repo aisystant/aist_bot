@@ -557,18 +557,15 @@ async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
         except Exception as e:
             logger.error(f"Error routing upd_mode via SM: {e}")
 
-    # Legacy fallback (SM выключен)
+    # Fallback (SM inactive or routing failed): the legacy mode_* buttons have no
+    # handlers (WP-262 F3a, wave 0b), so point the user to /mode instead.
     await state.clear()
-    try:
-        from engines.mode_selector import cmd_mode
-        await cmd_mode(callback.message)
-    except ImportError:
-        lang = intern.get('language', 'ru') if intern else 'ru'
-        await callback.message.edit_text(
-            f"*{t('update.mode_title', lang)}*\n\n"
-            f"{t('update.use_mode_command', lang)}",
-            parse_mode="Markdown"
-        )
+    lang = intern.get('language', 'ru') if intern else 'ru'
+    await callback.message.edit_text(
+        f"*{t('update.mode_title', lang)}*\n\n"
+        f"{t('update.use_mode_command', lang)}",
+        parse_mode="Markdown"
+    )
 
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_delivery")
 async def on_upd_delivery_from_settings(callback: CallbackQuery, state: FSMContext):
