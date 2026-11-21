@@ -4613,6 +4613,36 @@ consultation:
     es: "Haga una pregunta o toque \"Finalizar\" para salir."
     fr: "Posez une question ou appuyez sur « Terminer » pour quitter."
 
+  interlocutor_unavailable:
+    ru: "Агент временно недоступен. Повторите вопрос через несколько минут."
+    en: "The agent is temporarily unavailable. Please repeat your question in a few minutes."
+    es: "El agente no está disponible temporalmente. Repita la pregunta en unos minutos."
+    fr: "L'agent est temporairement indisponible. Répétez votre question dans quelques minutes."
+
+  interlocutor_pending_expired:
+    ru: "Исход прежнего запроса неизвестен. Этот текст будет обработан как новый вопрос."
+    en: "The outcome of the previous request is unknown. This text will be treated as a new question."
+    es: "El resultado de la solicitud anterior es desconocido. Este texto se tratará como una nueva pregunta."
+    fr: "Le résultat de la demande précédente est inconnu. Ce texte sera traité comme une nouvelle question."
+
+  interlocutor_login_hint:
+    ru: "Чтобы продолжить разговор с агентом и сохранять нить на платформе, войдите в аккаунт МИМ."
+    en: "Sign in to your MIM account to continue with the agent and keep the conversation on the platform."
+    es: "Inicie sesión en su cuenta MIM para continuar con el agente y conservar la conversación en la plataforma."
+    fr: "Connectez-vous à votre compte MIM pour continuer avec l'agent et conserver la conversation sur la plateforme."
+
+  interlocutor_login_button:
+    ru: "Войти в аккаунт МИМ"
+    en: "Sign in to MIM"
+    es: "Iniciar sesión en MIM"
+    fr: "Se connecter à MIM"
+
+  session_delete_failed:
+    ru: "Локальная копия очищена, но удаление нити у агента не подтверждено. Повторим удаление перед следующим вопросом."
+    en: "The local copy is cleared, but deletion of the agent thread is not confirmed. We will retry before your next question."
+    es: "La copia local está borrada, pero no se confirmó la eliminación del hilo del agente. Lo reintentaremos antes de su próxima pregunta."
+    fr: "La copie locale est effacée, mais la suppression du fil de l'agent n'est pas confirmée. Nous réessaierons avant votre prochaine question."
+
 # -----------------------------------------------------------------------------
 # Оценка (assessment) — только UI-ключи, вопросы в YAML
 # -----------------------------------------------------------------------------

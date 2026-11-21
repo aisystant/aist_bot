@@ -831,6 +831,11 @@ consultation:
   comment_prompt: "Escribe qué estuvo mal o qué faltó:"
   comment_saved: "¡Gracias! Comentario guardado, lo tendremos en cuenta."
   refine_thinking: "Buscando más detalles..."
+  interlocutor_unavailable: "El agente no está disponible temporalmente. Repita la pregunta en unos minutos."
+  interlocutor_pending_expired: "El resultado de la solicitud anterior es desconocido. Este texto se tratará como una nueva pregunta."
+  interlocutor_login_hint: "Inicie sesión en su cuenta MIM para continuar con el agente y conservar la conversación en la plataforma."
+  interlocutor_login_button: "Iniciar sesión en MIM"
+  session_delete_failed: "La copia local está borrada, pero no se confirmó la eliminación del hilo del agente. Lo reintentaremos antes de su próxima pregunta."
 
 error:
   generic: "Ocurrió un error. Inténtalo de nuevo o usa /help"

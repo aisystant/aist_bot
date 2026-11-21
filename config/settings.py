@@ -718,9 +718,9 @@ SM_EXPECTING_REPLY_STATES: dict[str, int] = {
     # WP-498 Ф13 (05.09, находка Fable-ревью): без этой строки follow-up внутри
     # активной консультации (Наставник и др.) у T4-аккаунтов уходил в Hermes
     # вместо ответа роли — персистентная сессия консультации работала только
-    # на первое сообщение. 15 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC
-    # (РП-498 Ф17: было 5; равенство проверяет tests/test_role_free_for_all_tiers.py).
-    "common.consultation": 15,
+    # на первое сообщение. 30 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC
+    # (РП-262 Ф10: окно бота совпадает со сроком нити агента).
+    "common.consultation": 30,
 }
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============

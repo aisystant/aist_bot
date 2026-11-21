@@ -831,6 +831,11 @@ consultation:
   comment_prompt: "Écris ce qui n'allait pas ou ce qui manquait :"
   comment_saved: "Merci ! Retour enregistré, nous en tiendrons compte."
   refine_thinking: "Recherche de détails..."
+  interlocutor_unavailable: "L'agent est temporairement indisponible. Répétez votre question dans quelques minutes."
+  interlocutor_pending_expired: "Le résultat de la demande précédente est inconnu. Ce texte sera traité comme une nouvelle question."
+  interlocutor_login_hint: "Connectez-vous à votre compte MIM pour continuer avec l'agent et conserver la conversation sur la plateforme."
+  interlocutor_login_button: "Se connecter à MIM"
+  session_delete_failed: "La copie locale est effacée, mais la suppression du fil de l'agent n'est pas confirmée. Nous réessaierons avant votre prochaine question."
 
 error:
   generic: "Une erreur s'est produite. Réessaie ou utilise /help"

@@ -18,8 +18,8 @@ Progressive Refinement:
 Persistent Session:
 - После ответа бот остаётся в стейте (enter() → None)
 - Текст без "?" трактуется как follow-up вопрос
-- Claude получает conversation history (последние 3-5 пар)
-- Выход: кнопка "Завершить" / таймаут 15 мин (только без нового вопроса) / глобальная команда
+- На прежнем пути Claude получает history бота; на платном пути нить хранит агент
+- Выход: кнопка "Завершить" / таймаут 30 мин (только без нового вопроса) / глобальная команда
 
 Вызывается из любого стейта, где allow_global содержит "consultation".
 Триггер: сообщение начинается с "?"
@@ -30,7 +30,9 @@ import json
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from typing import Optional
+from uuid import uuid4
 
 from aiogram.enums import ChatAction
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -274,11 +276,29 @@ OLD_PAIR_Q = (300, 150)
 OLD_PAIR_A = (300, 300)
 # «Подробнее»: цитата предыдущего ответа в запросе (раньше первые 800 символов)
 PREVIOUS_ANSWER_QUOTE = (1200, 600)
-# Таймаут неактивности (секунды) — после него новый вопрос начинает сессию заново.
-# РП-498 Ф17: 5 → 15 минут (по базе пауза 5-20 минут между репликами обычна, а Лента
-# после перевода текста в консультацию приносит такие же паузы). Держать равным
-# SM_EXPECTING_REPLY_STATES["common.consultation"] * 60 (config/settings.py, тест-равенство).
-SESSION_TIMEOUT_SEC = 900  # 15 минут
+# Окно бота совпадает с 30-минутным сроком нити агента (РП-262 Ф10).
+SESSION_TIMEOUT_SEC = 1800
+PENDING_TURN_KEY = "interlocutor_pending_turn"
+DELETE_PENDING_KEY = "thread_delete_pending"
+AGENT_USED_KEY = "interlocutor_agent_used"
+EPOCH_KEY = "interlocutor_session_epoch"
+_THREAD_LOCKS: dict[int, tuple[asyncio.Lock, int]] = {}
+
+
+@asynccontextmanager
+async def _thread_hold(chat_id: int):
+    """Сериализовать платный ход и удаление нити одного человека в этом процессе бота."""
+    lock, users = _THREAD_LOCKS.get(chat_id, (asyncio.Lock(), 0))
+    _THREAD_LOCKS[chat_id] = (lock, users + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        lock, users = _THREAD_LOCKS[chat_id]
+        if users == 1:
+            del _THREAD_LOCKS[chat_id]
+        else:
+            _THREAD_LOCKS[chat_id] = (lock, users - 1)
 
 
 def _head_tail(text: str, head: int, tail: int) -> str:
@@ -645,6 +665,9 @@ class ConsultationState(BaseState):
         ctx.pop('qa_comment_id', None)
         ctx.pop('consultation_topic', None)  # темы недели Ленты (РП-498 Ф17)
         ctx.pop('active_free_role', None)  # WP-498 Ф13: не переживает новую сессию
+        ctx.pop(PENDING_TURN_KEY, None)
+        ctx.pop(AGENT_USED_KEY, None)
+        ctx.pop(EPOCH_KEY, None)
         return ctx
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
@@ -739,7 +762,7 @@ class ConsultationState(BaseState):
                 # правды на сессию). Теперь переиспользуем session_ctx;
                 # active_free_role ставим заново ПОСЛЕ _clear_session, т.к.
                 # она его тоже чистит (новая сессия роли).
-                self._clear_session(session_ctx, reason="role_entry")  # New session for role
+                await self._delete_agent_thread(user, chat_id, session_ctx, lang, clear_reason="role_entry")
                 session_ctx['force_role'] = force_role
                 session_ctx['active_free_role'] = force_role
                 session_ctx['consultation_last_activity'] = time.time()
@@ -779,13 +802,18 @@ class ConsultationState(BaseState):
         # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
 
-        # РП-262 Ф4: каждому, кто прошёл проверку подписки выше, отвечает агент платформы (бот только
-        # окно); бесплатные роли (без проверки подписки) остаются на прежнем пути. Любой сбой агента
-        # возвращает False, и ниже идёт прежний путь. Стоит до быстрых ответов: они перехватывали вопросы.
-        if not is_refinement and await self._answer_via_interlocutor(
-            user, chat_id, question, session_ctx, lang, paid_access=not _paywall_exempt
-        ):
-            return None
+        # РП-262 Ф10: платный путь принадлежит агенту. Прежний ответ разрешён бесплатным ролям
+        # и человеку без пропуска; временный сбой агента собственным ответом не подменяется.
+        login_hint = False
+        if not is_refinement:
+            if not session_ctx.get(EPOCH_KEY):
+                session_ctx[EPOCH_KEY] = uuid4().hex
+                await self._save_session_context(chat_id, session_ctx)
+            handled, login_hint = await self._answer_via_interlocutor(
+                user, chat_id, question, session_ctx, lang, paid_access=not _paywall_exempt
+            )
+            if handled:
+                return None
 
         # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---
         if not is_refinement:
@@ -816,6 +844,8 @@ class ConsultationState(BaseState):
                 self._append_history(session_ctx, question, meta_answer)
                 await self._save_session_context(chat_id, session_ctx)
                 logger.info(f"[Consultation] Persistent session: staying after meta-answer")
+                if login_hint:
+                    await self._send_login_hint(user, chat_id, lang)
                 return None
 
         # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
@@ -1126,45 +1156,193 @@ class ConsultationState(BaseState):
         except Exception as e:
             logger.warning(f"Consultation history save error: {e}")
 
+        if login_hint:
+            await self._send_login_hint(user, chat_id, lang)
         # Persistent session: остаёмся в стейте
         return None
 
     async def _answer_via_interlocutor(
         self, user, chat_id, question: str, session_ctx: dict, lang: str, *, paid_access: bool
-    ) -> bool:
-        """Ответ агента платформы (РП-262 Ф4). True - ответ показан, False - работает прежний путь.
-
-        paid_access: человек прошёл проверку подписки (не бесплатная роль).
-        """
+    ) -> tuple[bool, bool]:
+        """(Ход обработан, нужно приглашение войти). Временный сбой не уходит в прежний путь."""
         from engines.shared import interlocutor_client
 
         if not chat_id or not paid_access or not interlocutor_client.is_enabled():
-            return False
-        await self.send(user, t('consultation.thinking', lang))
-        typing_task = self._keep_typing(chat_id)
-        try:
-            result = await interlocutor_client.ask(
-                chat_id, question, session_ctx.get('consultation_history'), lang
-            )
-        finally:
-            typing_task.cancel()
-        if not result:
-            return False
-        answer = result["text"].strip()
-        response = self._format_response(answer, interlocutor_client.source_labels(result.get("sources")), lang)
+            return False, False
+        expected_epoch = session_ctx.get(EPOCH_KEY)
+        async with _thread_hold(chat_id):
+            fresh_ctx = dict(await self._load_session_context(user))
+            session_ctx.clear()
+            session_ctx.update(fresh_ctx)
+            if session_ctx.get(EPOCH_KEY) != expected_epoch:
+                logger.info("[Interlocutor] stale session turn skipped")
+                return True, False
+            if session_ctx.get(DELETE_PENDING_KEY):
+                deleted = await interlocutor_client.delete_thread(chat_id)
+                if deleted.get("outcome") == "forgotten" or deleted.get("status") == 204:
+                    session_ctx.pop(DELETE_PENDING_KEY, None)
+                    await self._save_session_context(chat_id, session_ctx)
+                elif deleted.get("outcome") in ("no_pass", "need_login"):
+                    return False, True
+                else:
+                    await self.send(user, t('consultation.session_delete_failed', lang))
+                    return True, False
+
+            pending = session_ctx.get(PENDING_TURN_KEY) or {}
+            if pending and pending.get('expires_at', 0) <= time.time():
+                session_ctx.pop(PENDING_TURN_KEY, None)
+                await self._save_session_context(chat_id, session_ctx)
+                await self.send(user, t('consultation.interlocutor_pending_expired', lang))
+                pending = {}
+
+            if pending:
+                previous_question = pending['question']
+                result = await self._ask_interlocutor_with_retry(
+                    chat_id, previous_question, lang, session_ctx
+                )
+                outcome = result.get('outcome')
+                if outcome in ('no_pass', 'need_login') and result.get('fallback_allowed') is not False:
+                    return False, True
+                if outcome == 'answer':
+                    await self._show_interlocutor_answer(user, chat_id, previous_question, result, session_ctx, lang)
+                elif result.get('fallback_allowed') is False and (result.get('text') or '').strip():
+                    for part in prepare_html_parts(result['text'].strip()):
+                        await self.send(user, part, parse_mode="HTML")
+                    return True, False
+                else:
+                    await self.send(user, t('consultation.interlocutor_unavailable', lang))
+                    return True, False
+                if previous_question == question:
+                    return True, False
+
+            result = await self._ask_interlocutor_with_retry(chat_id, question, lang, session_ctx)
+            outcome = result.get('outcome')
+            if outcome in ('no_pass', 'need_login') and result.get('fallback_allowed') is not False:
+                return False, True
+            if outcome == 'answer':
+                await self._show_interlocutor_answer(user, chat_id, question, result, session_ctx, lang)
+                return True, False
+            if result.get('fallback_allowed') is False and (result.get('text') or '').strip():
+                for part in prepare_html_parts(result['text'].strip()):
+                    await self.send(user, part, parse_mode="HTML")
+                return True, False
+            await self.send(user, t('consultation.interlocutor_unavailable', lang))
+            return True, False
+
+    async def _ask_interlocutor_with_retry(
+        self, chat_id: int, question: str, lang: str, session_ctx: dict
+    ) -> dict:
+        from engines.shared import interlocutor_client
+
+        pending = session_ctx.get(PENDING_TURN_KEY) or {}
+        if pending.get('not_before', 0) > time.time():
+            return pending.get('last_result') or {'outcome': 'http_error', 'status': 429}
+        started_at = time.time()
+        if pending.get('question') == question and pending.get('expires_at', 0) > started_at:
+            turn_id = pending['turn_id']
+        else:
+            turn_id = f"{chat_id}:{int(started_at * 1000)}"
+            session_ctx.pop(PENDING_TURN_KEY, None)
+            pending = {}
+        result = None
+        for attempt in (1, 2):
+            result = await interlocutor_client.ask(chat_id, question, lang, turn_id, attempt=attempt)
+            if attempt == 2 or not interlocutor_client.retryable(result):
+                break
+            delay = interlocutor_client.retry_delay_s(result)
+            if delay is None:
+                break
+            logger.info("[Interlocutor] retry scheduled delay_s=%s", delay)
+            await asyncio.sleep(delay)
+        if interlocutor_client.retryable(result):
+            record = pending if pending.get('turn_id') == turn_id else {
+                'turn_id': turn_id,
+                'question': question,
+                'expires_at': started_at + SESSION_TIMEOUT_SEC,
+            }
+            if result.get('outcome') == 'http_error' and result.get('status') == 429:
+                record['not_before'] = time.time() + min(result.get('retry_after_s', 0), 300)
+                record['last_result'] = result
+            else:
+                record.pop('not_before', None)
+                record.pop('last_result', None)
+            session_ctx[PENDING_TURN_KEY] = record
+            await self._save_session_context(chat_id, session_ctx)
+        elif result.get('outcome') not in ('answer', 'no_pass', 'need_login'):
+            if session_ctx.pop(PENDING_TURN_KEY, None) is not None:
+                await self._save_session_context(chat_id, session_ctx)
+        return result
+
+    async def _show_interlocutor_answer(
+        self, user, chat_id: int, question: str, result: dict, session_ctx: dict, lang: str
+    ) -> None:
+        from engines.shared import interlocutor_client
+
+        answer = result['text'].strip()
+        session_ctx.pop(PENDING_TURN_KEY, None)
+        session_ctx[AGENT_USED_KEY] = True
+        self._append_history(session_ctx, question, answer)
+        await self._save_session_context(chat_id, session_ctx)
+        response = self._format_response(answer, interlocutor_client.source_labels(result.get('sources')), lang)
         for part in prepare_html_parts(response):
             await self.send(user, part, parse_mode="HTML")
-        if result.get("outcome") != "answer":
-            # A status from the agent (e.g. own model key refused) is shown, not remembered.
-            return True
         try:
-            self._append_history(session_ctx, question, answer)
-            await self._save_session_context(chat_id, session_ctx)
             from db.queries.activity import record_active_day
             asyncio.create_task(record_active_day(chat_id, 'question_asked', mode=self._get_mode(user)))
         except Exception as e:
-            logger.warning(f"[Consultation] interlocutor history save error: {type(e).__name__}")
-        return True
+            logger.warning(f"[Consultation] interlocutor activity save error: {type(e).__name__}")
+
+    async def _send_login_hint(self, user, chat_id: int, lang: str) -> None:
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from clients.ory_oauth import ory_oauth
+
+        reply_markup = None
+        try:
+            auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=t('consultation.interlocutor_login_button', lang), url=auth_url)
+            ]])
+        except Exception as exc:
+            logger.warning("[Consultation] login link failed: %s", type(exc).__name__)
+        await self.send(user, t('consultation.interlocutor_login_hint', lang), reply_markup=reply_markup)
+
+    async def _delete_agent_thread(
+        self, user, chat_id: int, session_ctx: dict, lang: str, *, clear_reason: str = None
+    ) -> bool:
+        from engines.shared import interlocutor_client
+
+        deleted = True
+        async with _thread_hold(chat_id):
+            fresh_ctx = dict(await self._load_session_context(user))
+            session_ctx.clear()
+            session_ctx.update(fresh_ctx)
+            if clear_reason == 'timeout':
+                last_activity = session_ctx.get('consultation_last_activity', 0)
+                if not last_activity or time.time() - last_activity <= SESSION_TIMEOUT_SEC:
+                    return True
+            has_thread = any(session_ctx.get(key) for key in (AGENT_USED_KEY, PENDING_TURN_KEY, DELETE_PENDING_KEY))
+            if has_thread and not interlocutor_client.is_enabled():
+                session_ctx[DELETE_PENDING_KEY] = True
+            elif has_thread:
+                try:
+                    result = await interlocutor_client.delete_thread(chat_id)
+                except Exception as exc:
+                    logger.warning("[Consultation] delete call failed: %s", type(exc).__name__)
+                    result = {'outcome': 'call_failed'}
+                deleted = result.get('outcome') == 'forgotten' or result.get('status') == 204
+                if deleted:
+                    session_ctx.pop(DELETE_PENDING_KEY, None)
+                else:
+                    session_ctx[DELETE_PENDING_KEY] = True
+            if clear_reason:
+                self._clear_session(session_ctx, reason=clear_reason)
+            await self._save_session_context(chat_id, session_ctx)
+        if not deleted:
+            try:
+                await self.send(user, t('consultation.session_delete_failed', lang))
+            except Exception as exc:
+                logger.warning("[Consultation] delete failure notice failed: %s", type(exc).__name__)
+        return deleted
 
     def _format_response(self, answer: str, sources: list, lang: str) -> str:
         """Форматируем ответ с источниками."""
@@ -1220,7 +1398,7 @@ class ConsultationState(BaseState):
                 await self.send(user, t('consultation.error', lang))
             return None  # Остаёмся в сессии после замечания
 
-        # --- Проверка таймаута (15 мин неактивности, SESSION_TIMEOUT_SEC) ---
+        # --- Проверка таймаута (30 мин неактивности, SESSION_TIMEOUT_SEC) ---
         last_activity = ctx.get('consultation_last_activity', 0)
         timed_out = last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC
 
@@ -1233,7 +1411,7 @@ class ConsultationState(BaseState):
             if question:
                 if timed_out:
                     logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
-                    await self._expire_session(ctx, chat_id)
+                    await self._expire_session(user, ctx, chat_id)
                 await self.enter(user, context={'question': question})
                 return "followup"
 
@@ -1245,7 +1423,7 @@ class ConsultationState(BaseState):
         if len(text) >= 3 or (live_dialog and any(ch.isalnum() for ch in text)):
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
-                await self._expire_session(ctx, chat_id)
+                await self._expire_session(user, ctx, chat_id)
             await self.enter(user, context={'question': text})
             return "followup"
 
@@ -1259,29 +1437,19 @@ class ConsultationState(BaseState):
         await self.send(user, t('consultation.session_hint', lang))
         return None
 
-    async def _expire_session(self, ctx: dict, chat_id) -> None:
-        """Таймаут при новом вопросе: очистить историю и сохранить это явно.
-
-        force_role из /navigator переживает таймаут: _clear_session его не снимает.
-        Раньше очистка жила только в общем объекте контекста и сохранялась побочно,
-        при раннем выходе enter() терялась.
-        """
-        self._clear_session(ctx, reason="timeout")
+    async def _expire_session(self, user, ctx: dict, chat_id) -> None:
+        """Таймаут: очистка и удаление атомарны; при ошибке хранилища новый ход не начинается."""
         if chat_id:
-            try:
-                await self._save_session_context(chat_id, ctx)
-            except Exception:
-                # State Machine глушит исключение стейта: без перехвата реплика читателя пропала бы молча.
-                # Очистка уйдёт в базу вместе с записью после ответа.
-                logger.warning("[Consultation] timeout cleanup save failed, answering anyway", exc_info=True)
+            await self._delete_agent_thread(user, chat_id, ctx, self._get_lang(user), clear_reason="timeout")
 
     async def _end_session(self, user, ctx: dict, lang: str):
         """Завершить consultation session: очистка history, прощание."""
         chat_id = self._get_chat_id(user)
-        self._clear_session(ctx, reason="end_session")
-        if chat_id:
-            await self._save_session_context(chat_id, ctx)
-        await self.send(user, t('consultation.session_ended', lang))
+        deleted = await self._delete_agent_thread(
+            user, chat_id, ctx, lang, clear_reason="end_session"
+        ) if chat_id else True
+        if deleted:
+            await self.send(user, t('consultation.session_ended', lang))
         logger.info(f"[Consultation] Session ended for chat {chat_id}")
 
     async def exit(self, user) -> dict:
@@ -1290,8 +1458,7 @@ class ConsultationState(BaseState):
         if chat_id:
             try:
                 ctx = await self._load_session_context(user)
-                self._clear_session(ctx, reason="exit")
-                await self._save_session_context(chat_id, ctx)
+                await self._delete_agent_thread(user, chat_id, ctx, self._get_lang(user), clear_reason="exit")
             except Exception as e:
                 logger.warning(f"Consultation exit cleanup error: {e}")
         return {

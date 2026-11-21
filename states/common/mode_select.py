@@ -204,7 +204,14 @@ class ModeSelectState(BaseState):
                 await update_intern(chat_id, current_context=ctx)
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        """Текстовый ввод в главном меню → показываем меню заново."""
+        """Свободный текст в главном меню — вопрос агенту, а не повтор приветствия."""
+        text = (message.text or '').strip()
+        if text and not text.startswith('/') and any(ch.isalnum() for ch in text):
+            from handlers import get_dispatcher
+            dispatcher = get_dispatcher()
+            if dispatcher and dispatcher.is_sm_active:
+                await dispatcher.go_to(user, 'common.consultation', context={'question': text})
+                return None
         await self.enter(user)
         return None  # Остаёмся в стейте
 

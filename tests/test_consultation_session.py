@@ -1,6 +1,6 @@
 """Unit-тесты РП-498 Ф17: память диалога консультации.
 
-Покрывает states.common.consultation: окно неактивности 15 минут, явное сохранение после
+Покрывает states.common.consultation: окно неактивности 30 минут, явное сохранение после
 очистки по таймауту, причина каждой очистки истории в логе, размер истории в строке enter().
 До Ф17 тестов на историю консультации в боте не было вообще.
 """
@@ -54,14 +54,14 @@ def make_user(chat_id: int, ctx: dict) -> dict:
 
 
 # =============================================================================
-# Окно неактивности: 15 минут
+# Окно неактивности: 30 минут
 # =============================================================================
 
-def test_window_is_fifteen_minutes_and_matches_routing_table():
+def test_window_is_thirty_minutes_and_matches_routing_table():
     from config.settings import SM_EXPECTING_REPLY_STATES
 
-    assert SESSION_TIMEOUT_SEC == 900
-    assert SM_EXPECTING_REPLY_STATES["common.consultation"] == 15
+    assert SESSION_TIMEOUT_SEC == 1800
+    assert SM_EXPECTING_REPLY_STATES["common.consultation"] == 30
 
 
 @pytest.mark.asyncio
@@ -82,22 +82,20 @@ async def test_followup_inside_window_keeps_history():
 
 
 @pytest.mark.asyncio
-async def test_failed_cleanup_save_after_the_window_does_not_lose_the_reply():
-    # State Machine глушит исключение стейта: без перехвата реплика читателя пропала бы молча
+async def test_failed_cleanup_save_after_the_window_stops_the_stale_turn():
     state = make_state()
     ctx = {
         "consultation_history": [{"q": "старый вопрос", "a": "старый ответ"}],
-        "consultation_last_activity": time.time() - 16 * 60,
+        "consultation_last_activity": time.time() - 31 * 60,
     }
     user = make_user(1006, ctx)
 
     with patch.object(state, "enter", new=AsyncMock(return_value=None)) as enter, \
-         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=RuntimeError("база недоступна"))):
-        event = await state.handle(user, SimpleNamespace(text="новая тема разговора"))
+         patch.object(state, "_save_session_context", new=AsyncMock(side_effect=RuntimeError("база недоступна"))), \
+         pytest.raises(RuntimeError, match="база недоступна"):
+        await state.handle(user, SimpleNamespace(text="новая тема разговора"))
 
-    assert event == "followup"
-    enter.assert_awaited_once_with(user, context={"question": "новая тема разговора"})
-    assert "consultation_history" not in ctx  # очистка есть в памяти и уйдёт в базу с записью после ответа
+    enter.assert_not_awaited()  # без сохранения нельзя безопасно начать новый ход поверх старого
 
 
 @pytest.mark.asyncio
@@ -105,7 +103,7 @@ async def test_followup_after_window_clears_history_and_saves_it_explicitly():
     state = make_state()
     ctx = {
         "consultation_history": [{"q": "старый вопрос", "a": "старый ответ"}],
-        "consultation_last_activity": time.time() - 16 * 60,
+        "consultation_last_activity": time.time() - 31 * 60,
         "force_role": "navigator",
     }
     user = make_user(1002, ctx)
@@ -702,7 +700,7 @@ async def test_reply_without_letters_or_digits_in_live_dialog_gets_the_hint(text
 @pytest.mark.asyncio
 async def test_short_reply_after_the_window_ends_the_session():
     state = make_state()
-    expired = live_session(consultation_last_activity=time.time() - 16 * 60)
+    expired = live_session(consultation_last_activity=time.time() - 31 * 60)
     db = FakeContextDb(2013, expired)
 
     with patch.object(state, "enter", new=AsyncMock()) as enter, \
