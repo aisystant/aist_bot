@@ -2946,6 +2946,8 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
     app.router.add_get("/internal/onboarding-facts", onboarding_facts_handler)  # WP-406 Ф33 §4
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
+    from core.nc_delivery import nc_deliver_handler
+    app.router.add_post("/internal/nc/deliver", nc_deliver_handler)  # WP-568 Ф19 Э2.3
     app.router.add_post("/internal/auth/exchange", external_auth_exchange_handler)      # WP-411 Ф2
     app.router.add_post("/internal/auth/introspect", external_auth_introspect_handler)  # WP-411 Ф2
     app.router.add_post("/internal/auth/refresh", external_auth_refresh_handler)        # WP-411 Ф4
