@@ -271,6 +271,17 @@ async def main():
     except Exception as _e:
         _log_migration_skipped("044 (internship_payment_checks)", _e)
 
+    # Migration 053: счётчики выпуска А агента-собеседника (РП-262 Ф10). Без таблицы счётчик
+    # только пишет предупреждение в журнал, ответы людям не страдают.
+    try:
+        _m053 = _il.import_module("db.migrations.053_wp262_f10_interlocutor_stats")
+        if await _m053.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 053: interlocutor_stats создана")
+        else:
+            logger.info("✅ Migration 053: interlocutor_stats уже существует")
+    except Exception as _e:
+        _log_migration_skipped("053 (interlocutor_stats)", _e)
+
     # Fail-fast для денежных таблиц — ПОСЛЕ стартовых миграций выше, чтобы среда,
     # где роль умеет CREATE (пилот, dev), сначала вылечила себя сама. Падение здесь
     # = /health не поднимется = Railway не переключит трафик на эту ревизию.

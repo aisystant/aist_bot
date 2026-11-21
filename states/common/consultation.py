@@ -447,6 +447,64 @@ def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> In
     return InlineKeyboardMarkup(inline_keyboard=[row1, row2])
 
 
+_background_tasks: set = set()
+
+
+def _turn_ref(message) -> Optional[str]:
+    """Stable retry key part of a Telegram message: a re-delivered update keeps the same id (F10)."""
+    message_id = getattr(message, 'message_id', None)
+    return f"m{message_id}" if isinstance(message_id, int) else None
+
+
+def _question_context(question: str, message) -> dict:
+    """Context of a follow-up question; carries the retry key only when Telegram gave one."""
+    context = {'question': question}
+    turn_ref = _turn_ref(message)
+    if turn_ref:
+        context['turn_ref'] = turn_ref
+    return context
+
+
+def _build_forget_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t('consultation.btn_forget', lang), callback_data="qa_forget")
+    ]])
+
+
+def _mark_thread_after_forget(ctx: dict, outcome: str) -> None:
+    """Record what the agent confirmed: gone (no markers), or still there and to be retried (dirty)."""
+    ctx.pop('agent_thread_live', None)
+    if outcome in ("failed", "refused"):
+        ctx['agent_thread_dirty'] = True  # the next question retries the DELETE before asking
+    else:
+        ctx.pop('agent_thread_dirty', None)
+
+
+async def forget_conversation(chat_id: int, lang: str) -> tuple:
+    """The "Forget" button (F10): erase the agent thread and the bot copy; return (ok, text to show).
+
+    "Deleted" is said only when the agent confirmed it. Otherwise the person is told honestly that
+    the thread expires on its own within 30 minutes and the next question retries the erasing
+    (the bot copy is cleared in both cases).
+    """
+    from db.queries.users import get_intern, update_intern
+    from engines.shared import interlocutor_client as ic
+
+    async with ic.chat_lock(chat_id):
+        outcome = await ic.forget(chat_id)
+    try:
+        ConsultationState._count(f"forget_{outcome}")
+        intern = await get_intern(chat_id)
+        ctx = dict((intern or {}).get('current_context') or {})
+        ConsultationState._clear_session(None, ctx, reason="forget")
+        _mark_thread_after_forget(ctx, outcome)
+        await update_intern(chat_id, current_context=ctx)
+    except Exception as e:
+        logger.warning(f"[Consultation] forget copy cleanup error: {type(e).__name__}")
+    ok = outcome == "forgotten"
+    return ok, t('consultation.forgotten' if ok else 'consultation.forget_failed', lang)
+
+
 class ConsultationState(BaseState):
     """
     Стейт консультации.
@@ -641,6 +699,7 @@ class ConsultationState(BaseState):
         if pairs:
             logger.info(f"[Consultation] session cleared: reason={reason} pairs={pairs}")
         ctx.pop('consultation_history', None)
+        ctx.pop('agent_thread_live', None)  # 'agent_thread_dirty' stays: a failed erase is retried later
         ctx.pop('consultation_last_activity', None)
         ctx.pop('qa_comment_id', None)
         ctx.pop('consultation_topic', None)  # темы недели Ленты (РП-498 Ф17)
@@ -782,8 +841,10 @@ class ConsultationState(BaseState):
         # РП-262 Ф4: каждому, кто прошёл проверку подписки выше, отвечает агент платформы (бот только
         # окно); бесплатные роли (без проверки подписки) остаются на прежнем пути. Любой сбой агента
         # возвращает False, и ниже идёт прежний путь. Стоит до быстрых ответов: они перехватывали вопросы.
+        _agent_notes: dict = {}
         if not is_refinement and await self._answer_via_interlocutor(
-            user, chat_id, question, session_ctx, lang, paid_access=not _paywall_exempt
+            user, chat_id, question, session_ctx, lang, paid_access=not _paywall_exempt,
+            turn_ref=context.get('turn_ref'), notes=_agent_notes,
         ):
             return None
 
@@ -1105,6 +1166,9 @@ class ConsultationState(BaseState):
                     is_last = (i == len(parts) - 1)
                     kb = reply_markup if is_last else None
                     await self.send(user, part, parse_mode="HTML", reply_markup=kb)
+                if _agent_notes.get('login_invite'):
+                    # F10: the person has no pass, so the agent could not answer; invite to sign in.
+                    await self.send(user, t('consultation.login_invite', lang))
 
         except Exception as e:
             if typing_task:
@@ -1130,16 +1194,23 @@ class ConsultationState(BaseState):
         return None
 
     async def _answer_via_interlocutor(
-        self, user, chat_id, question: str, session_ctx: dict, lang: str, *, paid_access: bool
+        self, user, chat_id, question: str, session_ctx: dict, lang: str, *, paid_access: bool,
+        turn_ref: Optional[str] = None, notes: Optional[dict] = None,
     ) -> bool:
         """Ответ агента платформы (РП-262 Ф4). True - ответ показан, False - работает прежний путь.
 
         paid_access: человек прошёл проверку подписки (не бесплатная роль).
+        turn_ref / notes: выпуск А (Ф10); turn_ref даёт стабильный ключ повтора, notes получает метку
+        «нет пропуска: показать приглашение войти».
         """
         from engines.shared import interlocutor_client
 
         if not chat_id or not paid_access or not interlocutor_client.is_enabled():
             return False
+        if interlocutor_client.thread_mode_enabled():
+            return await self._answer_in_thread_mode(
+                user, chat_id, question, session_ctx, lang, turn_ref=turn_ref, notes=notes
+            )
         await self.send(user, t('consultation.thinking', lang))
         typing_task = self._keep_typing(chat_id)
         try:
@@ -1165,6 +1236,100 @@ class ConsultationState(BaseState):
         except Exception as e:
             logger.warning(f"[Consultation] interlocutor history save error: {type(e).__name__}")
         return True
+
+    @staticmethod
+    def _count(kind: str, elapsed_ms: int = 0) -> None:
+        """Fire-and-forget counter of release A (F10); a failure never reaches the person."""
+        from db.queries import interlocutor_stats
+
+        task = asyncio.create_task(interlocutor_stats.bump(kind, elapsed_ms))
+        _background_tasks.add(task)  # keep a reference: a bare task may be collected mid-flight
+        task.add_done_callback(_background_tasks.discard)
+
+    async def _answer_in_thread_mode(
+        self, user, chat_id, question: str, session_ctx: dict, lang: str, *,
+        turn_ref: Optional[str], notes: Optional[dict],
+    ) -> bool:
+        """Release A (WP-262 F10): the agent keeps the thread, the bot sends no history.
+
+        answer / agent_message -> shown; no pass -> old path (with history) plus an invitation to sign in;
+        a temporary failure -> one retry with the same turn_id, then "unavailable", the bot does not answer.
+        """
+        from engines.shared import interlocutor_client as ic
+
+        turn_id = ic.make_turn_id(chat_id, turn_ref)
+        await self.send(user, t('consultation.thinking', lang))
+        typing_task = self._keep_typing(chat_id)
+        try:
+            async with ic.chat_lock(chat_id):
+                if session_ctx.get('agent_thread_dirty') and await ic.forget(chat_id) == "forgotten":
+                    # An earlier "forget" failed: the old thread is gone now, the new question starts clean.
+                    session_ctx.pop('agent_thread_dirty', None)
+                result = await ic.turn(chat_id, question, None, lang, turn_id, send_history=False)
+                if result.kind == ic.KIND_RETRIABLE:
+                    self._count("retry")
+                    await asyncio.sleep(ic.RETRY_PAUSE_S)
+                    result = await ic.turn(chat_id, question, None, lang, turn_id, send_history=False)
+        finally:
+            typing_task.cancel()
+        self._count("turn", result.ms)
+
+        if result.kind == ic.KIND_DISABLED:
+            return False
+        if result.kind == ic.KIND_NO_PASS:
+            self._count("no_pass")
+            if notes is not None:
+                notes['login_invite'] = True
+            return False
+        if result.kind in (ic.KIND_ANSWER, ic.KIND_AGENT_MESSAGE):
+            self._count(result.kind)
+            answer = result.data["text"].strip()
+            response = self._format_response(answer, ic.source_labels(result.data.get("sources")), lang)
+            parts = prepare_html_parts(response)
+            keyboard = _build_forget_keyboard(lang) if result.kind == ic.KIND_ANSWER else None
+            for i, part in enumerate(parts):
+                await self.send(
+                    user, part, parse_mode="HTML",
+                    reply_markup=keyboard if i == len(parts) - 1 else None,
+                )
+            if result.kind == ic.KIND_ANSWER:
+                try:
+                    # The bot copy is still written (rollback by the flag, F10 point 7), but it is not sent.
+                    session_ctx['agent_thread_live'] = True  # the agent holds a thread of this person
+                    self._append_history(session_ctx, question, answer)
+                    await self._save_session_context(chat_id, session_ctx)
+                    from db.queries.activity import record_active_day
+                    asyncio.create_task(record_active_day(chat_id, 'question_asked', mode=self._get_mode(user)))
+                except Exception as e:
+                    logger.warning(f"[Consultation] interlocutor history save error: {type(e).__name__}")
+            return True
+        # temporary failure after the retry, or an unexpected answer: the bot does not answer itself
+        self._count("unavailable" if result.kind == ic.KIND_RETRIABLE else "error")
+        await self.send(user, t('consultation.agent_unavailable', lang))
+        return True
+
+    async def _forget_agent_thread(self, chat_id, ctx: dict, reason: str) -> None:
+        """Release A: erase the agent's thread when the conversation ends (exit, timeout, "End").
+
+        Only when the bot saw an answered turn (a thread can exist) and the mode is on. A failure is
+        counted and never blocks leaving; the agent's 30-minute lifetime is the upper bound then.
+        """
+        from engines.shared import interlocutor_client as ic
+
+        if not chat_id or not ic.thread_mode_enabled():
+            return
+        if not (ctx.get('agent_thread_live') or ctx.get('agent_thread_dirty')):
+            return  # the agent never answered this person here (old path, free role): nothing to erase
+        try:
+            async with ic.chat_lock(chat_id):
+                outcome = await ic.forget(chat_id)
+        except Exception as e:
+            logger.warning(f"[Consultation] forget error ({reason}): {type(e).__name__}")
+            outcome = "failed"
+        logger.info(f"[Consultation] forget reason={reason} outcome={outcome}")
+        _mark_thread_after_forget(ctx, outcome)
+        if outcome != "skipped":
+            self._count(f"forget_{outcome}")
 
     def _format_response(self, answer: str, sources: list, lang: str) -> str:
         """Форматируем ответ с источниками."""
@@ -1234,7 +1399,7 @@ class ConsultationState(BaseState):
                 if timed_out:
                     logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
                     await self._expire_session(ctx, chat_id)
-                await self.enter(user, context={'question': question})
+                await self.enter(user, context=_question_context(question, message))
                 return "followup"
 
         # --- Текст без "?" → follow-up вопрос ---
@@ -1246,7 +1411,7 @@ class ConsultationState(BaseState):
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
                 await self._expire_session(ctx, chat_id)
-            await self.enter(user, context={'question': text})
+            await self.enter(user, context=_question_context(text, message))
             return "followup"
 
         # Таймаут без содержательного текста → завершить
@@ -1266,6 +1431,7 @@ class ConsultationState(BaseState):
         Раньше очистка жила только в общем объекте контекста и сохранялась побочно,
         при раннем выходе enter() терялась.
         """
+        await self._forget_agent_thread(chat_id, ctx, "timeout")
         self._clear_session(ctx, reason="timeout")
         if chat_id:
             try:
@@ -1278,6 +1444,7 @@ class ConsultationState(BaseState):
     async def _end_session(self, user, ctx: dict, lang: str):
         """Завершить consultation session: очистка history, прощание."""
         chat_id = self._get_chat_id(user)
+        await self._forget_agent_thread(chat_id, ctx, "end_session")
         self._clear_session(ctx, reason="end_session")
         if chat_id:
             await self._save_session_context(chat_id, ctx)
@@ -1290,6 +1457,7 @@ class ConsultationState(BaseState):
         if chat_id:
             try:
                 ctx = await self._load_session_context(user)
+                await self._forget_agent_thread(chat_id, ctx, "exit")
                 self._clear_session(ctx, reason="exit")
                 await self._save_session_context(chat_id, ctx)
             except Exception as e:
