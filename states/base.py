@@ -58,6 +58,9 @@ class BaseState(ABC):
     # Эти команды вызывают переход независимо от логики стейта
     # Примеры: ["consultation", "notes"]
     allow_global: list[str] = []
+    # Prefixes of this screen's inline buttons that reach the state machine. Lets a
+    # button pressed during a "?" conversation find its screen (WP-262 F4).
+    callback_prefixes: tuple[str, ...] = ()
 
     # Тип клавиатуры: "inline" (default), "reply", "none"
     # SM engine автоматически отправляет ReplyKeyboardRemove при входе в любой non-reply стейт.
