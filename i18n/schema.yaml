@@ -4613,6 +4613,36 @@ consultation:
     es: "Haga una pregunta o toque \"Finalizar\" para salir."
     fr: "Posez une question ou appuyez sur « Terminer » pour quitter."
 
+  agent_unavailable:
+    ru: "⚠️ Помощник сейчас недоступен. Повторите вопрос через минуту: ваш разговор сохранён."
+    en: "⚠️ The assistant is temporarily unavailable. Please ask again in a minute: your conversation is kept."
+    es: "⚠️ El asistente no está disponible por ahora. Repita la pregunta en un minuto: su conversación se conserva."
+    fr: "⚠️ L'assistant est momentanément indisponible. Reposez la question dans une minute : votre conversation est conservée."
+
+  login_invite:
+    ru: "ℹ️ Чтобы помощник отвечал с учётом вашего личного IWE, войдите аккаунтом МИМ."
+    en: "ℹ️ To let the assistant answer with your personal IWE, sign in with your MIM account."
+    es: "ℹ️ Para que el asistente responda con su IWE personal, inicie sesión con su cuenta MIM."
+    fr: "ℹ️ Pour que l'assistant réponde avec votre IWE personnel, connectez-vous avec votre compte MIM."
+
+  btn_forget:
+    ru: "🗑 Забыть разговор"
+    en: "🗑 Forget this conversation"
+    es: "🗑 Olvidar la conversación"
+    fr: "🗑 Oublier la conversation"
+
+  forgotten:
+    ru: "🗑 Разговор стёрт. Следующий вопрос начнёт новый."
+    en: "🗑 Conversation deleted. Your next question starts a new one."
+    es: "🗑 Conversación borrada. Su próxima pregunta iniciará una nueva."
+    fr: "🗑 Conversation effacée. Votre prochaine question en commencera une nouvelle."
+
+  forget_failed:
+    ru: "⚠️ Не удалось стереть разговор прямо сейчас. Он сотрётся сам в течение 30 минут; можно нажать кнопку ещё раз."
+    en: "⚠️ Could not delete the conversation right now. It will expire on its own within 30 minutes; you can tap the button again."
+    es: "⚠️ No se pudo borrar la conversación ahora. Caducará sola en 30 minutos; puede pulsar el botón de nuevo."
+    fr: "⚠️ Impossible d'effacer la conversation pour l'instant. Elle expirera d'elle-même sous 30 minutes ; vous pouvez réappuyer sur le bouton."
+
 # -----------------------------------------------------------------------------
 # Оценка (assessment) — только UI-ключи, вопросы в YAML
 # -----------------------------------------------------------------------------

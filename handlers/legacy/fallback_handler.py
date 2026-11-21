@@ -90,7 +90,10 @@ async def legacy_on_unknown_message(message: Message, state: FSMContext):
             intern = await get_intern(chat_id)
             if intern:
                 await state.clear()
-                await b['state_machine'].go_to(intern, "common.consultation", context={'question': text[1:].strip()})
+                await b['state_machine'].go_to(intern, "common.consultation", context={
+                    'question': text[1:].strip(),
+                    'turn_ref': f"m{message.message_id}" if isinstance(getattr(message, 'message_id', None), int) else None,
+                })
                 return
 
         if 'OnboardingStates' in current_state:
