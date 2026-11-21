@@ -792,6 +792,19 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             else:
                 await callback.message.answer(t('consultation.error', lang))
 
+        elif data == "qa_forget":
+            # --- Забыть разговор (РП-262 Ф10): стереть нить агента и копию бота ---
+            await callback.answer()
+            from states.common.consultation import forget_conversation
+            erased, text = await forget_conversation(chat_id, lang)
+            if erased:
+                try:
+                    await callback.message.edit_reply_markup()
+                except Exception:
+                    pass
+            # On a failure the button stays: the text invites to press it again.
+            await callback.message.answer(text)
+
         elif data == "qa_end_session":
             # --- Завершить сессию консультации ---
             await callback.answer()
