@@ -204,7 +204,25 @@ class ModeSelectState(BaseState):
                 await update_intern(chat_id, current_context=ctx)
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        """Текстовый ввод в главном меню → показываем меню заново."""
+        """Текстовый ввод в главном меню.
+
+        Текст с буквой или цифрой уходит агенту через свободный чат: окно не решает, что считать
+        вопросом (РП-262 Ф10, пункт 6; раньше после /start любой текст без «?» получал приветствие).
+        Пустой или служебный ввод, а также выключенный режим выпуска А по-прежнему рисуют меню заново.
+        """
+        text = (getattr(message, 'text', None) or '').strip()
+        from engines.shared import interlocutor_client
+        if (interlocutor_client.thread_mode_enabled() and text and not text.startswith('/')
+                and any(ch.isalnum() for ch in text)):
+            from handlers import get_dispatcher
+            dispatcher = get_dispatcher()
+            if dispatcher is not None:
+                message_id = getattr(message, 'message_id', None)
+                await dispatcher.go_to(user, "common.consultation", context={
+                    'question': text[1:].strip() if text.startswith('?') else text,
+                    'turn_ref': f"m{message_id}" if isinstance(message_id, int) else None,
+                })
+                return None
         await self.enter(user)
         return None  # Остаёмся в стейте
 
