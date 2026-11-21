@@ -119,6 +119,7 @@ class ProgressState(BaseState):
         "fr": "Progrès"
     }
     allow_global = ["consultation", "notes"]
+    callback_prefixes = ("progress_",)
 
     def _get_lang(self, user) -> str:
         if isinstance(user, dict):

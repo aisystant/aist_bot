@@ -25,6 +25,10 @@ from states.base import BaseState
 
 logger = logging.getLogger(__name__)
 
+# States opened on top of another screen ("?" question, notes); the screen they were
+# opened from is remembered in _previous_states.
+MODAL_STATES = ('common.consultation', 'utility.notes')
+
 
 class StateMachine:
     """
@@ -371,6 +375,47 @@ class StateMachine:
         else:
             logger.error(f"Стартовый стейт не найден: {self._default_state}")
 
+    def _button_owner(self, data: str) -> Optional[tuple[str, BaseState]]:
+        """The registered screen that declares this button's prefix, if any."""
+        for name, state in self._states.items():
+            prefixes = getattr(state, 'callback_prefixes', ())
+            if isinstance(prefixes, tuple) and prefixes and data.startswith(prefixes) \
+                    and name not in MODAL_STATES and hasattr(state, 'handle_callback'):
+                return name, state
+        return None
+
+    async def _leave_modal_for_old_button(self, user, modal_state: BaseState, modal_name: str, chat_id, data: str):
+        """A button of an older screen was pressed during a "?" conversation or notes.
+
+        The modal state has no buttons of its own here, so such a press used to be lost
+        silently. End the modal, return quietly to the screen that owns the button, and
+        let that screen handle the press as usual (pilot decision 21.11, WP-262 F4).
+        The owner is found by the button's prefix, not by memory: memory is lost on
+        restart and may name a different screen. Returns (user, state, state_name) of
+        the owner, or None when the button belongs to no declared screen (the
+        conversation is then kept).
+        """
+        if modal_name not in MODAL_STATES:
+            return None
+        owner = self._button_owner(data or '')
+        if owner is None:
+            return None
+        origin_name, origin = owner
+
+        logger.info(f"[SM] Old button '{data}' pressed in {modal_name}: returning to {origin_name}")
+        # consultation_complete makes the return silent: the old screen is still in the chat.
+        await self._transition(user, modal_state, origin_name, context={'consultation_complete': True})
+
+        fresh_user = None
+        try:
+            from db.queries import get_intern
+            fresh_user = await get_intern(chat_id) if chat_id else None
+        except Exception as e:
+            logger.warning(f"[SM] Could not reload user after leaving {modal_name}: {e}")
+        if not fresh_user:
+            fresh_user = {**user, 'current_state': origin_name} if isinstance(user, dict) else user
+        return fresh_user, origin, origin_name
+
     async def handle_callback(self, user, callback) -> None:
         """
         Обработка callback query (нажатие на inline кнопку).
@@ -397,8 +442,12 @@ class StateMachine:
 
         # Проверяем, есть ли у стейта метод handle_callback
         if not hasattr(current_state, 'handle_callback'):
-            logger.warning(f"Стейт {current_state_name} не имеет handle_callback")
-            return
+            origin = await self._leave_modal_for_old_button(
+                user, current_state, current_state_name, chat_id, getattr(callback, 'data', None))
+            if origin is None:
+                logger.warning(f"Стейт {current_state_name} не имеет handle_callback")
+                return
+            user, current_state, current_state_name = origin
 
         # Обрабатываем callback
         try:
@@ -440,8 +489,7 @@ class StateMachine:
 
         # Сохраняем предыдущий стейт при входе в модальный стейт (consultation, notes),
         # чтобы _previous корректно работал при возврате (в т.ч. из callback-вызовов)
-        _MODAL_STATES = ('common.consultation', 'utility.notes')
-        if chat_id and state_name in _MODAL_STATES and current_state_name != state_name:
+        if chat_id and state_name in MODAL_STATES and current_state_name != state_name:
             self.set_previous_state(chat_id, current_state_name)
 
         # Выход из текущего стейта (если есть). Самопереход в стейт с живой сессией

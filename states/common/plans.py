@@ -40,6 +40,7 @@ class PlansState(BaseState):
         "fr": "Plans"
     }
     allow_global = []
+    callback_prefixes = ("plans_",)
 
     def _get_lang(self, user) -> str:
         if isinstance(user, dict):
