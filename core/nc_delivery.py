@@ -80,7 +80,7 @@ async def _consume(account_id: str, attempt_id: str, token: str) -> dict[str, An
         "attempt_id": attempt_id,
         "token": token,
     }, separators=(",", ":")).encode()
-    key_id = "nck_botmailman0001"
+    key_id = "nck_botmailman000001"
     timestamp = str(int(time.time()))
     headers = {
         "Content-Type": "application/json",
