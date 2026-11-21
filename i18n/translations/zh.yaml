@@ -344,6 +344,7 @@ progress:
   assessed_on: "评估于"
   no_stage: "阶段：暂无有效诊断 — /diagnose"
   earned_total: "总积分"
+  question_hint: "要向AI提问，请以«?»开头，例如：?接下来我该做什么"
   bonuses: "奖励"
   streak_line: "连续"
   take_test: "开始测试"
@@ -1160,3 +1161,6 @@ twin:
 scheduler:
   retry_exhausted_marathon: "今天的课程无法准备好——明天再来，或按 /learn。"
   retry_exhausted_feed: "今天的摘要无法生成——请稍后使用 /feed。"
+
+training:
+  setup_use_buttons: "请使用上方按钮选择训练模式。"

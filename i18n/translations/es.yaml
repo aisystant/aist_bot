@@ -344,6 +344,7 @@ progress:
   assessed_on: "evaluada el"
   no_stage: "Etapa: sin diagnóstico vigente — /diagnose"
   earned_total: "Puntos totales"
+  question_hint: "Para preguntar a la IA, empieza tu mensaje con «?», por ejemplo: ?qué hago ahora"
   bonuses: "Bonos"
   streak_line: "Racha"
   take_test: "Hacer test"
@@ -1160,3 +1161,6 @@ twin:
 scheduler:
   retry_exhausted_marathon: "Hoy no pudimos preparar tu lección — vuelve mañana o pulsa /learn."
   retry_exhausted_feed: "El resumen de hoy no se pudo preparar — prueba /feed más tarde."
+
+training:
+  setup_use_buttons: "Elige el modo de entrenamiento con los botones de arriba."
