@@ -142,7 +142,13 @@ class StateMachine:
             return current_state
         if next_state == '_previous':
             # Возвращаем предыдущий стейт или mode_select по умолчанию
-            return self._previous_states.get(chat_id, 'common.mode_select')
+            previous = self._previous_states.get(chat_id, 'common.mode_select')
+            # The slot holds the state a modal (consultation, notes) was opened from.
+            # After asking "?" from a state and returning, the slot points at that very
+            # state, so its own "back: _previous" would be a no-op and the button dead.
+            if previous == current_state:
+                return 'common.mode_select'
+            return previous
 
         return next_state
 

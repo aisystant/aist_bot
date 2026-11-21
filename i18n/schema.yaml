@@ -1718,6 +1718,11 @@ progress:
     ru: "Всего баллов"
     en: "Total points"
 
+  question_hint:
+    ru: "Чтобы спросить ИИ, начните сообщение с «?», например: ?что мне делать дальше"
+    en: "To ask the AI, start your message with «?», for example: ?what should I do next"
+    description: "Reply to plain text on the Progress screen, where text without «?» has no action"
+
   bonuses:
     ru: "Бонусы"
     en: "Bonuses"
@@ -2225,6 +2230,11 @@ training:
   dashboard_hint:
     ru: "Выберите принцип для тренировки:"
     en: "Select a principle to train:"
+
+  setup_use_buttons:
+    ru: "Выберите режим тренировки кнопками выше."
+    en: "Choose the training mode with the buttons above."
+    description: "Reply to any text during training setup, which is button-only"
 
   depth_label:
     ru: "{current}/{max}"

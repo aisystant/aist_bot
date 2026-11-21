@@ -864,6 +864,12 @@ class ProgressState(BaseState):
     # ─── HANDLERS ─────────────────────────────────────────────
 
     async def handle(self, user, message: Message) -> Optional[str]:
+        # "?" questions are routed to consultation by the machine before handle()
+        # (transitions.yaml allow_global). Plain text has no meaning here: say how
+        # to ask the agent instead of dropping it silently (WP-262 F4 stage 1).
+        text = (message.text or "").strip()
+        if text and not text.startswith("/"):
+            await self.send(user, t('progress.question_hint', self._get_lang(user)))
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:

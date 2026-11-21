@@ -234,6 +234,7 @@ states:
       go_diagnose: _previous              # Выход + подсказка /diagnose
       back: _previous                     # Выход из progress
       error: _previous
+    allow_global: [consultation, notes]   # WP-262 F4: "?" reaches the agent from Progress too
 
   utility.mydata:
     description: "Мои данные — персональный дата-центр (/mydata)"

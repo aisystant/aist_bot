@@ -10,6 +10,7 @@ from typing import Optional
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
+from i18n import t
 from states.base import BaseState
 from engines.training.engine import TrainingEngine
 from engines.training.planner import get_principle_name
@@ -90,6 +91,12 @@ class TrainingSetupState(BaseState):
                         reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
+        # Setup is button-only and "?" is disabled here on purpose
+        # (transitions.yaml allow_global: []), so point to the buttons, not to "?".
+        text = (message.text or "").strip()
+        if text and not text.startswith("/"):
+            lang = (user.get('language') if isinstance(user, dict) else getattr(user, 'language', None)) or 'ru'
+            await self.send(user, t('training.setup_use_buttons', lang))
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
