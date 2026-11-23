@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -386,6 +387,48 @@ def _determine_phase2_slot(scores: dict) -> str | None:
 
 # Same ceiling as the optional twin reads of /progress (states/utilities/progress.py).
 QUALIFICATION_READ_SECONDS = 8
+# WP-578 (prod 23.11 16:31): read at the end of the survey, a token refresh (2 s) plus two twin
+# reads overran 8 s and a «Реформатор» saw the learner result. The read now starts in the
+# background when the survey starts; the result waits for it at most QUALIFICATION_READ_SECONDS.
+QUALIFICATION_PREFETCH_SECONDS = 30
+QUALIFICATION_CACHE_SECONDS = 15 * 60
+_qualification_cache: dict[int, tuple[float, str | None]] = {}
+_qualification_prefetch: dict[int, asyncio.Task] = {}
+
+
+async def _read_qualification(chat_id: int, budget: float) -> tuple[bool, str | None]:
+    """(read succeeded, qualification name or None for «Ученик» / not connected)."""
+    from clients.gateway_mcp import gateway_mcp
+    if not gateway_mcp.is_connected(chat_id):
+        return True, None
+    try:
+        degree = await asyncio.wait_for(gateway_mcp.dt_read_degree(chat_id), budget)
+    except Exception as e:
+        logger.warning("[diagnose] qualification read failed (chat=%s): %r", chat_id, e)
+        return False, None
+    return True, qualified_level(degree)
+
+
+def _prefetch_qualification(chat_id: int) -> None:
+    """Start reading the qualification while the person answers; a successful read is cached."""
+    if chat_id in _qualification_prefetch:
+        return
+
+    async def run() -> None:
+        ok, value = await _read_qualification(chat_id, QUALIFICATION_PREFETCH_SECONDS)
+        if ok:
+            _qualification_cache[chat_id] = (time.monotonic(), value)
+
+    task = asyncio.create_task(run())
+    _qualification_prefetch[chat_id] = task
+    task.add_done_callback(lambda _t: _qualification_prefetch.pop(chat_id, None))
+
+
+def _cached_qualification(chat_id: int) -> tuple[bool, str | None]:
+    cached = _qualification_cache.get(chat_id)
+    if cached and time.monotonic() - cached[0] < QUALIFICATION_CACHE_SECONDS:
+        return True, cached[1]
+    return False, None
 
 
 async def _qualification(chat_id: int) -> str | None:
@@ -395,15 +438,21 @@ async def _qualification(chat_id: int) -> str | None:
     and the programme by it; the learner-role stage follows only as a separate gap note (WP-417 Ф8,
     WP-385 Ф18). Best effort: the result is shown as for a learner when the twin cannot be read.
     """
-    from clients.gateway_mcp import gateway_mcp
-    if not gateway_mcp.is_connected(chat_id):
-        return None
-    try:
-        degree = await asyncio.wait_for(gateway_mcp.dt_read_degree(chat_id), QUALIFICATION_READ_SECONDS)
-    except Exception as e:
-        logger.warning("[diagnose] qualification read failed (chat=%s): %r", chat_id, e)
-        return None
-    return qualified_level(degree)
+    hit, value = _cached_qualification(chat_id)
+    if hit:
+        return value
+    task = _qualification_prefetch.get(chat_id)
+    if task is not None:
+        try:
+            await asyncio.wait_for(asyncio.shield(task), QUALIFICATION_READ_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("[diagnose] qualification prefetch still running, learner result (chat=%s)", chat_id)
+            return None
+        hit, value = _cached_qualification(chat_id)
+        if hit:
+            return value
+    _ok, value = await _read_qualification(chat_id, QUALIFICATION_READ_SECONDS)
+    return value
 
 
 def _stage_line(stage: int) -> str:
@@ -505,6 +554,7 @@ async def _start_phase1(target, state: FSMContext, account_id: str | None) -> No
     await state.update_data(scores={}, account_id=account_id, q_count=0,
                             attempt_id=str(uuid.uuid4()), pending_save=None)
     q = PHASE1_QUESTIONS[0]
+    _prefetch_qualification(target.chat.id)
     await state.set_state(DiagnoseStates.q1)
     # WP-406 Ф19: обёртка «зачем→что» вокруг вопросов. Сами вопросы/шкала не меняются
     # (формальный инструмент FORM.089 §6.1, ответы считают ступень мастерства).

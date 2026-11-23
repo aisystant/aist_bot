@@ -5,6 +5,7 @@
 только после полного успеха; идентичность токена сверяется до записи; исходы
 (сохранено / без события / нет авторизации / исход неизвестен) различаются в тексте.
 """
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -673,3 +674,74 @@ class TestOnBehalfGuards:
 
         assert list(inspect.signature(external_clients.revoke_client_token).parameters) == ["token_id", "account_id"]
         assert external_clients.revoke_on_behalf_token is not external_clients.revoke_client_token
+
+
+@pytest.fixture(autouse=True)
+def _clear_qualification_cache():
+    """The qualification read is cached per chat across a survey; tests must not see each other's."""
+    diagnose._qualification_cache.clear()
+    diagnose._qualification_prefetch.clear()
+    yield
+    diagnose._qualification_cache.clear()
+    diagnose._qualification_prefetch.clear()
+
+
+class TestQualificationPrefetch:
+    """WP-578 23.11: a slow twin read at the end of the survey hid «Реформатор»."""
+
+    async def test_read_started_with_the_survey_is_reused_at_the_result(self):
+        gw = gateway()
+        gw.dt_read_degree = AsyncMock(return_value=REFORMER)
+        with patch("clients.gateway_mcp.gateway_mcp", gw):
+            diagnose._prefetch_qualification(CHAT_ID)
+            await asyncio.sleep(0)  # let the background read finish
+            assert await diagnose._qualification(CHAT_ID) == "Реформатор"
+            assert await diagnose._qualification(CHAT_ID) == "Реформатор"
+        gw.dt_read_degree.assert_awaited_once()
+
+    async def test_result_waits_for_a_running_read_instead_of_starting_another(self):
+        gw = gateway()
+
+        async def slow_read(_chat_id):
+            await asyncio.sleep(0.05)
+            return REFORMER
+
+        gw.dt_read_degree = AsyncMock(side_effect=slow_read)
+        with patch("clients.gateway_mcp.gateway_mcp", gw):
+            diagnose._prefetch_qualification(CHAT_ID)
+            assert await diagnose._qualification(CHAT_ID) == "Реформатор"
+        gw.dt_read_degree.assert_awaited_once()
+
+    async def test_read_still_running_past_the_budget_gives_the_learner_result(self):
+        gw = gateway()
+
+        async def stuck_read(_chat_id):
+            await asyncio.sleep(10)
+
+        gw.dt_read_degree = AsyncMock(side_effect=stuck_read)
+        with patch("clients.gateway_mcp.gateway_mcp", gw), \
+             patch.object(diagnose, "QUALIFICATION_READ_SECONDS", 0.05):
+            diagnose._prefetch_qualification(CHAT_ID)
+            assert await diagnose._qualification(CHAT_ID) is None
+        gw.dt_read_degree.assert_awaited_once()
+        for task in list(diagnose._qualification_prefetch.values()):
+            task.cancel()
+
+    async def test_failed_background_read_falls_back_to_one_direct_read(self):
+        gw = gateway()
+        gw.dt_read_degree = AsyncMock(side_effect=[TimeoutError("down"), REFORMER])
+        with patch("clients.gateway_mcp.gateway_mcp", gw):
+            diagnose._prefetch_qualification(CHAT_ID)
+            await asyncio.sleep(0)
+            assert await diagnose._qualification(CHAT_ID) == "Реформатор"
+        assert gw.dt_read_degree.await_count == 2
+
+    async def test_survey_start_launches_the_read(self):
+        gw = gateway()
+        gw.dt_read_degree = AsyncMock(return_value=REFORMER)
+        message = make_message()
+        with patch("clients.gateway_mcp.gateway_mcp", gw), \
+             patch.object(diagnose, "send_diagnostic_question", AsyncMock()):
+            await diagnose._start_phase1(message, FakeState({}), ACCOUNT)
+            await asyncio.sleep(0)
+        assert diagnose._cached_qualification(CHAT_ID) == (True, "Реформатор")
