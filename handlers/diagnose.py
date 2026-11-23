@@ -437,7 +437,8 @@ def _result_body(stage: int, bottleneck: str | None, stage5_candidate: bool,
     return f"{body}\n\n{SELF_ASSESSMENT_NOTE}"
 
 
-def _format_result(profile: dict, valid_until_iso: str | None, qualification: str | None = None) -> str:
+def _format_result(profile: dict, valid_until_iso: str | None, qualification: str | None = None,
+                   *, unsaved: bool = False) -> str:
     valid_str = ""
     if valid_until_iso:
         try:
@@ -448,7 +449,9 @@ def _format_result(profile: dict, valid_until_iso: str | None, qualification: st
 
     body = _result_body(profile["stage"], profile["bottleneck_slot"],
                         bool(profile.get("stage5_candidate")), qualification)
-    return f"📊 <b>Результаты диагностики</b>\n\n{body}{valid_str}"
+    # WP-578 F29 p.8 (b): a result the platform did not store must not read as saved.
+    title = "Результаты диагностики (пока не сохранены)" if unsaved else "Результаты диагностики"
+    return f"📊 <b>{title}</b>\n\n{body}{valid_str}"
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -695,9 +698,11 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
         await state.clear()
         logger.warning("[diagnose] no account_id — skip save")
         await message.answer(
-            _format_result(profile, None, await _qualification(message.chat.id)),
+            _format_result(profile, None, await _qualification(message.chat.id), unsaved=True),
             parse_mode="HTML",
         )
+        # Nothing to retry without an account: the note asks to log in and run /diagnose again.
+        await _send_save_note(message, SAVE_NO_ACCOUNT, with_retry=False)
         from core.onboarder.x3 import check_x3_return_to_bridge
         await check_x3_return_to_bridge(message.bot, message.chat.id, profile)
         return
@@ -732,26 +737,118 @@ SAVE_AUTH = "auth"
 SAVE_IDENTITY = "identity"
 SAVE_UNKNOWN = "unknown"  # ответа нет или он не разобран: запись могла состояться
 
-_AUTH_ERRORS = frozenset({"not_authorized", "token_expired", "no_subscription"})
+# No "no_subscription": the gateway answers a tier refusal of this free tool with isError text,
+# so an HTTP 403 here comes from a proxy, and a fresh login would not fix it (review 23.11).
+_AUTH_ERRORS = frozenset({"not_authorized", "token_expired"})
+
+CONNECT_BUTTON = "🔗 Войти в аккаунт Aisystant"
+RETRY_BUTTON = "🔁 Повторить сохранение"
+
+SAVE_NO_ACCOUNT = "no_account"  # the bot does not know the person's Aisystant account at all
 
 _SAVE_NOTES = {
     SAVE_NO_EVENT: (
         "⚠️ Результат сохранён, но отметка в журнале активности не записана. "
         "Нажмите «Повторить сохранение» — второй записи не будет."
     ),
-    SAVE_AUTH: (
-        "⚠️ Результат не сохранён: нужно подключить аккаунт Aisystant "
-        "(Настройки → Подключения). После подключения нажмите «Повторить сохранение»."
-    ),
-    SAVE_IDENTITY: (
-        "⚠️ Результат не сохранён: не удалось подтвердить, что подключённый аккаунт — "
-        "ваш профиль. Переподключите аккаунт и нажмите «Повторить сохранение»."
-    ),
     SAVE_UNKNOWN: (
         "⚠️ Не удалось подтвердить сохранение. "
         "Нажмите «Повторить сохранение» — запись не задвоится."
     ),
 }
+
+# WP-578 F29 p.8 (pilot 23.11): every "not saved" note says how to connect the account.
+# The login button goes straight to Ory: saving a self-assessment is free for any signed-in
+# account (gateway tool tier), so the settings screen with its subscription paywall is skipped.
+_NOT_VISIBLE = "Пока результат не сохранён, наставник и платформа вашу ступень не видят."
+_LOGIN_HEADERS = {
+    SAVE_AUTH: "⚠️ Результат пока не сохранён: бот не подключён к вашему аккаунту Aisystant.",
+    SAVE_IDENTITY: (
+        "⚠️ Результат пока не сохранён: не удалось подтвердить, что подключённый аккаунт "
+        "Aisystant — ваш профиль в боте."
+    ),
+    SAVE_NO_ACCOUNT: "⚠️ Результат не сохранён: бот не знает ваш аккаунт Aisystant.",
+}
+_LOGIN_OUTCOMES = frozenset(_LOGIN_HEADERS)
+
+# The bot already knows the account in these outcomes: a new sign-up would relink the bot
+# profile to an empty account and every retry would end in SAVE_IDENTITY (review 23.11).
+_SIGN_IN_EXISTING = (
+    "2. Войдите тем аккаунтом Aisystant, которым уже пользуетесь (той же почтой). "
+    "Новый аккаунт не создавайте. Забыли пароль — на той же странице есть «Забыли пароль». "
+    "Страница вошла сама, без формы, под другим аккаунтом — выйдите там и войдите нужным."
+)
+_SIGN_IN_OR_UP = (
+    "2. Войдите той же почтой и паролем, что на платформе Aisystant. "
+    "Аккаунта нет — там же можно зарегистрироваться."
+)
+_LOGIN_DONE = (
+    "3. Дождитесь страницы «Регистрация завершена!» и вернитесь в этот чат: "
+    "бот пришлёт сообщение «Регистрация завершена!» с вашей почтой."
+)
+
+
+def _save_note(outcome: str, *, has_link: bool) -> str:
+    """Text for an unsaved outcome; login outcomes get numbered connection steps."""
+    if outcome not in _LOGIN_OUTCOMES:
+        return _SAVE_NOTES[outcome]
+    retry = outcome != SAVE_NO_ACCOUNT  # without an account there is no pending attempt
+    head = f"{_LOGIN_HEADERS[outcome]} {_NOT_VISIBLE}\n\n"
+    if not has_link:
+        later = ("нажмите «🔁 Повторить сохранение» позже — бот пришлёт кнопку входа"
+                 if retry else "пройдите /diagnose позже — бот пришлёт кнопку входа")
+        return f"{head}Кнопка входа сейчас недоступна: {later}."
+    finish = (
+        "4. Нажмите «🔁 Повторить сохранение» — второй записи не будет, опрос проходить "
+        "заново не нужно. Ссылка входа действует 10 минут; устарела — эта же кнопка пришлёт новую."
+        if retry else
+        "4. Пройдите /diagnose ещё раз — это до 3 минут, и результат сохранится. "
+        "Ссылка входа действует 10 минут; устарела — кнопка «Зарегистрироваться или войти» пришлёт новую."
+    )
+    step_two = _SIGN_IN_OR_UP if outcome == SAVE_NO_ACCOUNT else _SIGN_IN_EXISTING
+    return (
+        f"{head}Как подключить аккаунт:\n"
+        "1. Нажмите кнопку «🔗 Войти в аккаунт Aisystant» под этим сообщением.\n"
+        f"{step_two}\n{_LOGIN_DONE}\n{finish}"
+    )
+
+
+async def _login_url(chat_id: int) -> str | None:
+    """Ory login link for this chat, or None when it cannot be built (the note then says so)."""
+    from config import ORY_CLIENT_ID
+
+    if not ORY_CLIENT_ID:
+        logger.warning("[diagnose] ORY_CLIENT_ID is empty, no login link (chat=%s)", chat_id)
+        return None
+    try:
+        from clients.ory_oauth import ory_oauth
+
+        auth_url, _state = await ory_oauth.get_authorization_url(chat_id)
+        return auth_url
+    except Exception:
+        logger.exception("[diagnose] cannot build Ory login link (chat=%s)", chat_id)
+        return None
+
+
+REGISTER_BUTTON = "Зарегистрироваться или войти"
+
+
+async def _send_save_note(message: Message, outcome: str, *, with_retry: bool) -> None:
+    """Send the note for an unsaved outcome; login outcomes get the login button first."""
+    rows = []
+    has_link = False
+    if outcome in _LOGIN_OUTCOMES:
+        auth_url = await _login_url(message.chat.id)
+        has_link = auth_url is not None
+        if has_link:
+            rows.append([InlineKeyboardButton(text=CONNECT_BUTTON, url=auth_url)])
+            if not with_retry:
+                # The link expires in 10 minutes; ory_register builds a fresh one on press.
+                rows.append([InlineKeyboardButton(text=REGISTER_BUTTON, callback_data="ory_register")])
+    if with_retry:
+        rows.append([InlineKeyboardButton(text=RETRY_BUTTON, callback_data=CB_RETRY_SAVE)])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    await message.answer(_save_note(outcome, has_link=has_link), reply_markup=keyboard)
 
 
 def classify_save_result(result, last_error: str) -> str:
@@ -815,7 +912,8 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
                 datetime.fromisoformat(pending["occurred_at"]) + timedelta(days=CP_TTL_DAYS)
             ).isoformat()
         await message.answer(
-            _format_result(profile, valid_until, pending.get("qualification")),
+            _format_result(profile, valid_until, pending.get("qualification"),
+                           unsaved=outcome in _LOGIN_OUTCOMES),
             parse_mode="HTML",
         )
 
@@ -828,10 +926,7 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
         if not first_pass:
             await message.answer("✅ Результат сохранён.")
     else:
-        retry_kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🔁 Повторить сохранение", callback_data=CB_RETRY_SAVE)
-        ]])
-        await message.answer(_SAVE_NOTES[outcome], reply_markup=retry_kb)
+        await _send_save_note(message, outcome, with_retry=True)
 
     if recorded:
         # WP-349 mini-sync: мгновенное обновление cp_stage в onboarding_state

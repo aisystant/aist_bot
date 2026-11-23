@@ -88,18 +88,23 @@ def ok_result(event_recorded=True, duplicate=False):
     return {"status": "pending_evaluation", "event_id": "x", "duplicate": duplicate, "event_recorded": event_recorded}
 
 
-async def run_finish(state, gw):
+LOGIN_URL = "https://auth.example/login?state=x"
+
+
+async def run_finish(state, gw, login_url=LOGIN_URL):
     message = make_message()
     with patch("clients.gateway_mcp.gateway_mcp", gw), \
+         patch("handlers.diagnose._login_url", AsyncMock(return_value=login_url)), \
          patch("core.onboarder.x3.check_x3_return_to_bridge", AsyncMock()) as bridge, \
          patch("db.queries.onboarding_journey.sync_cp_stage_to_onboarding_state", AsyncMock()) as sync:
         await diagnose._finish_diagnose(message, state)
     return message, bridge, sync
 
 
-async def run_retry(state, gw):
+async def run_retry(state, gw, login_url=LOGIN_URL):
     message = make_message()
     with patch("clients.gateway_mcp.gateway_mcp", gw), \
+         patch("handlers.diagnose._login_url", AsyncMock(return_value=login_url)), \
          patch("db.queries.onboarding_journey.sync_cp_stage_to_onboarding_state", AsyncMock()) as sync:
         await diagnose._save_attempt(message, state, first_pass=False)
     return message, sync
@@ -107,6 +112,14 @@ async def run_retry(state, gw):
 
 def texts(message):
     return [call.args[0] for call in message.answer.await_args_list]
+
+
+def last_buttons(message):
+    """(text, url, callback_data) of every button on the last answer, row by row."""
+    markup = message.answer.await_args_list[-1].kwargs.get("reply_markup")
+    if markup is None:
+        return []
+    return [(b.text, b.url, b.callback_data) for row in markup.inline_keyboard for b in row]
 
 
 class TestClassify:
@@ -119,11 +132,12 @@ class TestClassify:
     def test_saved_without_event(self):
         assert classify_save_result(ok_result(False), "ok") == SAVE_NO_EVENT
 
-    @pytest.mark.parametrize("error", ["not_authorized", "token_expired", "no_subscription"])
+    @pytest.mark.parametrize("error", ["not_authorized", "token_expired"])
     def test_auth_errors(self, error):
         assert classify_save_result(None, error) == SAVE_AUTH
 
-    @pytest.mark.parametrize("error", ["timeout", "http_error", "circuit_open", "rpc_error", "rate_limited", "ok"])
+    @pytest.mark.parametrize("error", ["timeout", "http_error", "circuit_open", "rpc_error", "rate_limited", "ok",
+                                       "no_subscription"])
     def test_other_failures_are_unknown_not_auth(self, error):
         assert classify_save_result(None, error) == SAVE_UNKNOWN
 
@@ -214,20 +228,20 @@ class TestFinishDiagnose:
 
         gw.record_cp_assessment.assert_not_awaited()
         sync.assert_not_awaited()
-        assert texts(message)[-1] == diagnose._SAVE_NOTES[SAVE_IDENTITY]
+        assert texts(message)[-1] == diagnose._save_note(SAVE_IDENTITY, has_link=True)
         assert "pending_save" in state.data
 
     async def test_token_without_ory_id_cannot_be_verified_and_does_not_write(self):
         gw = gateway(token_ory_id=None, connected=True)
         message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw)
         gw.record_cp_assessment.assert_not_awaited()
-        assert texts(message)[-1] == diagnose._SAVE_NOTES[SAVE_IDENTITY]
+        assert texts(message)[-1] == diagnose._save_note(SAVE_IDENTITY, has_link=True)
 
     async def test_not_connected_user_gets_auth_message(self):
         gw = gateway(token_ory_id=None, connected=False)
         message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw)
         gw.record_cp_assessment.assert_not_awaited()
-        assert texts(message)[-1] == diagnose._SAVE_NOTES[SAVE_AUTH]
+        assert texts(message)[-1] == diagnose._save_note(SAVE_AUTH, has_link=True)
 
     async def test_identity_comparison_ignores_case(self):
         state = FakeState(finished_data())
@@ -263,6 +277,130 @@ class TestFinishDiagnose:
         message, _bridge, _sync = await run_finish(state, gw)
         gw.record_cp_assessment.assert_not_awaited()
         assert "Диагностика не завершена" in texts(message)[0]
+
+
+class TestLoginNote:
+    """WP-578 F29 p.8 (b): an unsaved result says so and tells how to connect the account."""
+
+    async def test_not_connected_gets_login_button_steps_and_retry(self):
+        gw = gateway(token_ory_id=None, connected=False)
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw)
+
+        shown = texts(message)
+        assert "пока не сохранены" in shown[0]
+        assert "Как подключить аккаунт" in shown[-1]
+        assert "Регистрация завершена!" in shown[-1]
+        assert last_buttons(message) == [
+            (diagnose.CONNECT_BUTTON, LOGIN_URL, None),
+            (diagnose.RETRY_BUTTON, None, diagnose.CB_RETRY_SAVE),
+        ]
+
+    async def test_identity_mismatch_gets_login_button_for_reconnect(self):
+        gw = gateway(token_ory_id="22222222-2222-2222-2222-222222222222")
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw)
+        assert texts(message)[-1] == diagnose._save_note(SAVE_IDENTITY, has_link=True)
+        assert "Новый аккаунт не создавайте" in texts(message)[-1]
+        assert last_buttons(message)[0] == (diagnose.CONNECT_BUTTON, LOGIN_URL, None)
+
+    async def test_no_account_says_not_saved_with_login_and_no_retry(self):
+        data = finished_data()
+        data["account_id"] = None
+        message, _bridge, _sync = await run_finish(FakeState(data), gateway(result=ok_result()))
+
+        shown = texts(message)
+        assert "пока не сохранены" in shown[0]
+        assert shown[-1] == diagnose._save_note(diagnose.SAVE_NO_ACCOUNT, has_link=True)
+        assert "там же можно зарегистрироваться" in shown[-1]
+        # Nothing is pending, so no retry; a second button builds a fresh link after 10 minutes.
+        assert last_buttons(message) == [
+            (diagnose.CONNECT_BUTTON, LOGIN_URL, None),
+            (diagnose.REGISTER_BUTTON, None, "ory_register"),
+        ]
+
+    async def test_missing_login_link_is_said_in_text_and_retry_stays(self):
+        gw = gateway(token_ory_id=None, connected=False)
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, login_url=None)
+        note = texts(message)[-1]
+        assert note == diagnose._save_note(SAVE_AUTH, has_link=False)
+        assert "Кнопка входа сейчас недоступна" in note and "под этим сообщением" not in note
+        assert "Повторить сохранение» позже" in note
+        assert last_buttons(message) == [(diagnose.RETRY_BUTTON, None, diagnose.CB_RETRY_SAVE)]
+
+    async def test_no_account_without_link_has_no_keyboard(self):
+        data = finished_data()
+        data["account_id"] = None
+        message, _bridge, _sync = await run_finish(FakeState(data), gateway(), login_url=None)
+        assert texts(message)[-1] == diagnose._save_note(diagnose.SAVE_NO_ACCOUNT, has_link=False)
+        assert message.answer.await_args_list[-1].kwargs.get("reply_markup") is None
+
+    async def test_known_account_is_told_not_to_sign_up(self):
+        """A new sign-up would relink the bot profile to an empty account (review 23.11)."""
+        for outcome in (SAVE_AUTH, SAVE_IDENTITY):
+            note = diagnose._save_note(outcome, has_link=True)
+            assert "Новый аккаунт не создавайте" in note
+            assert "зарегистрироваться" not in note
+            assert "Ссылка входа действует 10 минут" in note
+
+    async def test_retry_while_still_not_connected_sends_fresh_login_and_retry(self):
+        state = FakeState(finished_data())
+        gw = gateway(token_ory_id=None, connected=False)
+        await run_finish(state, gw)
+        message, _sync = await run_retry(state, gw, login_url="https://auth.example/fresh")
+        assert texts(message) == [diagnose._save_note(SAVE_AUTH, has_link=True)]
+        assert last_buttons(message) == [
+            (diagnose.CONNECT_BUTTON, "https://auth.example/fresh", None),
+            (diagnose.RETRY_BUTTON, None, diagnose.CB_RETRY_SAVE),
+        ]
+        assert "pending_save" in state.data
+
+    async def test_retry_after_login_saves_the_same_attempt(self):
+        state = FakeState(finished_data())
+        await run_finish(state, gateway(token_ory_id=None, connected=False))
+        gw = gateway(token_ory_id=ACCOUNT, result=ok_result())
+        message, _sync = await run_retry(state, gw)
+        gw.record_cp_assessment.assert_awaited_once()
+        assert texts(message) == ["✅ Результат сохранён."]
+
+    @pytest.mark.parametrize("gw_kwargs", [
+        {"token_ory_id": ACCOUNT, "result": ok_result(event_recorded=False)},
+        {"token_ory_id": ACCOUNT, "result": None, "last_error": "timeout"},
+    ])
+    async def test_non_login_outcomes_do_not_say_unsaved_in_title(self, gw_kwargs):
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gateway(**gw_kwargs))
+        assert "Результаты диагностики" in texts(message)[0]
+        assert "пока не сохранены" not in texts(message)[0]
+
+    async def test_saved_result_title_does_not_say_unsaved(self):
+        gw = gateway(token_ory_id=ACCOUNT, result=ok_result())
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw)
+        assert "Результаты диагностики" in texts(message)[0]
+        assert "пока не сохранены" not in texts(message)[0]
+
+    async def test_unknown_outcome_has_no_login_button(self):
+        gw = gateway(result=None, last_error="timeout")
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw)
+        assert last_buttons(message) == [(diagnose.RETRY_BUTTON, None, diagnose.CB_RETRY_SAVE)]
+
+
+class TestLoginUrl:
+    async def test_empty_client_id_gives_no_link(self):
+        with patch("config.ORY_CLIENT_ID", ""):
+            assert await diagnose._login_url(CHAT_ID) is None
+
+    async def test_link_error_is_logged_and_gives_no_link(self):
+        oauth = MagicMock()
+        oauth.get_authorization_url = AsyncMock(side_effect=RuntimeError("db down"))
+        with patch("config.ORY_CLIENT_ID", "client"), patch("clients.ory_oauth.ory_oauth", oauth), \
+             patch.object(diagnose.logger, "exception") as log:
+            assert await diagnose._login_url(CHAT_ID) is None
+        log.assert_called_once()
+
+    async def test_link_is_built_for_this_chat(self):
+        oauth = MagicMock()
+        oauth.get_authorization_url = AsyncMock(return_value=(LOGIN_URL, "state"))
+        with patch("config.ORY_CLIENT_ID", "client"), patch("clients.ory_oauth.ory_oauth", oauth):
+            assert await diagnose._login_url(CHAT_ID) == LOGIN_URL
+        oauth.get_authorization_url.assert_awaited_once_with(CHAT_ID)
 
 
 class TestFailureSafety:
