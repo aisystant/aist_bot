@@ -372,6 +372,16 @@
 | `ory_id` | TEXT | — | Ory identity ID |
 | `updated_at` | TIMESTAMP | `NOW()` | |
 
+### 4.1b. `ory_login_links` (WP-578 Ф29 п.8: отметка входа через Ory, база секретов)
+
+> «Этот Telegram вошёл через Ory в этот аккаунт» — условие записи /diagnose «от имени» узким пропуском. Ставит возврат из Ory, удаляет явное отключение; отзыв пропуска со стороны Ory не трогает. Миграция 054 (при создании переносит привязки из `ory_tokens`). Удаляется вместе с данными пользователя. Подробности: [P-10 Gateway MCP § 3.5](../processes/process-10-gateway-mcp.md).
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `chat_id` | BIGINT | — | PK |
+| `account_id` | UUID | — | NOT NULL, аккаунт Ory |
+| `linked_at` | TIMESTAMP | `NOW() AT TIME ZONE 'utc'` | NOT NULL |
+
 ### 4.2. `dt_tokens` (Digital Twin access)
 
 > Отдельный токен для digital-twin-mcp (исторически до Gateway). В процессе консолидации с `ory_tokens` через Gateway routing.

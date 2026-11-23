@@ -496,7 +496,8 @@ class GatewayMCPClient:
     async def _call(self, tool_name: str, arguments: dict,
                     telegram_user_id: Optional[int] = None,
                     timeout: Optional[int] = None,
-                    best_effort: bool = False) -> Optional[dict]:
+                    best_effort: bool = False,
+                    bearer: Optional[str] = None) -> Optional[dict]:
         """Вызов инструмента Gateway MCP через JSON-RPC.
 
         Args:
@@ -506,6 +507,8 @@ class GatewayMCPClient:
             best_effort: optional read with its own fallback (WP-417 Ф7): no retry after a
                 timeout or HTTP error, and its failures do not count towards the shared
                 circuit breaker, so one slow optional read cannot switch off every tool.
+            bearer: explicit token instead of the user's Ory token (WP-578 F29 p.8: a
+                one-call narrow token issued by the bot); the user's token is not looked up.
 
         Returns:
             Результат вызова или None при ошибке
@@ -521,12 +524,13 @@ class GatewayMCPClient:
         # Защита от Cloudflare 429 (burst от scheduler pre-gen fan-out).
         async with self._call_semaphore:
             return await self._do_call(tool_name, arguments, telegram_user_id, timeout=timeout,
-                                       best_effort=best_effort)
+                                       best_effort=best_effort, bearer=bearer)
 
     async def _do_call(self, tool_name: str, arguments: dict,
                        telegram_user_id: Optional[int] = None,
                        timeout: Optional[int] = None,
-                       best_effort: bool = False) -> Optional[dict]:
+                       best_effort: bool = False,
+                       bearer: Optional[str] = None) -> Optional[dict]:
         """Фактический HTTP call. Вызывается только из _call под semaphore."""
 
         def record_failure() -> None:
@@ -545,7 +549,9 @@ class GatewayMCPClient:
 
         # Auth header
         headers: Dict[str, str] = {}
-        if telegram_user_id:
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        elif telegram_user_id:
             token = self._get_access_token(telegram_user_id)
             if not token:
                 # In-memory cache miss (restart / race with OAuth callback) не
@@ -616,7 +622,7 @@ class GatewayMCPClient:
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=timeout)
                 ) as resp:
-                    if resp.status == 401 and telegram_user_id and attempt == 0:
+                    if resp.status == 401 and telegram_user_id and attempt == 0 and not bearer:
                         # Token expired — try refresh
                         logger.info(f"Gateway: 401 for user {telegram_user_id}, attempting refresh")
                         refreshed = await asyncio.shield(self._refresh_single_token(telegram_user_id))
@@ -1002,6 +1008,7 @@ class GatewayMCPClient:
         rcs_version: str = "v5.0",
         source: str = "dialogue",
         written_by: str = "tg",
+        bearer: Optional[str] = None,
     ) -> Optional[dict]:
         """Записать самооценку (РП-578 Ф21.4) через инструмент сервиса учебного контекста.
 
@@ -1028,7 +1035,7 @@ class GatewayMCPClient:
         # (пилот 29.10, РП-578 Ф21.4). Повтор безопасен - ключ event_id идемпотентен.
         result = await self._call(
             "learning_ctx_record_cp_assessment", args,
-            telegram_user_id=telegram_user_id, timeout=self.RECORD_CP_TIMEOUT,
+            telegram_user_id=telegram_user_id, timeout=self.RECORD_CP_TIMEOUT, bearer=bearer,
         )
         return self._parse_text_content(result)
 
@@ -1180,12 +1187,17 @@ class GatewayMCPClient:
         asyncio.ensure_future(self._delete_ory_tokens_from_db(telegram_user_id))
 
     async def _delete_ory_tokens_from_db(self, telegram_user_id: int) -> None:
-        """Удалить Ory tokens из DB."""
+        """Удалить Ory tokens из DB (явное отключение человеком — вместе с отметкой входа, WP-578 F29 p.8)."""
         try:
             from db.queries.ory_tokens import delete_ory_tokens
             await delete_ory_tokens(telegram_user_id)
         except Exception as e:
             logger.error(f"Gateway: failed to delete tokens for {telegram_user_id}: {e}")
+        try:
+            from db.queries.ory_tokens import forget_ory_login_link
+            await forget_ory_login_link(telegram_user_id)
+        except Exception as e:
+            logger.error(f"Gateway: failed to forget the Ory login link for {telegram_user_id}: {e}")
 
     @staticmethod
     def _convert_value(field: str, value: Any) -> Any:

@@ -202,3 +202,43 @@ async def refresh_ory_token_with_lock(
                 'ory_id': row['ory_id'],
                 'from_cache': False,
             }
+
+
+# WP-578 F29 p.8 (migration 054): "this Telegram chat was linked to the account by an Ory login".
+# Set on the Ory callback, removed on an explicit disconnect; an Ory-side token revocation keeps it.
+
+async def record_ory_login_link(chat_id: int, account_id: str) -> None:
+    """Remember the account this chat logged into through Ory (latest login wins)."""
+    pool = await get_secrets_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO public.ory_login_links (chat_id, account_id, linked_at)
+            VALUES ($1, $2::uuid, NOW() AT TIME ZONE 'utc')
+            ON CONFLICT (chat_id) DO UPDATE SET account_id = EXCLUDED.account_id, linked_at = EXCLUDED.linked_at
+            """,
+            chat_id, account_id,
+        )
+
+
+async def forget_ory_login_link(chat_id: int) -> None:
+    """The person disconnected the account themselves: stop saving on their behalf."""
+    pool = await get_secrets_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM public.ory_login_links WHERE chat_id = $1", chat_id)
+
+
+async def ory_login_account(chat_id: int) -> Optional[str]:
+    """Account linked to this chat by an Ory login, or None (no mark, or the table is missing)."""
+    import asyncpg
+
+    pool = await get_secrets_pool()
+    try:
+        async with pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT account_id::text FROM public.ory_login_links WHERE chat_id = $1", chat_id
+            )
+    except asyncpg.UndefinedTableError:
+        logger.warning("ory_login_links is missing (migration 054 not applied): on-behalf save is off")
+        return None
+    return value

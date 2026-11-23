@@ -93,6 +93,17 @@ Gateway определяет бэкенд по префиксу tool name:
 
 ---
 
+### 3.5. Запись /diagnose «от имени» узким пропуском (РП-578 Ф29 п.8)
+
+Если у участника нет живого пропуска Ory (не подключён или пропуск отозван), а этот чат раньше вошёл через Ory в тот же аккаунт, что в профиле, бот сохраняет его самооценку сам (`handlers/diagnose.py::_write_on_behalf`):
+
+- **Отметка входа** — `ory_login_links` в базе секретов (миграция 054). Ставит её только возврат из Ory (`oauth_server.ory_callback_handler`), удаляет явное отключение человеком (`disconnect` → `_delete_ory_tokens_from_db`). Отзыв пропуска со стороны Ory (`invalid_grant`) её не трогает. `public.users.ory_id` для этого не используется: его пишут и старая привязка Aisystant, и скрипты администратора.
+- **Узкий пропуск** — строка `ory_client_tokens` с областью `cp_assessment:write` и меткой `diagnose-on-behalf`: не больше 3 на аккаунт в сутки, отзывается сразу после вызова, сам истекает через 10 минут (`lookup_client_token`), в списке внешних клиентов не показывается. Шлюз пускает такой пропуск ровно к одному инструменту и помечает запись (`gateway-mcp` `src/ict-scope.ts`), оценщик ступени ограничивает её (`activity-hub` `stage_evaluator.on_behalf_stage_cap`).
+- **Выключатель** — `DIAGNOSE_ON_BEHALF_ENABLED=1`, по умолчанию выключен: включать только после выкатки шлюза и оценщика.
+- **Удаление данных** — `ory_login_links` удаляется вместе с данными пользователя (`db/queries/profile.py`).
+
+Решение: `DS-my-strategy` `inbox/WP-578/DRR-f29-on-behalf-self-assessment.md`.
+
 ## 4. Proactive refresh (scheduler, каждые 10 мин)
 
 `refresh_expiring_tokens(margin_seconds=600)` — cron в `core/scheduler.py`:

@@ -411,6 +411,23 @@ async def delete_all_user_data(chat_id: int) -> dict:
             _record_required_cleanup_failure(failures, f"secrets.{table}", e)
             result[f'secrets_{table}'] = 0
 
+    # WP-578 F29 p.8: the Ory login mark (migration 054). The table may not exist yet on a
+    # database where the startup migration could not create it — that is not a cleanup failure.
+    try:
+        from db.connection import get_secrets_pool
+        secrets_pool = await get_secrets_pool()
+        async with secrets_pool.acquire() as sconn:
+            deleted = await sconn.execute(
+                _delete_from_sql('public.ory_login_links', 'chat_id = $1 OR account_id = $2::uuid'),
+                chat_id, account_id,
+            )
+        result['secrets_ory_login_links'] = _parse_delete_count(deleted)
+    except asyncpg.exceptions.UndefinedTableError:
+        result['secrets_ory_login_links'] = 0
+    except Exception as e:
+        _record_required_cleanup_failure(failures, "secrets.ory_login_links", e)
+        result['secrets_ory_login_links'] = 0
+
     # WP-253 lift-and-shift: subscription.contract (core/access.py) — ключ account_id.
     if account_id:
         try:

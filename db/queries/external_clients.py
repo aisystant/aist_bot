@@ -99,8 +99,10 @@ async def lookup_client_token(access_hash: str) -> Optional[dict]:
             SELECT id::text, account_id::text, scope, computed_tier
             FROM public.ory_client_tokens
             WHERE access_token_hash = $1 AND revoked_at IS NULL
+              AND NOT (client_label = $2
+                       AND created_at < (NOW() AT TIME ZONE 'utc') - make_interval(mins => $3))
             """,
-            access_hash,
+            access_hash, ON_BEHALF_LABEL, ON_BEHALF_TTL_MINUTES,
         )
     if row is None:
         return None
@@ -222,11 +224,59 @@ async def list_client_tokens(account_id: str) -> list:
             SELECT id::text, client_label, scope, last_used, created_at
             FROM public.ory_client_tokens
             WHERE account_id = $1::uuid AND revoked_at IS NULL
+              AND client_label IS DISTINCT FROM $2
             ORDER BY created_at DESC
             """,
-            account_id,
+            account_id, ON_BEHALF_LABEL,
         )
     return [dict(r) for r in rows]
+
+
+# WP-578 F29 p.8 (V1, DS-my-strategy inbox/WP-578/DRR-f29-on-behalf-self-assessment.md):
+# a one-call token that lets the bot save the participant's own /diagnose answers when they
+# have not connected the account. The gateway lets this scope reach exactly one tool and marks
+# the record (gateway-mcp src/ict-scope.ts); the caller revokes the token right after the call.
+ON_BEHALF_SCOPE = "cp_assessment:write"
+ON_BEHALF_LABEL = "diagnose-on-behalf"
+ON_BEHALF_DAILY_LIMIT = 3
+
+
+ON_BEHALF_TTL_MINUTES = 10  # a token the bot failed to revoke still dies by itself
+
+
+async def issue_on_behalf_token(chat_id: int, account_id: str, access_hash: str, refresh_hash: str) -> Optional[str]:
+    """Store a narrow token for one save; None when the account already got the daily limit."""
+    pool = await get_pool()
+    async with pool.acquire() as conn, conn.transaction():
+        # Serialise issuance per account so a double tap cannot pass the daily limit.
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", f"on-behalf:{account_id}")
+        token_id = await conn.fetchval(
+            """
+            INSERT INTO public.ory_client_tokens
+              (account_id, access_token_hash, refresh_token_hash, scope, client_label, computed_tier, chat_id)
+            SELECT $1::uuid, $2, $3, $4, $5, 'T1', $6
+            WHERE (
+                SELECT count(*) FROM public.ory_client_tokens
+                WHERE account_id = $1::uuid AND client_label = $5
+                  AND created_at > (NOW() AT TIME ZONE 'utc') - INTERVAL '24 hours'
+            ) < $7
+            RETURNING id::text
+            """,
+            account_id, access_hash, refresh_hash, ON_BEHALF_SCOPE, ON_BEHALF_LABEL, chat_id,
+            ON_BEHALF_DAILY_LIMIT,
+        )
+    return token_id
+
+
+async def revoke_on_behalf_token(token_id: str) -> None:
+    """Revoke one on-behalf token by id (idempotent; never touches an external client's token)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE public.ory_client_tokens SET revoked_at = NOW() "
+            "WHERE id = $1::uuid AND client_label = $2 AND revoked_at IS NULL",
+            token_id, ON_BEHALF_LABEL,
+        )
 
 
 async def cleanup_expired_auth_codes() -> None:

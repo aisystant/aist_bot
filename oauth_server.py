@@ -1722,6 +1722,12 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
             )
             from clients.gateway_mcp import gateway_mcp
             gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token or "", expires_at, ory_id)
+            # WP-578 F29 p.8: only an Ory login marks the chat for on-behalf /diagnose saves.
+            try:
+                from db.queries.ory_tokens import record_ory_login_link
+                await record_ory_login_link(telegram_user_id, ory_id)
+            except Exception:
+                logger.exception("[OryOAuth] could not record the Ory login link (on-behalf save stays off)")
         logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
 
     # WP-227 Ф6: backfill ЦД при T0→T1 OAuth (вариант B).

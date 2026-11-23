@@ -223,6 +223,19 @@ async def main():
     await init_db()
 
     # Миграция 031: отметки Онбордера (Х2/Х3) в development.user_state.
+    # WP-578 F29 p.8: Ory login mark for on-behalf /diagnose saves (secrets DB, next to ory_tokens).
+    # Without the table the on-behalf save stays off (db.queries.ory_tokens.ory_login_account).
+    try:
+        import importlib as _il
+        from db.connection import get_secrets_pool as _get_secrets_pool
+        _m054 = _il.import_module("db.migrations.054_wp578_ory_login_links")
+        if await _m054.migrate_if_needed(await _get_secrets_pool()):
+            logger.info("✅ Migration 054: ory_login_links created in secrets DB")
+        else:
+            logger.info("✅ Migration 054: ory_login_links already exists")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 054 (ory_login_links) skipped: {_e}")
+
     # В проде create_tables пропущена флагом SKIP_DB_MIGRATIONS, поэтому колонки
     # добавляем явным вызовом миграции — как learning-миграции в _bootstrap_learning_schema.
     # Без этого should_offer падает на отсутствующей колонке и кнопка «Освоиться» молчит.
