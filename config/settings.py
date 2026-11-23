@@ -151,6 +151,9 @@ else:
 # ============= ORY OAUTH (WP-187 — бот+Ory) =============
 ORY_BASE_URL = os.getenv("ORY_BASE_URL", "https://auth.system-school.ru/hydra")
 ORY_CLIENT_ID = os.getenv("ORY_CLIENT_ID")
+# WP-578 F29 p.8: save /diagnose on the participant's behalf with a narrow token. Off by default:
+# turn on only after gateway-mcp#193 (scope enforcement) and activity-hub#25 (stage cap) are live.
+DIAGNOSE_ON_BEHALF_ENABLED = os.getenv("DIAGNOSE_ON_BEHALF_ENABLED", "").strip() == "1"
 ORY_CLIENT_SECRET = os.getenv("ORY_CLIENT_SECRET")
 ORY_REDIRECT_URI = os.getenv("ORY_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/ory/callback")
 # WP-5 Ф58.4: enable only after the profile service has a dedicated read-only

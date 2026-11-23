@@ -1055,3 +1055,30 @@ def test_indicators_deletes_set_their_own_rls_context(monkeypatch):
     ]
     assert result["indicators_calculated_profile"] == 1
     assert result["indicators_digital_twins"] == 1
+
+
+def test_wp578_ory_login_mark_is_deleted_by_chat_or_account(monkeypatch):
+    """WP-578 F29 p.8: the Ory login mark (migration 054) goes with the user's data."""
+    conns = _f12_setup(monkeypatch, delete_count=1)
+
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    statement = (
+        "DELETE FROM public.ory_login_links WHERE chat_id = $1 OR account_id = $2::uuid",
+        (_F12_CHAT_ID, _F12_ACCOUNT_ID),
+    )
+    assert conns["secrets"].executed.count(statement) == 1
+    assert result["secrets_ory_login_links"] == 1
+
+
+def test_wp578_missing_ory_login_table_is_not_a_deletion_failure(monkeypatch):
+    """The table may not exist where migration 054 could not run: skip, do not block erasure."""
+    _f12_setup(
+        monkeypatch,
+        injected=("secrets", "ory_login_links", asyncpg.exceptions.UndefinedTableError("relation does not exist")),
+    )
+
+    # A required-leg failure would raise IncompleteUserDataDeletion instead of returning.
+    result = asyncio.run(delete_all_user_data(_F12_CHAT_ID))
+
+    assert result["secrets_ory_login_links"] == 0

@@ -513,7 +513,7 @@ async def _start_phase1(target, state: FSMContext, account_id: str | None) -> No
         "6 вопросов о том, как вы сейчас работаете и развиваетесь. Здесь нет "
         "проходного балла, но по ответам определяется ступень мастерства — "
         "чтобы подобрать руководство под ваш уровень, а не общее для всех. "
-        "Занимает ~3 минуты.\n\n"
+        "Занимает ~3 минуты. Результат сохранится в ваш аккаунт Aisystant.\n\n"
     )
     await send_diagnostic_question(target, q, 0, prefix=preamble)
 
@@ -736,6 +736,7 @@ SAVE_NO_EVENT = "saved_no_event"  # самооценка записана, со�
 SAVE_AUTH = "auth"
 SAVE_IDENTITY = "identity"
 SAVE_UNKNOWN = "unknown"  # ответа нет или он не разобран: запись могла состояться
+SAVE_ON_BEHALF = "saved_on_behalf"  # saved by the bot with a one-call narrow token (WP-578 F29 p.8)
 
 # No "no_subscription": the gateway answers a tier refusal of this free tool with isError text,
 # so an HTTP 403 here comes from a proxy, and a fresh login would not fix it (review 23.11).
@@ -867,7 +868,7 @@ async def _write_attempt(chat_id: int, pending: dict) -> str:
     token_ory_id = await gateway_mcp.token_ory_id(chat_id)
     if token_ory_id is None:
         if not gateway_mcp.is_connected(chat_id):
-            return SAVE_AUTH
+            return await _write_on_behalf(chat_id, pending)
         logger.warning("[diagnose] token has no ory_id, cannot verify identity (chat=%s)", chat_id)
         return SAVE_IDENTITY
     if str(token_ory_id).lower() != str(pending["account_id"]).lower():
@@ -885,7 +886,89 @@ async def _write_attempt(chat_id: int, pending: dict) -> str:
     outcome = classify_save_result(result, gateway_mcp.last_call_error)
     if outcome != SAVE_OK:
         logger.warning("[diagnose] save outcome=%s last_error=%s", outcome, gateway_mcp.last_call_error)
+    if outcome == SAVE_AUTH:  # the person's own token expired or was refused
+        return await _write_on_behalf(chat_id, pending)
     return outcome
+
+
+async def _write_on_behalf(chat_id: int, pending: dict) -> str:
+    """WP-578 F29 p.8 (V1): save with a one-call narrow token, or SAVE_AUTH when that is not allowed.
+
+    Allowed only when the switch is on, the profile account is the one this Telegram chat logged
+    into through Ory (ory_login_links: set by the Ory callback, removed when the person disconnects)
+    and the account has not used today's limit. The gateway lets the token reach one tool and marks
+    the record; the token is revoked at once and expires by itself after 10 minutes.
+    """
+    import config
+    from clients.external_auth import generate_access_token, generate_refresh_token
+    from clients.gateway_mcp import gateway_mcp
+    from db.queries.external_clients import issue_on_behalf_token, revoke_on_behalf_token
+    from db.queries.ory_tokens import ory_login_account
+
+    if not config.DIAGNOSE_ON_BEHALF_ENABLED:
+        return SAVE_AUTH
+    linked = await ory_login_account(chat_id)
+    if not linked or str(linked).lower() != str(pending["account_id"]).lower():
+        return SAVE_AUTH
+    access_token, access_hash = generate_access_token()
+    _unused_refresh, refresh_hash = generate_refresh_token()
+    token_id = await issue_on_behalf_token(chat_id, str(linked), access_hash, refresh_hash)
+    if token_id is None:
+        logger.warning("[diagnose] on-behalf daily limit reached (chat=%s)", chat_id)
+        return SAVE_AUTH
+    try:
+        result = await gateway_mcp.record_cp_assessment(
+            chat_id,
+            event_id=pending["event_id"],
+            profile=pending["profile"],
+            cp_scores=pending["cp_scores"],
+            questions_count=pending["questions_count"],
+            occurred_at=pending["occurred_at"],
+            bearer=access_token,
+        )
+    finally:
+        try:
+            await revoke_on_behalf_token(token_id)
+        except Exception:
+            logger.exception("[diagnose] on-behalf token revoke failed, it expires in 10 min (chat=%s)", chat_id)
+    last_error = gateway_mcp.last_call_error
+    outcome = classify_save_result(result, last_error)
+    logger.info("[diagnose] on-behalf save outcome=%s last_error=%s (chat=%s)", outcome, last_error, chat_id)
+    if outcome == SAVE_OK:
+        return SAVE_ON_BEHALF
+    if result is None and last_error == "no_subscription":
+        # The gateway refused the narrow scope (HTTP 403): a retry would only burn the daily limit.
+        return SAVE_AUTH
+    return outcome
+
+
+def _mask_email(email: str | None) -> str | None:
+    """t***@example.com — enough for the person to recognise their account."""
+    if not email or "@" not in email:
+        return None
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}"
+
+
+async def _send_on_behalf_note(message: Message) -> None:
+    """Name the account the result went to and offer the login for a wrong one or for next time."""
+    from db.queries.identity import get_user_by_telegram
+
+    try:
+        label = _mask_email((await get_user_by_telegram(message.chat.id) or {}).get("email"))
+    except Exception:
+        logger.exception("[diagnose] account label lookup failed (chat=%s)", message.chat.id)
+        label = None
+    account = f"ваш аккаунт Aisystant ({label})" if label else "ваш аккаунт Aisystant"
+    text = (
+        f"✅ Результат сохранён в {account}.\n\n"
+        "Это не ваш аккаунт или хотите, чтобы следующие результаты сохранялись сразу, — "
+        "войдите своим аккаунтом кнопкой ниже."
+    )
+    auth_url = await _login_url(message.chat.id)
+    keyboard = (InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=CONNECT_BUTTON, url=auth_url)]])
+                if auth_url else None)
+    await message.answer(text, reply_markup=keyboard)
 
 
 async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool) -> None:
@@ -903,7 +986,7 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
         # Исход неизвестен: результат и кнопка повтора всё равно показываются.
         logger.exception("[diagnose] save attempt raised (chat=%s)", message.chat.id)
         outcome = SAVE_UNKNOWN
-    recorded = outcome in (SAVE_OK, SAVE_NO_EVENT)
+    recorded = outcome in (SAVE_OK, SAVE_NO_EVENT, SAVE_ON_BEHALF)
 
     if first_pass:
         valid_until = None
@@ -917,13 +1000,15 @@ async def _save_attempt(message: Message, state: FSMContext, *, first_pass: bool
             parse_mode="HTML",
         )
 
-    if outcome == SAVE_OK:
+    if outcome in (SAVE_OK, SAVE_ON_BEHALF):
         if first_pass:
             await state.clear()
         else:
             # Повтор мог прийти из другого сценария: убираем только свою попытку.
             await state.update_data(pending_save=None)
-        if not first_pass:
+        if outcome == SAVE_ON_BEHALF:
+            await _send_on_behalf_note(message)
+        elif not first_pass:
             await message.answer("✅ Результат сохранён.")
     else:
         await _send_save_note(message, outcome, with_retry=True)

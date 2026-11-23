@@ -91,9 +91,30 @@ def ok_result(event_recorded=True, duplicate=False):
 LOGIN_URL = "https://auth.example/login?state=x"
 
 
-async def run_finish(state, gw, login_url=LOGIN_URL):
+class OnBehalf:
+    """Bot-side state of the V1 path: profile link, token store (WP-578 F29 p.8)."""
+
+    def __init__(self, ory_id=None, email="tanya@example.com", token_id="tok-1", enabled=True):
+        self.login_account = AsyncMock(return_value=ory_id)
+        self.get_user = AsyncMock(return_value={"ory_id": ory_id, "email": email})
+        self.issue = AsyncMock(return_value=token_id)
+        self.revoke = AsyncMock()
+        self.enabled = enabled
+
+    def patches(self):
+        return (
+            patch("db.queries.ory_tokens.ory_login_account", self.login_account),
+            patch("db.queries.identity.get_user_by_telegram", self.get_user),
+            patch("db.queries.external_clients.issue_on_behalf_token", self.issue),
+            patch("db.queries.external_clients.revoke_on_behalf_token", self.revoke),
+            patch("config.DIAGNOSE_ON_BEHALF_ENABLED", self.enabled),
+        )
+
+
+async def run_finish(state, gw, login_url=LOGIN_URL, on_behalf=None):
     message = make_message()
-    with patch("clients.gateway_mcp.gateway_mcp", gw), \
+    p1, p2, p3, p4, p5 = (on_behalf or OnBehalf()).patches()
+    with patch("clients.gateway_mcp.gateway_mcp", gw), p1, p2, p3, p4, p5, \
          patch("handlers.diagnose._login_url", AsyncMock(return_value=login_url)), \
          patch("core.onboarder.x3.check_x3_return_to_bridge", AsyncMock()) as bridge, \
          patch("db.queries.onboarding_journey.sync_cp_stage_to_onboarding_state", AsyncMock()) as sync:
@@ -101,9 +122,10 @@ async def run_finish(state, gw, login_url=LOGIN_URL):
     return message, bridge, sync
 
 
-async def run_retry(state, gw, login_url=LOGIN_URL):
+async def run_retry(state, gw, login_url=LOGIN_URL, on_behalf=None):
     message = make_message()
-    with patch("clients.gateway_mcp.gateway_mcp", gw), \
+    p1, p2, p3, p4, p5 = (on_behalf or OnBehalf()).patches()
+    with patch("clients.gateway_mcp.gateway_mcp", gw), p1, p2, p3, p4, p5, \
          patch("handlers.diagnose._login_url", AsyncMock(return_value=login_url)), \
          patch("db.queries.onboarding_journey.sync_cp_stage_to_onboarding_state", AsyncMock()) as sync:
         await diagnose._save_attempt(message, state, first_pass=False)
@@ -520,3 +542,134 @@ class TestQualificationInsteadOfStage:
         shown = texts(message)
         assert len(shown) == 1 and "свежая диагностика" in shown[0]
         assert "🎓 Квалификация: <b>Реформатор</b>" in shown[0] and "Ступень" not in shown[0]
+
+
+class TestOnBehalfSave:
+    """WP-578 F29 p.8 (V1): the bot saves with a one-call narrow token when the Ory link matches."""
+
+    async def test_not_connected_but_linked_saves_with_narrow_token_and_revokes_it(self):
+        state = FakeState(finished_data())
+        gw = gateway(token_ory_id=None, connected=False, result=ok_result())
+        ob = OnBehalf(ory_id=ACCOUNT)
+        message, _bridge, sync = await run_finish(state, gw, on_behalf=ob)
+
+        gw.record_cp_assessment.assert_awaited_once()
+        bearer = gw.record_cp_assessment.await_args.kwargs["bearer"]
+        assert bearer.startswith("ict_")
+        ob.issue.assert_awaited_once()
+        assert ob.issue.await_args.args[0] == CHAT_ID and ob.issue.await_args.args[1] == ACCOUNT
+        ob.revoke.assert_awaited_once_with("tok-1")
+        shown = texts(message)
+        assert "пока не сохранены" not in shown[0]
+        assert "Актуально до" in shown[0]
+        assert shown[-1].startswith("✅ Результат сохранён в ваш аккаунт Aisystant (t***@example.com)")
+        assert last_buttons(message) == [(diagnose.CONNECT_BUTTON, LOGIN_URL, None)]
+        assert state.data == {}
+        sync.assert_awaited_once()
+
+    async def test_link_to_another_account_does_not_save(self):
+        gw = gateway(token_ory_id=None, connected=False, result=ok_result())
+        ob = OnBehalf(ory_id="22222222-2222-2222-2222-222222222222")
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+
+        gw.record_cp_assessment.assert_not_awaited()
+        ob.issue.assert_not_awaited()
+        assert texts(message)[-1] == diagnose._save_note(SAVE_AUTH, has_link=True)
+
+    async def test_daily_limit_falls_back_to_login_note(self):
+        gw = gateway(token_ory_id=None, connected=False, result=ok_result())
+        ob = OnBehalf(ory_id=ACCOUNT, token_id=None)
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+
+        gw.record_cp_assessment.assert_not_awaited()
+        assert texts(message)[-1] == diagnose._save_note(SAVE_AUTH, has_link=True)
+
+    async def test_expired_own_token_falls_back_to_narrow_token(self):
+        gw = gateway(token_ory_id=ACCOUNT, result=None, last_error="token_expired")
+        ob = OnBehalf(ory_id=ACCOUNT)
+        await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+
+        calls = gw.record_cp_assessment.await_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs.get("bearer") is None
+        assert calls[1].kwargs["bearer"].startswith("ict_")
+        ob.revoke.assert_awaited_once_with("tok-1")
+
+    async def test_token_is_revoked_even_when_the_call_raises(self):
+        state = FakeState(finished_data())
+        gw = gateway(token_ory_id=None, connected=False)
+        gw.record_cp_assessment = AsyncMock(side_effect=RuntimeError("network"))
+        ob = OnBehalf(ory_id=ACCOUNT)
+        message, _bridge, _sync = await run_finish(state, gw, on_behalf=ob)
+
+        ob.revoke.assert_awaited_once_with("tok-1")
+        assert texts(message)[-1] == diagnose._SAVE_NOTES[SAVE_UNKNOWN]
+        assert "pending_save" in state.data
+
+    async def test_failed_narrow_save_keeps_attempt_for_retry(self):
+        state = FakeState(finished_data())
+        gw = gateway(token_ory_id=None, connected=False, result=None, last_error="http_error")
+        ob = OnBehalf(ory_id=ACCOUNT)
+        message, _bridge, _sync = await run_finish(state, gw, on_behalf=ob)
+
+        assert texts(message)[-1] == diagnose._SAVE_NOTES[SAVE_UNKNOWN]
+        assert "pending_save" in state.data
+
+
+class TestMaskEmail:
+    @pytest.mark.parametrize(("email", "masked"), [
+        ("tanya@example.com", "t***@example.com"),
+        ("a@b.ru", "a***@b.ru"),
+        ("no-at-sign", None),
+        ("", None),
+        (None, None),
+    ])
+    def test_mask(self, email, masked):
+        assert diagnose._mask_email(email) == masked
+
+
+class TestOnBehalfGuards:
+    """Review 23.11: switch, gateway refusal, revoke failure, the external-client revoke stays intact."""
+
+    async def test_switch_off_keeps_the_login_note(self):
+        gw = gateway(token_ory_id=None, connected=False, result=ok_result())
+        ob = OnBehalf(ory_id=ACCOUNT, enabled=False)
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+
+        ob.login_account.assert_not_awaited()
+        ob.issue.assert_not_awaited()
+        gw.record_cp_assessment.assert_not_awaited()
+        assert texts(message)[-1] == diagnose._save_note(SAVE_AUTH, has_link=True)
+
+    async def test_no_ory_login_mark_does_not_save(self):
+        gw = gateway(token_ory_id=None, connected=False, result=ok_result())
+        ob = OnBehalf(ory_id=None)
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+
+        ob.issue.assert_not_awaited()
+        assert texts(message)[-1] == diagnose._save_note(SAVE_AUTH, has_link=True)
+
+    async def test_gateway_scope_refusal_offers_login_not_retry(self):
+        gw = gateway(token_ory_id=None, connected=False, result=None, last_error="no_subscription")
+        ob = OnBehalf(ory_id=ACCOUNT)
+        message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+
+        ob.revoke.assert_awaited_once_with("tok-1")
+        assert texts(message)[-1] == diagnose._save_note(SAVE_AUTH, has_link=True)
+
+    async def test_revoke_failure_is_logged_and_the_save_still_counts(self):
+        gw = gateway(token_ory_id=None, connected=False, result=ok_result())
+        ob = OnBehalf(ory_id=ACCOUNT)
+        ob.revoke = AsyncMock(side_effect=RuntimeError("db down"))
+        with patch.object(diagnose.logger, "exception") as log:
+            message, _bridge, _sync = await run_finish(FakeState(finished_data()), gw, on_behalf=ob)
+        assert any("revoke failed" in str(c.args[0]) for c in log.call_args_list)
+        assert texts(message)[-1].startswith("✅ Результат сохранён в")
+
+    def test_external_client_revoke_keeps_its_owner_check(self):
+        """K1: the on-behalf revoke must not replace revoke_client_token(token_id, account_id)."""
+        import inspect
+        from db.queries import external_clients
+
+        assert list(inspect.signature(external_clients.revoke_client_token).parameters) == ["token_id", "account_id"]
+        assert external_clients.revoke_on_behalf_token is not external_clients.revoke_client_token
