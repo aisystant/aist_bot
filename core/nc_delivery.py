@@ -15,7 +15,7 @@ from aiohttp import web
 
 from db.connection import get_persona_pool
 
-_ALLOWED_KINDS = {"test_owner_ping", "test_platform_ping"}
+_ALLOWED_KINDS = {"test_owner_ping", "test_platform_ping", "onboarding_lifecycle"}
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 

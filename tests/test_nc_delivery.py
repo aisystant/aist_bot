@@ -157,6 +157,18 @@ async def test_telegram_uncertainty_is_unknown(env):
     assert json.loads(response.body)["outcome"] == "unknown"
 
 
+async def test_onboarding_lifecycle_kind_is_delivered_with_center_text(env):
+    bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=124)))
+    center_reply = {**consumed(), "kind": "onboarding_lifecycle"}
+    with patch("core.nc_delivery._consume", new=AsyncMock(return_value=center_reply)), \
+         patch("core.nc_delivery.get_persona_pool", new=AsyncMock(return_value=Pool(42))), \
+         patch("oauth_server._bot_instance", bot):
+        response = await nc_delivery.nc_deliver_handler(request(body={"kind": "onboarding_lifecycle"}))
+    assert response.status == 200
+    assert json.loads(response.body)["telegram_message_id"] == 124
+    bot.send_message.assert_awaited_once_with(42, "Authoritative\n\nFrom center", parse_mode=None)
+
+
 async def test_invalid_kind_is_refused_before_consume(env):
     with patch("core.nc_delivery._consume", new=AsyncMock()) as consume:
         response = await nc_delivery.nc_deliver_handler(request(body={"kind": "live_unapproved"}))
