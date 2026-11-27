@@ -115,6 +115,7 @@ async def enqueue(
     dedup_key: Optional[str] = None,
     journal_key: Optional[str] = None,
     journal_type: Optional[str] = None,
+    dedup_hours: Optional[int] = None,
 ) -> dict:
     """Принять сообщение в воронку доставки.
 
@@ -132,6 +133,9 @@ async def enqueue(
     ...), не класс. Fallback (None) = f"delivery:{queue_id}" / klass — только для
     canary/ops-alert.
 
+    dedup_hours overrides the class window for senders with a calendar-day key.
+    content_spec.expires_at (ISO timestamp with zone) suppresses outdated queued messages.
+
     Returns: {"notification_id": int|None, "status": "queued"|"suppressed", "reason"?: str}
     Suppression reasons: already-sent (journal_key in the delivery journal),
     opt-out, blocked, duplicate, cap-exceeded.
@@ -139,6 +143,8 @@ async def enqueue(
     policy = CLASS_POLICY.get(klass)
     if policy is None:
         raise ValueError(f"unknown notification class: {klass!r}")
+    if dedup_hours is not None and dedup_hours <= 0:
+        raise ValueError("dedup_hours must be positive")
     text = (content_spec or {}).get("text")
     if not text:
         raise ValueError("content_spec.text is required")
@@ -199,7 +205,7 @@ async def enqueue(
                     conn, chat_id, klass, content_spec, priority, dedup_key, "opt-out"
                 )
 
-            if dedup_key and await _is_duplicate(conn, dedup_key, policy.dedup_hours):
+            if dedup_key and await _is_duplicate(conn, dedup_key, dedup_hours or policy.dedup_hours):
                 logger.info(
                     "[Delivery] dedup skip chat=%s class=%s key=%s", chat_id, klass, dedup_key
                 )
@@ -350,6 +356,14 @@ async def _deliver_row_unguarded(conn, row, deliver_fn) -> str:
     if isinstance(content_spec, str):
         content_spec = json.loads(content_spec)
     queue_id = row["id"]
+    expires_at = content_spec.get("expires_at")
+    if expires_at:
+        expiry = datetime.fromisoformat(expires_at)
+        if expiry.tzinfo is None:
+            raise ValueError("expires_at must include a time zone")
+        if datetime.now(expiry.tzinfo) >= expiry:
+            await _set_status(conn, queue_id, "suppressed", "expired")
+            return "suppressed"
     chat_id = row["chat_id"]
     klass = row["notification_class"]
     journal_key = row["journal_key"] or f"delivery:{queue_id}"

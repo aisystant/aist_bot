@@ -97,3 +97,131 @@ def render_reindex_alert(body: dict, suppressed: int = 0) -> str:
     if suppressed > 0:
         lines.append(_repeats_text(suppressed))
     return "\n".join(lines)
+
+# The request result and the eventual worker result are different observations.
+# Record every request before deciding its chat route (WP-625, pilot 26.11).
+def reindex_action(body: dict) -> str:
+    entries = body.get("failed", [])
+    if not isinstance(entries, list):
+        return ""
+    errors = [
+        str(entry.get("error", "")) for entry in entries if isinstance(entry, dict)
+    ]
+    if any("OpenRouter embeddings error: 401" in error for error in errors):
+        return "проверить действительность ключа сервера знаний в панели OpenRouter."
+    return ""
+
+
+async def write_reindex_center(body: dict) -> bool:
+    """Acknowledge only a Center write. A retry uses the same Loki timestamp."""
+    import asyncio
+    import json
+    import logging
+    import os
+    import time
+    import uuid
+
+    import aiohttp
+
+    url = os.getenv("REINDEX_CENTER_LOKI_URL", "").strip().rstrip("/")
+    user = os.getenv("REINDEX_CENTER_LOKI_USER", "").strip()
+    token = os.getenv("REINDEX_CENTER_LOKI_TOKEN", "").strip()
+    if not (url and user and token):
+        logging.getLogger(__name__).warning("Reindex Center credentials are incomplete")
+        return False
+    url = url.removesuffix("/loki/api/v1/push") + "/loki/api/v1/push"
+    entries = body.get("failed", [])
+    errors = (
+        [str(entry.get("error", "")) for entry in entries if isinstance(entry, dict)]
+        if isinstance(entries, list)
+        else []
+    )
+    result = (
+        "failed" if any(not is_unknown_result(error) for error in errors) else "unknown"
+    )
+    event = {
+        "schema_version": 1,
+        "event": "notification",
+        "phase": "request",
+        "request_result": result,
+        "source_name": str(body.get("source") or "?")[:120],
+        "title": "Результат запроса переиндексации",
+        "detail": "Запрос ответил с ошибкой."
+        if result == "failed"
+        else "Итог работы пока неизвестен.",
+        "correlation_id": "knowledge-reindex:request:"
+        + str(body.get("event_id") or uuid.uuid4()),
+    }
+    payload = {
+        "streams": [
+            {
+                "stream": {
+                    "job": "notification-center",
+                    "source": "knowledge-reindex",
+                    "severity": "warning",
+                    "needs_decision": "false",
+                },
+                "values": [
+                    [str(time.time_ns()), json.dumps(event, ensure_ascii=False)]
+                ],
+            }
+        ]
+    }
+    timeout = aiohttp.ClientTimeout(total=4)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for attempt in range(2):
+            try:
+                async with session.post(
+                    url, json=payload, auth=aiohttp.BasicAuth(user, token)
+                ) as response:
+                    if response.status in (200, 204):
+                        return True
+                    if response.status < 500 and response.status != 429:
+                        break
+            except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+                logging.getLogger(__name__).warning(
+                    "Reindex Center write failed: %s", type(error).__name__
+                )
+    return False
+
+
+async def route_reindex_alert(body: dict) -> tuple[dict, int]:
+    """All events reach the digest. Actionable alerts share one durable daily key."""
+    import logging
+    import os
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    if not await write_reindex_center(body):
+        return {"ok": False, "reason": "center_unavailable"}, 503
+    action = reindex_action(body)
+    if not action:
+        return {"ok": True, "route": "digest"}, 200
+    try:
+        chat_id = int(os.environ["OPS_ALERT_CHAT_ID"])
+        from core.notification_service import CLASS_OPS_ALERT, enqueue
+
+        from datetime import time, timedelta
+
+        now = datetime.now(ZoneInfo("Asia/Nicosia"))
+        day = now.date().isoformat()
+        expires = datetime.combine(
+            now.date() + timedelta(days=1), time(), tzinfo=now.tzinfo
+        )
+        key = f"reindex-action:{day}"
+        text = render_reindex_alert(body) + "\nЧто делать: " + action
+        outcome = await enqueue(
+            chat_id,
+            CLASS_OPS_ALERT,
+            {"text": text, "format": "html", "expires_at": expires.isoformat()},
+            dedup_key=key,
+            journal_key=key,
+            journal_type="ops_alert",
+            dedup_hours=24,
+        )
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "Reindex action enqueue failed: %s", type(error).__name__
+        )
+        return {"ok": False, "reason": "action_queue_unavailable"}, 503
+    return {"ok": True, "route": outcome["status"]}, 200

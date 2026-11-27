@@ -673,3 +673,32 @@ def test_cap_and_suppression_audit_share_one_day_boundary():
     }
     # notification_service: the DELIVERY_DAY_BOUNDARY definition + the cap + the audit.
     assert found == {"notification_service": 3, "nudge_delivery": 1}
+
+
+@pytest.mark.asyncio
+async def test_ops_alert_daily_key_survives_the_default_hour_window(monkeypatch):
+    from unittest.mock import AsyncMock
+    conn = FakeConn()
+    _patch_pool(monkeypatch, conn)
+    duplicate = AsyncMock(return_value=True)
+    monkeypatch.setattr(ns, "_is_duplicate", duplicate)
+    result = await ns.enqueue(
+        123, ns.CLASS_OPS_ALERT, {"text": "Check access"}, dedup_key="reindex-action:2026-11-27",
+        dedup_hours=24,
+    )
+    assert result["status"] == "suppressed"
+    assert duplicate.await_args.args[-1] == 24
+
+
+@pytest.mark.asyncio
+async def test_old_reindex_action_expires_before_delivery(monkeypatch):
+    import json
+    from unittest.mock import AsyncMock
+    row = _row(klass=ns.CLASS_OPS_ALERT, journal_key="reindex-action:2026-11-26")
+    row["payload"] = json.dumps({"text": "Check access", "expires_at": "2026-11-27T00:00:00+02:00"})
+    conn = FakeConn()
+    deliver = AsyncMock()
+    result = await ns._deliver_row_unguarded(conn, row, deliver)
+    assert result == "suppressed"
+    assert conn.reason_by_id[row["id"]] == "expired"
+    deliver.assert_not_awaited()
