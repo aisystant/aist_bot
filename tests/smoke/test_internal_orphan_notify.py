@@ -23,6 +23,11 @@ async def notify(monkeypatch):
     from core.ops_alert_dedup import reset_ops_alert_dedup
 
     reset_ops_alert_dedup()
+    from core import reindex_alert
+
+    monkeypatch.setattr(
+        reindex_alert, "write_reindex_center", AsyncMock(return_value=True)
+    )
     monkeypatch.setenv("INTERNAL_NOTIFY_SECRET", "synthetic-test-secret")
     monkeypatch.setenv("OPS_ALERT_CHAT_ID", "123")
     source = Path(__file__).resolve().parents[2] / "oauth_server.py"
@@ -154,63 +159,50 @@ async def test_unknown_type_still_not_acknowledged(notify):
 
 @pytest.mark.asyncio
 async def test_timeout_is_unknown_and_never_demands_manual_reindex(notify):
+    from core import reindex_alert
+
     client, bot, _ = notify
-    response = await post(
-        client,
-        {
-            "type": "ops_alert",
-            "source": "<source>&",
-            "failed": [
-                {
-                    "target": "knowledge",
-                    "error": (
-                        "timeout 20s: result unknown, job may be queued "
-                        "(This operation was aborted)"
-                    ),
-                }
-            ],
-        },
-    )
+    body = {
+        "type": "ops_alert",
+        "source": "PACK-personal",
+        "failed": [{"target": "knowledge", "error": "timeout 20s: result unknown"}],
+    }
+    response = await post(client, body)
     assert response.status == 200
-    text = bot.send_message.await_args.kwargs["text"]
-    assert "Результат пока неизвестен" in text
-    assert "Повторный запуск до проверки не нужен" in text
-    assert "&lt;source&gt;&amp;" in text
-    assert "Результат пока неизвестен: сервер знаний." in text
-    assert "knowledge" not in text
-    assert "Провал" not in text
-    assert "нужна ручная" not in text
-    assert "Запросы завершились с ошибкой" not in text
+    assert await response.json() == {"ok": True, "route": "digest"}
+    reindex_alert.write_reindex_center.assert_awaited_once_with(body)
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_mixed_outcomes_keep_confirmed_error_visible(notify):
+    from core import reindex_alert
+
     client, bot, _ = notify
-    response = await post(
-        client,
-        {
-            "type": "ops_alert",
-            "source": "sample",
-            "failed": [
-                {"target": "slow", "error": "timeout 20000ms: result unknown"},
-                {"target": "denied", "error": "HTTP 403 <denied>"},
-            ],
-        },
-    )
-    assert response.status == 200
-    text = bot.send_message.await_args.kwargs["text"]
-    assert "Результат пока неизвестен: slow" in text
-    assert "Запросы завершились с ошибкой: denied: HTTP 403 &lt;denied&gt;" in text
-    assert "нужна ручная" not in text
+    body = {
+        "type": "ops_alert",
+        "source": "sample",
+        "failed": [
+            {"target": "slow", "error": "timeout 20s: result unknown"},
+            {"target": "server", "error": "HTTP 500"},
+        ],
+    }
+    response = await post(client, body)
+    assert await response.json() == {"ok": True, "route": "digest"}
+    reindex_alert.write_reindex_center.assert_awaited_once_with(body)
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_ops_alert_delivery_failure_is_retryable(notify):
+    from core import reindex_alert
+
+    reindex_alert.write_reindex_center.return_value = False
     client, bot, _ = notify
-    bot.send_message.side_effect = RuntimeError("synthetic failure")
     response = await post(client, {"type": "ops_alert", "failed": []})
-    assert response.status == 500
-    assert (await response.json())["ok"] is False
+    assert response.status == 503
+    assert await response.json() == {"ok": False, "reason": "center_unavailable"}
+    bot.send_message.assert_not_awaited()
 
 
 def test_reindex_alert_bounds_text_before_html_escaping():
@@ -257,7 +249,6 @@ def test_timeout_classification_does_not_guess_other_formats(error):
     assert "Результат пока неизвестен" not in text
 
 
-
 @pytest.mark.asyncio
 async def test_orphan_is_deduped_by_installation_and_names_added_action(notify):
     client, bot, _ = notify
@@ -272,211 +263,25 @@ async def test_orphan_is_deduped_by_installation_and_names_added_action(notify):
     assert first.status == 200
     assert await second.json() == {"ok": True, "deduped": True}
     bot.send_message.assert_awaited_once()
-    assert "Событие: добавление репозитория" in bot.send_message.await_args.kwargs["text"]
-
-
-@pytest.mark.asyncio
-async def test_openrouter_401_is_one_alert_across_sources(notify):
-    client, bot, _ = notify
-    for source in ("PACK-one", "PACK-two"):
-        response = await post(
-            client,
-            {
-                "type": "ops_alert",
-                "source": source,
-                "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
-            },
-        )
-        assert response.status == 200
-    bot.send_message.assert_awaited_once()
-    text = bot.send_message.await_args.kwargs["text"]
-    assert "OpenRouter отклонил авторизацию (401)" in text
-    assert "Повторная переиндексация до восстановления доступа не нужна" in text
-
-
-@pytest.mark.asyncio
-async def test_telegram_failure_releases_alert_reservation(notify):
-    client, bot, _ = notify
-    body = {
-        "type": "ops_alert",
-        "source": "PACK-one",
-        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
-    }
-    bot.send_message.side_effect = [RuntimeError("temporary"), None]
-    failed = await post(client, body)
-    retried = await post(client, body)
-    assert failed.status == 500
-    assert retried.status == 200
-    assert bot.send_message.await_count == 2
-
-
-
-@pytest.mark.asyncio
-async def test_concurrent_duplicate_waits_for_confirmed_delivery(notify):
-    import asyncio
-
-    client, bot, _ = notify
-    started = asyncio.Event()
-    finish = asyncio.Event()
-
-    async def gated_send(**kwargs):
-        started.set()
-        await finish.wait()
-
-    bot.send_message.side_effect = gated_send
-    body = {
-        "type": "ops_alert",
-        "source": "PACK-one",
-        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
-    }
-    first = asyncio.create_task(post(client, body))
-    await started.wait()
-    second = asyncio.create_task(post(client, body))
-    await asyncio.sleep(0)
-    assert not second.done()
-    finish.set()
-    assert (await first).status == 200
-    assert await (await second).json() == {"ok": True, "deduped": True}
-    assert bot.send_message.await_count == 1
-
-
-
-@pytest.mark.asyncio
-async def test_second_request_sends_after_first_delivery_fails(notify):
-    import asyncio
-
-    client, bot, _ = notify
-    bot.send_message.side_effect = [RuntimeError("temporary"), None]
-    body = {
-        "type": "ops_alert",
-        "source": "PACK-one",
-        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
-    }
-    first, second = await asyncio.gather(post(client, body), post(client, body))
-    assert {first.status, second.status} == {200, 500}
-    assert bot.send_message.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_cancellation_releases_single_flight(notify):
-    import asyncio
-
-    client, bot, _ = notify
-    started = asyncio.Event()
-
-    async def blocked_send(**kwargs):
-        started.set()
-        await asyncio.Event().wait()
-
-    bot.send_message.side_effect = blocked_send
-    body = {
-        "type": "ops_alert",
-        "source": "PACK-one",
-        "failed": [{"target": "knowledge", "error": "OpenRouter embeddings error: 401"}],
-    }
-    cancelled = asyncio.create_task(post(client, body))
-    await started.wait()
-    cancelled.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await cancelled
-    bot.send_message.side_effect = None
-    response = await post(client, body)
-    assert response.status == 200
-
-
-@pytest.mark.asyncio
-async def test_stale_release_does_not_release_new_reservation():
-    from core.ops_alert_dedup import _PENDING, release_reservation, reserve_reindex_alert, reset_ops_alert_dedup
-
-    reset_ops_alert_dedup()
-    body = {"source": "PACK-one", "failed": []}
-    accepted, key, first = await reserve_reindex_alert(body)
-    assert accepted
-    release_reservation(key, first)
-    accepted, key, second = await reserve_reindex_alert(body)
-    assert accepted
-    release_reservation(key, first)
-    assert _PENDING[key] is second
-    release_reservation(key, second)
-    assert key not in _PENDING
+    assert (
+        "Событие: добавление репозитория" in bot.send_message.await_args.kwargs["text"]
+    )
 
 
 # --- WP-568, 16.11: an unknown reindex result must not repeat in chat every hour ---
 
-_UNKNOWN = {"target": "knowledge", "error": "timeout 20s: result unknown, job may be queued"}
-
-
-@pytest.mark.asyncio
-async def test_unknown_result_window_spans_hour_boundaries_and_error_text(monkeypatch):
-    import core.ops_alert_dedup as dedup
-
-    dedup.reset_ops_alert_dedup()
-    clock = {"now": 1_800_000_000.0}
-    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
-
-    body = {"source": "FMT-exocortex-template", "failed": [_UNKNOWN]}
-    accepted, key, token = await dedup.reserve_reindex_alert(body)
-    assert accepted
-    dedup.mark_alert_sent(key, token)
-
-    # 58 minutes later (the next hour bucket) and with a different timeout text: still the same signal.
-    clock["now"] += 58 * 60
-    later = {"source": "FMT-exocortex-template", "failed": [{"target": "knowledge", "error": "timeout 30000ms: result unknown"}]}
-    accepted, _, _ = await dedup.reserve_reindex_alert(later)
-    assert not accepted
-    assert dedup.suppressed_count(key) == 1
-
-    # Another source is a different signal.
-    accepted, other_key, other_token = await dedup.reserve_reindex_alert({"source": "PACK-digital-platform", "failed": [_UNKNOWN]})
-    assert accepted and other_key != key
-    dedup.release_reservation(other_key, other_token)
-
-
-@pytest.mark.asyncio
-async def test_unknown_result_comes_back_after_window_with_repeat_count(monkeypatch):
-    import core.ops_alert_dedup as dedup
-    from core.reindex_alert import render_reindex_alert
-
-    dedup.reset_ops_alert_dedup()
-    clock = {"now": 1_800_000_000.0}
-    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
-    body = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
-
-    accepted, key, token = await dedup.reserve_reindex_alert(body)
-    dedup.mark_alert_sent(key, token)
-    for _ in range(3):
-        clock["now"] += 3600
-        accepted, _, _ = await dedup.reserve_reindex_alert(body)
-        assert not accepted
-
-    clock["now"] += dedup.UNKNOWN_RESULT_WINDOW_SECONDS
-    accepted, key, token = await dedup.reserve_reindex_alert(body)
-    assert accepted
-    text = render_reindex_alert(body, dedup.suppressed_count(key))
-    assert "ещё 3 таких сообщения" in text
-    dedup.mark_alert_sent(key, token)
-    assert dedup.suppressed_count(key) == 0
-
-
-@pytest.mark.asyncio
-async def test_confirmed_error_is_not_swallowed_by_unknown_window():
-    import core.ops_alert_dedup as dedup
-
-    dedup.reset_ops_alert_dedup()
-    unknown = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
-    accepted, key, token = await dedup.reserve_reindex_alert(unknown)
-    dedup.mark_alert_sent(key, token)
-
-    confirmed = {"source": "PACK-digital-platform", "failed": [{"target": "knowledge", "error": "HTTP 403 denied"}]}
-    accepted, error_key, error_token = await dedup.reserve_reindex_alert(confirmed)
-    assert accepted and error_key != key
-    dedup.release_reservation(error_key, error_token)
+_UNKNOWN = {
+    "target": "knowledge",
+    "error": "timeout 20s: result unknown, job may be queued",
+}
 
 
 def test_unknown_result_text_names_the_action_and_hides_nothing_new():
     from core.reindex_alert import render_reindex_alert
 
-    text = render_reindex_alert({"source": "PACK-digital-platform", "failed": [_UNKNOWN]})
+    text = render_reindex_alert(
+        {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
+    )
     assert "Что делать: пока ничего." in text
     assert "скажите агенту «проверь итог переиндексации PACK-digital-platform»" in text
     assert "Повторный запуск до проверки не нужен" in text
@@ -485,7 +290,14 @@ def test_unknown_result_text_names_the_action_and_hides_nothing_new():
 
 @pytest.mark.parametrize(
     "count, phrase",
-    [(1, "ещё 1 такое сообщение"), (2, "ещё 2 таких сообщения"), (5, "ещё 5 таких сообщений"), (11, "ещё 11 таких сообщений"), (21, "ещё 21 такое сообщение"), (24, "ещё 24 таких сообщения")],
+    [
+        (1, "ещё 1 такое сообщение"),
+        (2, "ещё 2 таких сообщения"),
+        (5, "ещё 5 таких сообщений"),
+        (11, "ещё 11 таких сообщений"),
+        (21, "ещё 21 такое сообщение"),
+        (24, "ещё 24 таких сообщения"),
+    ],
 )
 def test_repeat_line_agrees_with_the_number(count, phrase):
     from core.reindex_alert import render_reindex_alert
@@ -493,98 +305,17 @@ def test_repeat_line_agrees_with_the_number(count, phrase):
     assert phrase in render_reindex_alert({"source": "S", "failed": [_UNKNOWN]}, count)
 
 
-@pytest.mark.asyncio
-async def test_handler_shows_suppressed_repeats_on_the_next_delivered_message(notify, monkeypatch):
-    """End to end through /internal/notify: repeats are swallowed, then counted in the next chat message."""
-    import core.ops_alert_dedup as dedup
-
-    client, bot, _ = notify
-    clock = {"now": 1_800_000_000.0}
-    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
-    body = {"type": "ops_alert", "source": "PACK-digital-platform", "failed": [_UNKNOWN]}
-
-    first = await post(client, body)
-    assert first.status == 200 and bot.send_message.await_count == 1
-    assert "ещё" not in bot.send_message.await_args.kwargs["text"]
-
-    for _ in range(2):
-        clock["now"] += 40 * 60
-        again = await post(client, body)
-        assert (await again.json()) == {"ok": True, "deduped": True}
-    assert bot.send_message.await_count == 1  # nothing new reached the chat
-
-    clock["now"] += dedup.UNKNOWN_RESULT_WINDOW_SECONDS
-    later = await post(client, body)
-    assert later.status == 200 and bot.send_message.await_count == 2
-    assert "ещё 2 таких сообщения" in bot.send_message.await_args.kwargs["text"]
-
-
 def test_mixed_unknown_and_error_never_says_nothing_to_do():
     from core.reindex_alert import render_reindex_alert
 
     text = render_reindex_alert(
-        {"source": "S", "failed": [_UNKNOWN, {"target": "personal", "error": "HTTP 403 denied"}]}
+        {
+            "source": "S",
+            "failed": [_UNKNOWN, {"target": "personal", "error": "HTTP 403 denied"}],
+        }
     )
     assert "Запросы завершились с ошибкой" in text
     assert "Что делать: пока ничего" not in text
-
-
-@pytest.mark.asyncio
-async def test_payload_without_source_has_no_shared_window():
-    import core.ops_alert_dedup as dedup
-
-    dedup.reset_ops_alert_dedup()
-    nameless = {"failed": [_UNKNOWN]}
-    accepted, key, token = await dedup.reserve_reindex_alert(nameless)
-    assert accepted and not key.startswith("reindex-unknown:")
-    dedup.mark_alert_sent(key, token)
-    # a different nameless payload (other target) is a different signal
-    other = {"failed": [{"target": "personal", "error": "timeout 20s: result unknown"}]}
-    accepted, other_key, other_token = await dedup.reserve_reindex_alert(other)
-    assert accepted
-    dedup.release_reservation(other_key, other_token)
-
-
-@pytest.mark.asyncio
-async def test_expired_dedup_state_is_pruned(monkeypatch):
-    import core.ops_alert_dedup as dedup
-
-    dedup.reset_ops_alert_dedup()
-    clock = {"now": 1_800_000_000.0}
-    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
-    for hour in range(5):
-        accepted, key, token = await dedup.reserve_reindex_alert({"source": f"S{hour}", "failed": [{"target": "t", "error": f"HTTP {400 + hour}"}]})
-        dedup.mark_alert_sent(key, token)
-        clock["now"] += 3600
-    assert len(dedup._LAST_SENT) == 5
-    dedup._SUPPRESSED["reindex:gone:1:abc"] = 3
-    clock["now"] += 2 * 86_400
-    accepted, key, token = await dedup.reserve_reindex_alert({"source": "fresh", "failed": []})
-    assert accepted
-    assert not dedup._LAST_SENT and "reindex:gone:1:abc" not in dedup._SUPPRESSED
-    dedup.release_reservation(key, token)
-
-
-@pytest.mark.asyncio
-async def test_repeat_counter_survives_a_gap_longer_than_a_day(monkeypatch):
-    import core.ops_alert_dedup as dedup
-    from core.reindex_alert import render_reindex_alert
-
-    dedup.reset_ops_alert_dedup()
-    clock = {"now": 1_800_000_000.0}
-    monkeypatch.setattr(dedup.time, "time", lambda: clock["now"])
-    body = {"source": "PACK-digital-platform", "failed": [_UNKNOWN]}
-    accepted, key, token = await dedup.reserve_reindex_alert(body)
-    dedup.mark_alert_sent(key, token)
-    for _ in range(5):
-        clock["now"] += 3600
-        accepted, _, _ = await dedup.reserve_reindex_alert(body)
-        assert not accepted
-    clock["now"] += 25 * 3600
-    accepted, key, token = await dedup.reserve_reindex_alert(body)
-    assert accepted
-    assert "ещё 5 таких сообщений" in render_reindex_alert(body, dedup.suppressed_count(key))
-    dedup.release_reservation(key, token)
 
 
 def test_action_line_without_source_name_has_no_dangling_question_mark():
@@ -593,3 +324,166 @@ def test_action_line_without_source_name_has_no_dangling_question_mark():
     text = render_reindex_alert({"failed": [_UNKNOWN]})
     assert "«проверь итог переиндексации»" in text
     assert "?" not in text.split("Что делать:")[1]
+
+
+@pytest.mark.asyncio
+async def test_four_today_requests_reach_digest_and_never_chat(notify):
+    from core import reindex_alert
+
+    client, bot, _ = notify
+    for source in (
+        "PACK-digital-platform",
+        "FMT-exocortex-template",
+        "PACK-personal",
+        "FMT-exocortex-template",
+    ):
+        response = await post(
+            client,
+            {
+                "type": "ops_alert",
+                "source": source,
+                "failed": [
+                    {"target": "knowledge", "error": "timeout 20s: result unknown"}
+                ],
+            },
+        )
+        assert await response.json() == {"ok": True, "route": "digest"}
+    assert reindex_alert.write_reindex_center.await_count == 4
+    bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_actions_share_a_persistent_daily_queue_key(notify, monkeypatch):
+    from core import notification_service
+
+    queue = AsyncMock(return_value={"status": "queued"})
+    monkeypatch.setattr(notification_service, "enqueue", queue)
+    client, bot, _ = notify
+    for source in ("PACK-personal", "FMT-exocortex-template"):
+        response = await post(
+            client,
+            {
+                "type": "ops_alert",
+                "source": source,
+                "failed": [
+                    {"target": "knowledge", "error": "OpenRouter embeddings error: 401"}
+                ],
+            },
+        )
+        assert response.status == 200
+    calls = queue.await_args_list
+    assert calls[0].kwargs["dedup_key"] == calls[1].kwargs["dedup_key"]
+    assert calls[0].kwargs["dedup_hours"] == 24
+    assert calls[0].kwargs["journal_key"] == calls[0].kwargs["dedup_key"]
+    assert "Что делать: проверить действительность ключа" in calls[0].args[2]["text"]
+    bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_center_retries_the_same_event_without_losing_request_outcome(
+    monkeypatch,
+):
+    from core.reindex_alert import write_reindex_center
+    import aiohttp
+
+    for name in ("URL", "USER", "TOKEN"):
+        monkeypatch.setenv(
+            "REINDEX_CENTER_LOKI_" + name,
+            "https://center.example" if name == "URL" else "synthetic",
+        )
+    posts = []
+    statuses = iter((503, 204))
+
+    class Response:
+        async def __aenter__(self):
+            self.status = next(statuses)
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def post(self, url, **kwargs):
+            posts.append(kwargs["json"])
+            return Response()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", Session)
+    assert await write_reindex_center(
+        {"source": "FMT", "failed": [{"error": "timeout 20s: result unknown"}]}
+    )
+    assert len(posts) == 2 and posts[0] == posts[1]
+    event = json.loads(posts[0]["streams"][0]["values"][0][1])
+    assert event["request_result"] == "unknown"
+    assert event["phase"] == "request"
+
+
+@pytest.mark.asyncio
+async def test_installation_single_flight_survives_failed_delivery(notify):
+    import asyncio
+    from core.ops_alert_dedup import (
+        reserve_installation_orphaned,
+        release_reservation,
+        mark_alert_sent,
+    )
+
+    body = {"installation_id": "42"}
+    _, key, first = await reserve_installation_orphaned(body)
+    waiting = asyncio.create_task(reserve_installation_orphaned(body))
+    await asyncio.sleep(0)
+    assert not waiting.done()
+    release_reservation(key, first)
+    accepted, _, second = await waiting
+    assert accepted
+    mark_alert_sent(key, second)
+    accepted, _, _ = await reserve_installation_orphaned(body)
+    assert not accepted
+
+
+def test_unspecified_http_refusal_does_not_invent_a_github_action():
+    from core.reindex_alert import reindex_action
+
+    assert not reindex_action({"failed": [{"target": "workbook", "error": "HTTP 403"}]})
+
+
+@pytest.mark.asyncio
+async def test_retry_after_queue_failure_retains_the_producer_event_id(
+    notify, monkeypatch
+):
+    from core import reindex_alert, notification_service
+
+    queue = AsyncMock(
+        side_effect=[RuntimeError("queue unavailable"), {"status": "queued"}]
+    )
+    monkeypatch.setattr(notification_service, "enqueue", queue)
+    client, bot, _ = notify
+    body = {
+        "type": "ops_alert",
+        "event_id": "test-source-event-1",
+        "source": "FMT",
+        "failed": [{"error": "OpenRouter embeddings error: 401"}],
+    }
+    first = await post(client, body)
+    second = await post(client, body)
+    assert first.status == 503 and second.status == 200
+    assert (
+        reindex_alert.write_reindex_center.await_args_list[0].args[0]["event_id"]
+        == body["event_id"]
+    )
+    assert (
+        reindex_alert.write_reindex_center.await_args_list[1].args[0]["event_id"]
+        == body["event_id"]
+    )
+    assert (
+        queue.await_args_list[0].kwargs["dedup_key"]
+        == queue.await_args_list[1].kwargs["dedup_key"]
+    )
+    bot.send_message.assert_not_awaited()

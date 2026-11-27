@@ -2046,36 +2046,10 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
     repo_name = body.get('repo_name', '')
 
     if notify_type == 'ops_alert':
-        import asyncio as _asyncio
-        from core.reindex_alert import render_reindex_alert
-        from core.ops_alert_dedup import mark_alert_sent, release_reservation, reserve_reindex_alert, suppressed_count
-        ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
-        if not ops_chat_id:
-            logger.warning("[InternalNotify] ops_alert получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
-            return web.Response(text=json.dumps({"ok": False, "reason": "ops_chat_not_configured"}), content_type="application/json", status=503)
-        if not _bot_instance:
-            logger.warning("[InternalNotify] Bot instance not ready")
-            return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
-        accepted, reservation, token = await reserve_reindex_alert(body)
-        if not accepted:
-            logger.info("[InternalNotify] ops_alert deduped key=%s", reservation)
-            return web.Response(text=json.dumps({"ok": True, "deduped": True}), content_type="application/json")
-        try:
-            await _bot_instance.send_message(
-                chat_id=int(ops_chat_id),
-                text=render_reindex_alert(body, suppressed_count(reservation)),
-                parse_mode="HTML",
-            )
-            mark_alert_sent(reservation, token)
-            logger.info("[InternalNotify] ops_alert sent")
-            return web.Response(text=json.dumps({"ok": True}), content_type="application/json")
-        except _asyncio.CancelledError:
-            release_reservation(reservation, token)
-            raise
-        except Exception as e:
-            release_reservation(reservation, token)
-            logger.exception("[InternalNotify] Error sending ops_alert: %s", e)
-            return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
+        from core.reindex_alert import route_reindex_alert
+
+        outcome, status = await route_reindex_alert(body)
+        return web.json_response(outcome, status=status)
 
     if notify_type == 'installation_orphaned':
         import asyncio as _asyncio
