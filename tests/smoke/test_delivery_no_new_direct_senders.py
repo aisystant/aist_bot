@@ -167,8 +167,6 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
     ("core/tier_detector.py", "_notify_downgrade"),
     ("core/tier_detector.py", "_notify_external_client_available"),
     ("core/unstick.py", "recover_user"),
-    ("engines/tailor/bot_adapter.py", "BotTailorAdapter.deliver"),
-    ("engines/tailor/delivery.py", "notify_tailor_lesson"),
     ("handlers/channels.py", "_notify_reply_to_bot_user"),
     ("handlers/channels.py", "_send_simple_notification"),
     ("handlers/channels.py", "on_bot_added_to_channel"),

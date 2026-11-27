@@ -29,6 +29,15 @@ logger = logging.getLogger(__name__)
 # opened from is remembered in _previous_states.
 MODAL_STATES = ('common.consultation', 'utility.notes')
 
+# Main menu: where "back" leads when there is nothing valid to return to.
+MENU_STATE = 'common.mode_select'
+
+
+def _user_name(user) -> str:
+    if isinstance(user, dict):
+        return user.get('name') or ''
+    return getattr(user, 'name', '') or ''
+
 
 class StateMachine:
     """
@@ -146,12 +155,14 @@ class StateMachine:
             return current_state
         if next_state == '_previous':
             # Возвращаем предыдущий стейт или mode_select по умолчанию
-            previous = self._previous_states.get(chat_id, 'common.mode_select')
+            previous = self._previous_states.get(chat_id, MENU_STATE)
+            if previous not in self._states:
+                return MENU_STATE
             # The slot holds the state a modal (consultation, notes) was opened from.
             # After asking "?" from a state and returning, the slot points at that very
             # state, so its own "back: _previous" would be a no-op and the button dead.
             if previous == current_state:
-                return 'common.mode_select'
+                return MENU_STATE
             return previous
 
         return next_state
@@ -199,6 +210,24 @@ class StateMachine:
 
         return None
 
+    async def _reset_unregistered_state(self, user, state_name: str, chat_id):
+        """The saved state name is no longer registered (a retired screen, e.g. Tailor, WP-262 F3a).
+
+        Handling the update under the stale name finds no transition, so the person gets
+        no screen and stays stuck. Save the default state and continue from it.
+        Returns (user, state, state_name) of the default state.
+        """
+        logger.warning(f"[SM] Unregistered state '{state_name}' for chat_id={chat_id}: reset to {self._default_state}")
+        if chat_id:
+            try:
+                from db.queries import update_user_state
+                await update_user_state(chat_id, self._default_state)
+            except Exception as e:
+                logger.warning(f"[SM] Could not save reset of '{state_name}' for chat_id={chat_id}: {e}")
+        if isinstance(user, dict):
+            user = {**user, 'current_state': self._default_state}
+        return user, self.get_state(self._default_state), self._default_state
+
     async def handle(self, user, message) -> None:
         """
         Основной метод обработки сообщения.
@@ -219,11 +248,18 @@ class StateMachine:
         chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
 
         if not current_state:
-            logger.error(f"Стейт не найден: {current_state_name}")
-            current_state = self.get_state(self._default_state)
+            user, current_state, current_state_name = await self._reset_unregistered_state(
+                user, current_state_name, chat_id)
             if not current_state:
                 logger.error("Даже дефолтный стейт не найден!")
                 return
+            # The text was meant for the retired screen: do not read it as an answer of the
+            # start screen (it would be saved as the name of a person who has none yet).
+            if _user_name(user):
+                await self._transition(user, current_state, MENU_STATE)
+            else:
+                await self.start(user)
+            return
 
         # Проверяем глобальные события
         message_text = message.text or ''
@@ -434,10 +470,18 @@ class StateMachine:
         chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
 
         if not current_state:
-            logger.error(f"Стейт не найден для callback: {current_state_name}")
-            current_state = self.get_state(self._default_state)
+            user, current_state, current_state_name = await self._reset_unregistered_state(
+                user, current_state_name, chat_id)
             if not current_state:
                 logger.error("Даже дефолтный стейт не найден!")
+                return
+            if not hasattr(current_state, 'handle_callback'):
+                # The pressed button belongs to a screen the person can no longer be in.
+                try:
+                    await callback.answer()
+                except Exception as e:
+                    logger.warning(f"[SM] Could not answer button of retired state '{current_state_name}': {e}")
+                await self._transition(user, current_state, MENU_STATE)
                 return
 
         # Проверяем, есть ли у стейта метод handle_callback
