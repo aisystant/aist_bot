@@ -123,7 +123,7 @@ def test_previous_pointing_at_current_state_falls_back_to_menu():
 
 
 def test_previous_pointing_elsewhere_is_kept():
-    machine = machine_with()
+    machine = machine_with("feed.digest")  # "back" only returns to a registered screen
     machine.set_previous_state(CHAT_ID, "feed.digest")
 
     assert machine.get_next_state("utility.progress", "back", CHAT_ID) == "feed.digest"

@@ -116,14 +116,6 @@ def test_every_stored_state_has_a_label():
     assert format_state_label("no_such_state", "ru") == "no_such_state"
 
 
-def test_tailor_adjusts_by_test_state_ids():
-    from engines.tailor.engine import STATE_ADJUSTMENTS
-    # Keys must be the ids the /test stores; marathon check-in ids never reach the tailor.
-    assert set(STATE_ADJUSTMENTS) == {"chaos", "deadlock", "turning_point", "development"}
-    assert STATE_ADJUSTMENTS["deadlock"] == {3: 1.5, 1: 1.5}
-    assert "mixed" not in STATE_ADJUSTMENTS
-
-
 def test_feed_hints_know_development():
     from engines.feed.planner import _get_feed_topic_hint, _get_feed_digest_hint
     assert "Развитие" in _get_feed_topic_hint("development")

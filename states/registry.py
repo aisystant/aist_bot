@@ -37,9 +37,6 @@ from states.feed import FeedTopicsState, FeedDigestState
 # Тренировка (WP-55)
 from states.training import TrainingDashboardState, TrainingAssignmentState, TrainingSetupState, TrainingChildAssignmentState
 
-# Портной (WP-149, SC.020)
-from states.tailor import TailorResponseState
-
 # Utilities (частично реализовано)
 from states.utilities import ProgressState, MyDataState, FeedbackState
 # TODO: Неделя 8 — раскомментировать после создания
@@ -98,9 +95,6 @@ def register_all_states(
         TrainingSetupState(*args),
         TrainingChildAssignmentState(*args),
 
-        # Tailor стейты (WP-149, SC.020)
-        TailorResponseState(*args),
-
         # Utility стейты
         ProgressState(*args),
         MyDataState(*args),
@@ -149,9 +143,6 @@ def get_available_states() -> list[str]:
         "training.assignment",
         "training.setup",
         "training.child_assignment",
-
-        # Tailor (Портной)
-        "tailor.response",
 
         # Utilities
         "utility.progress",

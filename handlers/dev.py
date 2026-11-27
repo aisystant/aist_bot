@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, /tailor, autofix callbacks.
+Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, autofix callbacks.
 
 Доступны только для DEVELOPER_CHAT_ID.
 """
@@ -1031,24 +1031,6 @@ async def cmd_dt_sync(message: Message):
     except Exception as e:
         logger.error(f"[Dev] /dt_sync error: {e}", exc_info=True)
         await message.answer(f"<b>/dt_sync error:</b>\n<code>{e}</code>", parse_mode="HTML")
-
-
-@dev_router.message(Command("tailor"))
-async def cmd_tailor(message: Message):
-    """/tailor — ручной триггер занятия Портного (WP-149, SC.020).
-
-    Доступна всем пользователям (генерирует занятие для себя).
-    force=True обходит idempotency для повторного тестирования.
-    """
-    chat_id = message.chat.id
-    logger.info(f"[Dev] /tailor triggered by {chat_id}")
-
-    await message.answer(
-        "⚠️ <b>/tailor не реализован</b>\n\n"
-        "deliver_tailor_lesson() переехала в activity-hub (платформа L2).\n"
-        "Интеграция: WP-149 / WP-222.",
-        parse_mode="HTML",
-    )
 
 
 @dev_router.message(Command("nudge_test"))
