@@ -2618,6 +2618,78 @@ async def discourse_webhook_handler(request: web.Request) -> web.Response:
 
 
 _typing_rate_limit: dict[str, float] = {}  # token → last_request_ts (WP-327 Phase 4)
+_notes_rate_limit: dict[str, float] = {}  # token → last_request_ts (WP-384 notes shortcut)
+_NOTES_MIN_INTERVAL_SEC = 5.0
+_NOTES_MAX_CHARS = 4000
+
+
+def _notes_say(outcome) -> str:
+    """Phrase Siri speaks back for a note outcome (core.fleeting_notes.NoteOutcome)."""
+    from core.fleeting_notes import NoteStatus
+
+    if outcome.status is NoteStatus.SAVED:
+        repo_name = (outcome.repo or "").rsplit("/", 1)[-1]
+        return f"Записано в быстрые заметки, репозиторий {repo_name}." if repo_name else "Записано в быстрые заметки."
+    return {
+        NoteStatus.NO_ACCESS: "Не записал: заметки доступны по подписке. Подробности в боте.",
+        NoteStatus.NO_GITHUB: "Не записал: подключите гитхаб в боте.",
+        NoteStatus.NO_REPO: "Не записал: выберите в боте репозиторий для заметок.",
+        NoteStatus.RECONNECT: "Не записал: переподключите гитхаб в боте.",
+        NoteStatus.FAILED: "Не получилось записать. Попробуйте ещё раз.",
+    }[outcome.status]
+
+
+def _notes_reply(ok: bool, say: str, status: int = 200, url: str | None = None) -> web.Response:
+    return web.json_response({"ok": ok, "say": say, "url": url}, status=status)
+
+
+async def notes_shortcut_handler(request: web.Request) -> web.Response:
+    """POST /api/notes - a fleeting note from Siri / iOS Shortcuts (WP-384).
+
+    Auth: X-IWE-Api-Key, the personal notes key from /siri (scope "notes" only).
+    Body JSON: {"text": "<note>"}. Response JSON: {"ok", "say", "url"}, where "say"
+    is the phrase the shortcut speaks back (it names the notes repo). No chat
+    message is sent: proactive messages go only through the notification layer.
+    The note text is never logged.
+    """
+    import time
+
+    from core.fleeting_notes import NoteStatus, save_fleeting_note
+    from db.queries.iwe_extension import (
+        NOTES_SHORTCUT_SERVICE,
+        get_telegram_id_for_account,
+        validate_extension_token,
+    )
+
+    token = request.headers.get("X-IWE-Api-Key", "").strip()
+    account_id = await validate_extension_token(token, NOTES_SHORTCUT_SERVICE) if token else None
+    if not account_id:
+        return _notes_reply(False, "Ключ не подошёл. Получите новый в боте командой сири.", status=401)
+
+    now = time.monotonic()
+    if now - _notes_rate_limit.get(token, 0.0) < _NOTES_MIN_INTERVAL_SEC:
+        return _notes_reply(False, "Слишком часто. Подождите несколько секунд.", status=429)
+    _notes_rate_limit[token] = now
+    for stale in [k for k, v in _notes_rate_limit.items() if v < now - 3600]:
+        _notes_rate_limit.pop(stale, None)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return _notes_reply(False, "Не понял запрос.", status=400)
+    text = str(body.get("text") or "").strip() if isinstance(body, dict) else ""
+    if not text:
+        return _notes_reply(False, "Не расслышал заметку. Повторите.", status=400)
+    if len(text) > _NOTES_MAX_CHARS:
+        return _notes_reply(False, "Заметка слишком длинная. Разбейте на части.", status=413)
+
+    chat_id = await get_telegram_id_for_account(account_id)
+    if not chat_id:
+        return _notes_reply(False, "Аккаунт не привязан к боту.", status=404)
+
+    outcome = await save_fleeting_note(chat_id, text)
+    logger.info("[NotesShortcut] chat_id=%s status=%s", chat_id, outcome.status.value)
+    return _notes_reply(outcome.status is NoteStatus.SAVED, _notes_say(outcome), url=outcome.url)
 
 
 async def typing_delta_handler(request: web.Request) -> web.Response:
@@ -2934,6 +3006,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)   # WP-341 Этап 2
     app.router.add_post("/webhook/discourse", discourse_webhook_handler) # WP-327 Этап 23
     app.router.add_post("/api/typing_delta", typing_delta_handler)       # WP-327 Phase 4: Browser Extension heartbeat
+    app.router.add_post("/api/notes", notes_shortcut_handler)  # WP-384: Siri / iOS Shortcuts notes
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:

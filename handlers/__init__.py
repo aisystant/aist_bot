@@ -46,6 +46,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .subscription_stars import subscription_stars_router
     from .payments import payments_router
     from .discourse import discourse_router
+    from .siri import siri_router
     from .link import link_router
     from .schedule import schedule_router
     from .guide import guide_router
@@ -104,6 +105,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(gcal_router)
     dp.include_router(wakatime_router)
     dp.include_router(discourse_router)
+    dp.include_router(siri_router)  # WP-384: /siri notes shortcut key
     dp.include_router(link_router)
     dp.include_router(schedule_router)
     dp.include_router(guide_router)
