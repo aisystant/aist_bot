@@ -8,7 +8,10 @@ Implements DP.SC.178 "IWE voice channel (input)":
 - a transcript that starts with the word «вопрос» becomes a typed "?" question
   (consultation via the state machine);
 - the audio is not stored and the transcript is not logged;
-- a separate consent gate for voice processing (scope voice_processing).
+- a separate consent gate for voice processing (scope voice_processing);
+- only for chats allowed by core.voice_access; a voice message is not claimed when
+  the bot is waiting for an answer (FSM state, marathon/feed reply, agent session)
+  or when it replies to a message of the bot: those keep their previous handling.
 """
 
 from __future__ import annotations
@@ -18,10 +21,13 @@ import re
 
 import aiohttp
 from aiogram import F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.enums import ContentType
+from aiogram.filters import StateFilter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import STT_API_KEY, STT_BASE_URL, STT_MODEL, VOICE_MAX_DURATION_SEC
+from core.voice_access import voice_enabled_for
 from db.queries import get_intern
 from db.queries.consent import get_consent_grant, set_consent_grant
 from helpers.dual_write import resolve_ory_id_from_chat
@@ -71,6 +77,30 @@ def split_spoken_question(transcript: str) -> str | None:
     if not match:
         return None
     return transcript[match.end():].strip() or None
+
+
+def _is_reply_to_bot(message: Message) -> bool:
+    replied = message.reply_to_message
+    return bool(replied and replied.from_user and replied.from_user.is_bot)
+
+
+def voice_claimable(message: Message) -> bool:
+    """Router filter: a private voice message of an allowed user, not a reply to the bot."""
+    return (
+        message.chat.type == "private"
+        and message.from_user is not None
+        and message.voice is not None
+        and not _is_reply_to_bot(message)
+        and voice_enabled_for(message.from_user.id)
+    )
+
+
+async def _bot_awaits_reply(chat_id: int) -> bool:
+    """The marathon or the feed is waiting for this user's answer (same check as the "Гермес" prefix)."""
+    from handlers.external_session import _sm_is_expecting_reply
+    from states.feed.digest import FeedDigestState
+
+    return await _sm_is_expecting_reply(chat_id) or FeedDigestState.is_waiting_fixation(chat_id)
 
 
 def _as_typed(message: Message, text: str) -> Message:
@@ -142,12 +172,12 @@ async def _transcript_or_reply(message: Message) -> str | None:
     return transcript
 
 
-@voice_router.message(F.content_type == ContentType.VOICE)
+@voice_router.message(F.content_type == ContentType.VOICE, StateFilter(None), voice_claimable)
 async def on_voice(message: Message) -> None:
     """Voice message -> echo of the transcript -> note (default) or question («вопрос …»)."""
-    if message.chat.type in ("channel", "group", "supergroup") or message.from_user is None or not message.voice:
-        return
     chat_id = message.from_user.id
+    if await _bot_awaits_reply(chat_id):
+        raise SkipHandler
 
     if (message.voice.duration or 0) > VOICE_MAX_DURATION_SEC:
         await message.answer(

@@ -173,7 +173,7 @@ class GitHubNotesClient:
 
         if not result:
             self._pending.append((telegram_user_id, text, 1))
-            logger.warning(f"Note queued for retry (1/{self._MAX_RETRIES}): {text[:30]}...")
+            logger.warning(f"Note queued for retry (1/{self._MAX_RETRIES}): {len(text)} chars")
 
         return result
 
@@ -332,15 +332,15 @@ class GitHubNotesClient:
             try:
                 result = await self.append_note(user_id, text)
             except GitHubAuthUnavailable as e:
-                logger.warning(f"Note retry dropped, no auth ({e}): user={user_id}, text={text[:30]}...")
+                logger.warning(f"Note retry dropped, no auth ({e}): user={user_id}, {len(text)} chars")
                 continue
             if result:
-                logger.info(f"Retry succeeded: {text[:30]}...")
+                logger.info(f"Retry succeeded: user={user_id}, {len(text)} chars")
             elif attempt < self._MAX_RETRIES:
                 self._pending.append((user_id, text, attempt + 1))
-                logger.warning(f"Note retry {attempt + 1}/{self._MAX_RETRIES}: {text[:30]}...")
+                logger.warning(f"Note retry {attempt + 1}/{self._MAX_RETRIES}: user={user_id}, {len(text)} chars")
             else:
-                logger.error(f"Note dropped after {self._MAX_RETRIES} retries: user={user_id}, text={text[:50]}")
+                logger.error(f"Note dropped after {self._MAX_RETRIES} retries: user={user_id}, {len(text)} chars")
 
     async def clear_notes(self, telegram_user_id: int) -> bool:
         """Очищает файл заметок (сохраняет шапку с описанием).

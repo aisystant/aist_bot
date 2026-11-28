@@ -2655,6 +2655,7 @@ async def notes_shortcut_handler(request: web.Request) -> web.Response:
     import time
 
     from core.fleeting_notes import NoteStatus, save_fleeting_note
+    from core.voice_access import voice_enabled_for
     from db.queries.iwe_extension import (
         NOTES_SHORTCUT_SERVICE,
         get_telegram_id_for_account,
@@ -2686,6 +2687,8 @@ async def notes_shortcut_handler(request: web.Request) -> web.Response:
     chat_id = await get_telegram_id_for_account(account_id)
     if not chat_id:
         return _notes_reply(False, "Аккаунт не привязан к боту.", status=404)
+    if not voice_enabled_for(chat_id):
+        return _notes_reply(False, "Заметки через Siri пока недоступны.", status=403)
 
     outcome = await save_fleeting_note(chat_id, text)
     logger.info("[NotesShortcut] chat_id=%s status=%s", chat_id, outcome.status.value)

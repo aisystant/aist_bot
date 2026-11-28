@@ -21,6 +21,9 @@ STT_API_KEY = os.getenv("STT_API_KEY")
 STT_BASE_URL = os.getenv("STT_BASE_URL", "https://openrouter.ai/api/v1")
 STT_MODEL = os.getenv("STT_MODEL", "openai/gpt-4o-mini-transcribe")
 VOICE_MAX_DURATION_SEC = int(os.getenv("VOICE_MAX_DURATION_SEC", "60"))
+# WP-384: who may use voice notes and Siri notes besides DEVELOPER_CHAT_ID:
+# comma-separated Telegram ids, "*" = everyone, empty = nobody else.
+VOICE_ALLOWED_CHAT_IDS = os.getenv("VOICE_ALLOWED_CHAT_IDS", "")
 
 # Claude models: Sonnet для сложных задач, Haiku для простых
 CLAUDE_MODEL_OPUS = "claude-sonnet-4-6"
