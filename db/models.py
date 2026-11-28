@@ -11,6 +11,7 @@ import os
 
 import asyncpg
 from config import get_logger
+from db.voice_operations_schema import DDL as VOICE_OPERATION_DDL
 
 logger = get_logger(__name__)
 
@@ -323,6 +324,8 @@ async def create_tables(pool: asyncpg.Pool):
         # ═══════════════════════════════════════════════════════════
         # ЛЕНТА: НЕДЕЛЬНЫЕ ПЛАНЫ
         # ═══════════════════════════════════════════════════════════
+        await conn.execute(VOICE_OPERATION_DDL)
+
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS public.feed_weeks (
                 id SERIAL PRIMARY KEY,

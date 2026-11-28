@@ -12,6 +12,18 @@ from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from config import MULTILANG_ENABLED
 
 
+# ============= ЗАМЕТКИ =============
+
+NOTE_UNDO_PREFIX = "nu:"
+
+
+def kb_note_undo(undo_ref: str) -> InlineKeyboardMarkup:
+    """Кнопка «Отменить» под сообщением «Записано»; undo_ref = «отпечаток:число строк» заметки."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="↩️ Отменить", callback_data=f"{NOTE_UNDO_PREFIX}{undo_ref}")]
+    ])
+
+
 # ============= КЛАВИАТУРЫ ОНБОРДИНГА =============
 
 def kb_experience(lang: str = 'ru') -> InlineKeyboardMarkup:

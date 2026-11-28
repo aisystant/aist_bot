@@ -4,50 +4,87 @@ Implements DP.SC.178 "IWE voice channel (input)":
 - voice is an edge channel: the transcript is routed exactly like typed text,
   no voice-only logic in the core;
 - default: the transcript becomes a fleeting note, the same as a typed ".text" note
-  (handlers.github.handle_fleeting_note -> fleeting-notes.md in the user's repo);
-- a transcript that starts with the word «вопрос» becomes a typed "?" question
-  (consultation via the state machine);
+  (handlers.github.process_fleeting_note -> core.fleeting_notes -> fleeting-notes.md in the
+  user's notes repo), marked "голос" and with an undo button under «Записано»;
+- «заметка …» forces a note, a transcript that starts with the word «вопрос» becomes a
+  typed "?" question (consultation via the state machine);
 - the audio is not stored and the transcript is not logged;
-- a separate consent gate for voice processing (scope voice_processing);
+- a separate consent gate for voice processing (scope voice_processing); a voice message
+  sent before the consent is processed right after the user agrees;
 - only for chats allowed by core.voice_access; a voice message is not claimed when
   the bot is waiting for an answer (FSM state, marathon/feed reply, agent session)
-  or when it replies to a message of the bot: those keep their previous handling.
+  or when it replies to a message of the bot: those keep their previous handling;
+- one [voice-metric] log line per voice message (outcome, duration, recognition time) and a
+  "voice.stt" span in the request trace.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
+from contextlib import suppress
+from dataclasses import dataclass
 
 import aiohttp
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.enums import ContentType
-from aiogram.filters import StateFilter
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
+from clients.github_api import (
+    NoteRef,
+    NoteTarget,
+    RemoveStatus,
+    github_notes,
+    parse_note_ref,
+)
+from clients.github_auth import GitHubAuthUnavailable
 from config import STT_API_KEY, STT_BASE_URL, STT_MODEL, VOICE_MAX_DURATION_SEC
+from core.fleeting_notes import NoteOutcome, NoteSource, NoteStatus
+from core.tracing import span
 from core.voice_access import voice_enabled_for
 from db.queries import get_intern
+from db.queries import voice_operations as voice_ops
 from db.queries.consent import get_consent_grant, set_consent_grant
 from helpers.dual_write import resolve_ory_id_from_chat
+from integrations.telegram.keyboards import NOTE_UNDO_PREFIX
 
 logger = logging.getLogger(__name__)
 
 voice_router = Router(name="voice")
 
 _VOICE_CONSENT_SCOPE = "voice_processing"
-_VOICE_CONSENT_VERSION = "v1.2"
+_VOICE_CONSENT_VERSION = "v1.3"
 _STT_TIMEOUT_SEC = 30
 # Typed-text triggers: ".text" saves a fleeting note, "?text" asks a question
 # (the "consultation" global event in config/transitions.yaml).
 _NOTE_PREFIX = "."
 _QUESTION_PREFIX = "?"
 _SPOKEN_QUESTION_RE = re.compile(r"^\s*вопрос\b[\s,.:;!?\-–—]*", re.IGNORECASE)
+_SPOKEN_NOTE_RE = re.compile(r"^\s*заметка\b[\s,.:;!?\-–—]*", re.IGNORECASE)
 
 
 class TranscriptionError(RuntimeError):
     """The speech-to-text provider did not return a transcript."""
+
+
+@dataclass
+class _VoiceRun:
+    """What one voice message did, for the single metric line written when it is done."""
+
+    voice_sec: int
+    outcome: str = "aborted"
+    stt_ms: int | None = None
+    chars: int = 0
 
 
 async def _transcribe_voice(audio: bytes) -> str:
@@ -59,24 +96,36 @@ async def _transcribe_voice(audio: bytes) -> str:
     form.add_field("model", STT_MODEL)
     form.add_field("file", audio, filename="voice.ogg", content_type="audio/ogg")
     timeout = aiohttp.ClientTimeout(total=_STT_TIMEOUT_SEC)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(
+    async with (
+        aiohttp.ClientSession(timeout=timeout) as session,
+        session.post(
             f"{STT_BASE_URL.rstrip('/')}/audio/transcriptions",
             data=form,
             headers={"Authorization": f"Bearer {STT_API_KEY}"},
-        ) as resp:
-            if resp.status != 200:
-                raise TranscriptionError(f"STT HTTP {resp.status}")
-            data = await resp.json()
+        ) as resp,
+    ):
+        if resp.status != 200:
+            raise TranscriptionError(f"STT HTTP {resp.status}")
+        data = await resp.json()
     return str(data.get("text") or "").strip()
+
+
+def _split_spoken(pattern: re.Pattern[str], transcript: str) -> str | None:
+    """Text after a spoken marker word at the start, None when there is no marker or nothing after it."""
+    match = pattern.match(transcript)
+    if not match:
+        return None
+    return transcript[match.end() :].strip() or None
 
 
 def split_spoken_question(transcript: str) -> str | None:
     """Question text when the transcript starts with «вопрос», otherwise None."""
-    match = _SPOKEN_QUESTION_RE.match(transcript)
-    if not match:
-        return None
-    return transcript[match.end():].strip() or None
+    return _split_spoken(_SPOKEN_QUESTION_RE, transcript)
+
+
+def split_spoken_note(transcript: str) -> str | None:
+    """Note text when the transcript starts with «заметка», otherwise None."""
+    return _split_spoken(_SPOKEN_NOTE_RE, transcript)
 
 
 def _is_reply_to_bot(message: Message) -> bool:
@@ -100,7 +149,9 @@ async def _bot_awaits_reply(chat_id: int) -> bool:
     from handlers.external_session import _sm_is_expecting_reply
     from states.feed.digest import FeedDigestState
 
-    return await _sm_is_expecting_reply(chat_id) or FeedDigestState.is_waiting_fixation(chat_id)
+    return await _sm_is_expecting_reply(chat_id) or FeedDigestState.is_waiting_fixation(
+        chat_id
+    )
 
 
 def _as_typed(message: Message, text: str) -> Message:
@@ -108,11 +159,27 @@ def _as_typed(message: Message, text: str) -> Message:
     return message.model_copy(update={"text": text, "voice": None})
 
 
-async def _save_as_note(message: Message, transcript: str) -> None:
-    """Route the transcript exactly like a typed ".text" fleeting note."""
-    from handlers.github import handle_fleeting_note
+async def _save_as_note(
+    message: Message,
+    text: str,
+    *,
+    operation_id=None,
+    target=None,
+    created_at=None,
+    bind_block_hash=None,
+) -> NoteOutcome | None:
+    """Route the text exactly like a typed ".text" fleeting note, marked as spoken."""
+    from handlers.github import process_fleeting_note
 
-    await handle_fleeting_note(_as_typed(message, f"{_NOTE_PREFIX}{transcript}"))
+    return await process_fleeting_note(
+        _as_typed(message, f"{_NOTE_PREFIX}{text}"),
+        NoteSource.VOICE,
+        operation_id=operation_id,
+        target=target,
+        created_at=created_at,
+        bind_block_hash=bind_block_hash,
+        queue_retry=False,
+    )
 
 
 async def _ask_as_question(message: Message, question: str) -> bool:
@@ -121,25 +188,53 @@ async def _ask_as_question(message: Message, question: str) -> bool:
 
     dispatcher = get_dispatcher()
     intern = await get_intern(message.chat.id)
-    if not dispatcher or not dispatcher.is_sm_active or not intern or not intern.get("onboarding_completed"):
+    if (
+        not dispatcher
+        or not dispatcher.is_sm_active
+        or not intern
+        or not intern.get("onboarding_completed")
+    ):
         return False
-    await dispatcher.route_message(intern, _as_typed(message, f"{_QUESTION_PREFIX}{question}"))
+    await dispatcher.route_message(
+        intern, _as_typed(message, f"{_QUESTION_PREFIX}{question}")
+    )
     return True
 
 
 def _consent_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="✅ Согласиться", callback_data="voice_consent_grant")]]
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Согласиться", callback_data="voice_consent_grant"
+                )
+            ]
+        ]
     )
 
 
+_CONSENT_TEXT = (
+    "🎤 <b>Голосовые сообщения</b>\n\n"
+    "Запись распознаёт сервис OpenAI через OpenRouter, по их правилам хранения. Бот запись не хранит. "
+    "Текст сохраняется заметкой туда же, куда заметки с точкой, и копия текста заметки передаётся "
+    "платформе Aisystant, как у обычных заметок. Если начать голосовое со слова «вопрос», ответит "
+    "Наставник; со слова «заметка» - точно запишется заметкой.\n\n"
+    "Отключить голосовые можно командой /voice_off.\n\n"
+    "Нужно твоё согласие на обработку голоса."
+)
+
+
 @voice_router.callback_query(F.data == "voice_consent_grant")
-async def on_voice_consent_grant(callback: CallbackQuery) -> None:
-    """The user gave consent for voice processing with the inline button."""
+async def on_voice_consent_grant(
+    callback: CallbackQuery, state: FSMContext | None = None
+) -> None:
+    """The user gave consent: remember it and process the voice message that asked for it."""
     chat_id = callback.from_user.id
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
-        await callback.answer("Сначала подключи аккаунт через /settings", show_alert=True)
+        await callback.answer(
+            "Сначала подключи аккаунт через /settings", show_alert=True
+        )
         return
     await set_consent_grant(
         account_id=account_id,
@@ -148,38 +243,173 @@ async def on_voice_consent_grant(callback: CallbackQuery) -> None:
         consent_version=_VOICE_CONSENT_VERSION,
         interface="bot",
     )
-    await callback.answer("✅ Голосовые включены. Отправь голосовое сообщение.", show_alert=True)
+    pending = callback.message.reply_to_message if callback.message else None
+    resume = bool(
+        pending
+        and pending.voice
+        and pending.from_user
+        and pending.from_user.id == chat_id
+    )
+    if resume and not await _route_open(pending, state):
+        await callback.answer(
+            "Голосовые включены. Заверши текущий диалог и повтори обработку.",
+            show_alert=True,
+        )
+        return
+    await callback.answer(
+        "✅ Голосовые включены. Обрабатываю это сообщение."
+        if resume
+        else "✅ Голосовые включены. Отправь голосовое сообщение.",
+        show_alert=True,
+    )
+    if resume and voice_claimable(pending):
+        await _handle_voice(pending, state)
 
 
-async def _transcript_or_reply(message: Message) -> str | None:
+@voice_router.callback_query(F.data == "voice_retry")
+async def on_voice_retry(
+    callback: CallbackQuery, state: FSMContext | None = None
+) -> None:
+    pending = callback.message.reply_to_message if callback.message else None
+    if not (
+        pending
+        and pending.from_user
+        and pending.from_user.id == callback.from_user.id
+        and voice_claimable(pending)
+    ):
+        await callback.answer("Исходное голосовое недоступно.", show_alert=True)
+        return
+    if not await _route_open(pending, state):
+        await callback.answer("Сначала заверши текущий диалог.", show_alert=True)
+        return
+    await callback.answer("Повторяю обработку.")
+    await _handle_voice(pending, state)
+
+
+@voice_router.message(Command("voice_off"))
+async def cmd_voice_off(message: Message) -> None:
+    """Withdraw the consent for voice processing."""
+    if message.from_user is None:
+        return
+    account_id = await resolve_ory_id_from_chat(message.from_user.id)
+    if not account_id:
+        await message.answer(
+            "Аккаунт Aisystant не подключён, голосовые и так не обрабатываются."
+        )
+        return
+    await set_consent_grant(
+        account_id=account_id,
+        scope=_VOICE_CONSENT_SCOPE,
+        granted=False,
+        consent_version=_VOICE_CONSENT_VERSION,
+        interface="bot",
+    )
+    await message.answer(
+        "Голосовые отключены. Включить снова можно, отправив голосовое и нажав «Согласиться»."
+    )
+
+
+@voice_router.callback_query(F.data.startswith(NOTE_UNDO_PREFIX))
+async def on_note_undo(callback: CallbackQuery) -> None:
+    """«Отменить» under a saved voice note: remove exactly that note from the file."""
+    parsed = _parse_undo_ref(callback.data[len(NOTE_UNDO_PREFIX) :])
+    if parsed is None:
+        await callback.answer(
+            "Не получилось отменить: кнопка устарела.", show_alert=True
+        )
+        return
+    try:
+        status = await github_notes.remove_note_block(callback.from_user.id, parsed)
+    except GitHubAuthUnavailable:
+        await callback.answer("Нужно переподключить GitHub: /github", show_alert=True)
+        return
+    if status is RemoveStatus.FAILED:
+        await callback.answer(
+            "Не получилось отменить. Попробуй ещё раз.", show_alert=True
+        )
+        return
+    text = (
+        "↩️ Заметка отменена."
+        if status is RemoveStatus.REMOVED
+        else ("Не нашёл эту заметку в файле: её уже изменили или удалили.")
+    )
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text(text)
+
+
+def _parse_undo_ref(ref: str) -> NoteRef | None:
+    """Versioned operation identity, content fingerprint and destination binding."""
+    return parse_note_ref(ref)
+
+
+async def _transcript_or_reply(message: Message, run: _VoiceRun) -> str | None:
     """Download and transcribe the voice; on failure tell the user and return None."""
     try:
         downloaded = await message.bot.download(message.voice)
         audio = downloaded.read() if downloaded else b""
-    except Exception:
-        logger.exception("[voice] download failed for chat_id=%s", message.chat.id)
+    except Exception as exc:  # noqa: BLE001 — Telegram download errors become a retry prompt
+        logger.warning("[voice] download failed: %s", type(exc).__name__)
+        run.outcome = "download_failed"
         await message.answer("⚠️ Не удалось получить голосовое. Попробуй ещё раз.")
         return None
+    started = time.monotonic()
     try:
-        transcript = await _transcribe_voice(audio)
-    except Exception as exc:
-        logger.warning("[voice] transcription failed for chat_id=%s: %s", message.chat.id, type(exc).__name__)
-        await message.answer("🎤 Не смог распознать голосовое. Повтори или напиши текстом.")
+        async with span("voice.stt", voice_sec=run.voice_sec, model=STT_MODEL):
+            transcript = await _transcribe_voice(audio)
+    except Exception as exc:  # noqa: BLE001 — provider failures become a retry prompt
+        run.stt_ms = int((time.monotonic() - started) * 1000)
+        logger.warning(
+            "[voice] transcription failed for chat_id=%s: %s",
+            message.chat.id,
+            type(exc).__name__,
+        )
+        run.outcome = "stt_failed"
+        await message.answer(
+            "🎤 Не смог распознать голосовое. Повтори или напиши текстом."
+        )
         return None
+    run.stt_ms = int((time.monotonic() - started) * 1000)
+    run.chars = len(transcript)
     if not transcript:
+        run.outcome = "empty"
         await message.answer("🎤 Расшифровка пустая. Скажи ещё раз или напиши текстом.")
         return None
     return transcript
 
 
-@voice_router.message(F.content_type == ContentType.VOICE, StateFilter(None), voice_claimable)
-async def on_voice(message: Message) -> None:
-    """Voice message -> echo of the transcript -> note (default) or question («вопрос …»)."""
-    chat_id = message.from_user.id
-    if await _bot_awaits_reply(chat_id):
+@voice_router.message(
+    F.content_type == ContentType.VOICE, StateFilter(None), voice_claimable
+)
+async def on_voice(message: Message, state: FSMContext | None = None) -> None:
+    """Voice message of an allowed user, unless the bot waits for the user's answer."""
+    if not await _fsm_is_clear(state) or await _bot_awaits_reply(message.from_user.id):
         raise SkipHandler
+    await _handle_voice(message, state)
 
-    if (message.voice.duration or 0) > VOICE_MAX_DURATION_SEC:
+
+async def _handle_voice(message: Message, state: FSMContext | None = None) -> None:
+    """Gates, recognition, echo, then a note (default) or a question; writes one metric line."""
+    run = _VoiceRun(voice_sec=message.voice.duration or 0)
+    try:
+        await _process_voice(message, run, state)
+    finally:
+        logger.info(
+            "[voice-metric] outcome=%s voice_sec=%d stt_ms=%s chars=%d",
+            run.outcome,
+            run.voice_sec,
+            run.stt_ms if run.stt_ms is not None else "-",
+            run.chars,
+        )
+
+
+async def _process_voice(
+    message: Message, run: _VoiceRun, state: FSMContext | None = None
+) -> None:
+    chat_id = message.from_user.id
+
+    if run.voice_sec > VOICE_MAX_DURATION_SEC:
+        run.outcome = "too_long"
         await message.answer(
             f"⚠️ Голосовое длиннее {VOICE_MAX_DURATION_SEC} сек. Разбей на части или напиши текстом."
         )
@@ -187,6 +417,7 @@ async def on_voice(message: Message) -> None:
 
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
+        run.outcome = "no_account"
         await message.answer(
             "🔐 Для голосовых нужно подключить аккаунт Aisystant.\n\n"
             "Нажми /settings → «Подключить аккаунт» и повтори голосовое."
@@ -194,35 +425,188 @@ async def on_voice(message: Message) -> None:
         return
 
     if not await get_consent_grant(account_id, _VOICE_CONSENT_SCOPE):
-        await message.answer(
-            "🎤 <b>Голосовые сообщения</b>\n\n"
-            "Запись распознаётся сервисом распознавания речи OpenAI (через OpenRouter) и не хранится. "
-            "Текст сохраняется заметкой туда же, куда заметки, начатые с точки. "
-            "Если начать голосовое со слова «вопрос», ответит Наставник.\n\n"
-            "Нужно твоё согласие на обработку голоса.",
-            reply_markup=_consent_keyboard(),
-            parse_mode="HTML",
+        run.outcome = "no_consent"
+        # A reply, so that «Согласиться» can find this voice message and process it.
+        await message.reply(
+            _CONSENT_TEXT, reply_markup=_consent_keyboard(), parse_mode="HTML"
         )
         return
 
     if not STT_API_KEY:
         logger.error("[voice] STT_API_KEY is not configured")
-        await message.answer("⚠️ Голосовые временно недоступны. Напиши текстом или попробуй позже.")
+        run.outcome = "stt_not_configured"
+        await message.answer(
+            "⚠️ Голосовые временно недоступны. Напиши текстом или попробуй позже."
+        )
         return
 
-    transcript = await _transcript_or_reply(message)
-    if transcript is None:
-        return
-    await message.answer(f"🎤 {transcript}")
-
-    question = split_spoken_question(transcript)
-    if question is None:
-        await _save_as_note(message, transcript)
+    if not await _route_open(message, state):
+        run.outcome = "dialog_active"
+        await _offer_voice_retry(message, "Сначала заверши текущий диалог.")
         return
     try:
-        routed = await _ask_as_question(message, question)
-    except Exception:
-        logger.exception("[voice] question routing failed for chat_id=%s", chat_id)
-        routed = False
-    if not routed:
-        await message.answer("Ответить на вопрос сейчас не получилось. Задай его текстом, начав с «?».")
+        claim = await voice_ops.claim_voice_operation(
+            message.bot.id, message.chat.id, message.message_id
+        )
+    except Exception as exc:  # noqa: BLE001 — unavailable storage disables only voice processing
+        logger.warning("[voice] receipt storage unavailable: %s", type(exc).__name__)
+        run.outcome = "storage_unavailable"
+        await _offer_voice_retry(
+            message, "Голосовые временно недоступны. Попробуй позже."
+        )
+        return
+    if claim.state is voice_ops.ClaimState.COMPLETED:
+        run.outcome = "already_completed"
+        await message.answer("Это голосовое уже обработано.")
+        return
+    if claim.state is voice_ops.ClaimState.BUSY:
+        run.outcome = "already_processing"
+        await message.answer("Это голосовое ещё обрабатывается.")
+        return
+    await _run_owned_voice(message, run, state, claim)
+
+
+async def _fsm_is_clear(state: FSMContext | None) -> bool:
+    return state is not None and await state.get_state() is None
+
+
+async def _route_open(message: Message, state: FSMContext | None) -> bool:
+    return (
+        voice_claimable(message)
+        and await _fsm_is_clear(state)
+        and not await _bot_awaits_reply(message.from_user.id)
+    )
+
+
+async def _offer_voice_retry(message: Message, text: str) -> None:
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Повторить обработку", callback_data="voice_retry"
+                )
+            ]
+        ]
+    )
+    await message.reply(text, reply_markup=keyboard)
+
+
+_VOICE_HEARTBEAT_SEC = 20
+
+
+async def _keep_voice_lease(claim, parent, lost) -> None:
+    try:
+        while True:
+            await asyncio.sleep(_VOICE_HEARTBEAT_SEC)
+            if not await voice_ops.renew_voice_operation(claim):
+                break
+    except Exception as exc:  # noqa: BLE001 — failed renewal must stop the external operation
+        logger.warning("[voice] lease renewal failed: %s", type(exc).__name__)
+    lost.set()
+    parent.cancel()
+
+
+async def _run_owned_voice(message, run, state, claim) -> None:
+    lost = asyncio.Event()
+    work = asyncio.create_task(_process_owned_voice(message, run, state, claim))
+    heartbeat = asyncio.create_task(_keep_voice_lease(claim, work, lost))
+    try:
+        await work
+    except asyncio.CancelledError:
+        if not lost.is_set():
+            raise
+        run.outcome = "lease_lost"
+        await _offer_voice_retry(message, "Обработка прервалась. Попробуй ещё раз.")
+    except Exception as exc:  # noqa: BLE001 — release lease and preserve the retry path on any failure
+        run.outcome = "processing_failed"
+        logger.warning("[voice] processing failed: %s", type(exc).__name__)
+        await _offer_voice_retry(
+            message, "Не удалось закончить обработку. Попробуй ещё раз."
+        )
+    finally:
+        if not work.done():
+            work.cancel()
+            with suppress(asyncio.CancelledError):
+                await work
+        heartbeat.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat
+        try:
+            await voice_ops.release_voice_operation(claim)
+        except Exception as exc:  # noqa: BLE001 — expiry recovers a worker after failed release
+            # A dead worker is recovered after lease expiry; never clear somebody else's lease.
+            logger.warning("[voice] lease release failed: %s", type(exc).__name__)
+
+
+async def _require_voice_lease(claim) -> None:
+    if not await voice_ops.renew_voice_operation(claim):
+        raise voice_ops.LeaseLost("Voice operation no longer belongs to this worker")
+
+
+async def _process_owned_voice(message, run, state, claim) -> None:
+    transcript = await _transcript_or_reply(message, run)
+    if transcript is None:
+        await _offer_voice_retry(message, "Можно повторить обработку этого голосового.")
+        return
+    if not await _route_open(message, state):
+        run.outcome = "dialog_active"
+        await _offer_voice_retry(message, "Сначала заверши текущий диалог.")
+        return
+    note_text = split_spoken_note(transcript)
+    question = None if note_text else split_spoken_question(transcript)
+    kind = await voice_ops.bind_voice_kind(claim, "question" if question else "note")
+    await _require_voice_lease(claim)
+    await message.answer(f"🎤 {transcript}")
+    if kind == "note":
+        await _write_voice_note(message, run, claim, note_text or transcript)
+        return
+    routed = await _ask_as_question(message, question or transcript)
+    run.outcome = "question" if routed else "question_unrouted"
+    if routed:
+        await voice_ops.complete_voice_operation(claim, {"kind": "question"})
+    else:
+        await _offer_voice_retry(
+            message,
+            "Ответить сейчас не получилось. Задай вопрос текстом, начав с «?», или повтори обработку.",
+        )
+
+
+async def _write_voice_note(message, run, claim, text) -> None:
+    async def bind_block_hash(digest):
+        return await voice_ops.bind_voice_note_hash(claim, digest)
+
+    target = (
+        NoteTarget(**claim.target)
+        if claim.target
+        else await github_notes.resolve_target(message.from_user.id)
+    )
+    if target is None:
+        run.outcome = "no_repo"
+        await _offer_voice_retry(
+            message, "Сначала выбери репозиторий заметок через /github."
+        )
+        return
+    bound = await voice_ops.bind_voice_target(
+        claim,
+        {"repo": target.repo, "path": target.path, "branch": target.branch},
+    )
+    await _require_voice_lease(claim)
+    outcome = await _save_as_note(
+        message,
+        text,
+        operation_id=claim.operation_id.hex,
+        target=NoteTarget(**bound),
+        created_at=claim.created_at,
+        bind_block_hash=bind_block_hash,
+    )
+    if outcome is not None and outcome.status is NoteStatus.SAVED:
+        await voice_ops.complete_voice_operation(
+            claim,
+            {"kind": "note", "url": outcome.url, "undo_ref": outcome.undo_ref},
+        )
+        run.outcome = "note"
+    else:
+        run.outcome = "note_failed"
+        await _offer_voice_retry(
+            message, "Можно повторить сохранение этого голосового."
+        )

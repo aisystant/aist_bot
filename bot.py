@@ -222,6 +222,16 @@ async def main():
     # Инициализация БД
     await init_db()
 
+    # WP-384: absent/incompatible receipt storage disables only voice processing.
+    try:
+        import importlib
+        from db.connection import get_pool
+
+        voice_migration = importlib.import_module("db.migrations.055_voice_operations")
+        await voice_migration.migrate_if_needed(await get_pool())
+    except Exception as exc:
+        logger.warning("Voice operation storage unavailable: %s", type(exc).__name__)
+
     # Миграция 031: отметки Онбордера (Х2/Х3) в development.user_state.
     # WP-578 F29 p.8: Ory login mark for on-behalf /diagnose saves (secrets DB, next to ory_tokens).
     # Without the table the on-behalf save stays off (db.queries.ory_tokens.ory_login_account).

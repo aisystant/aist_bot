@@ -68,6 +68,7 @@ OPTIONAL_DEVELOPMENT_TABLES = [
     ('learning_history', 'user_id'),
     ('notification_queue', 'chat_id'),
     ('nudge_receipt', 'recipient_chat_id'),
+    ('voice_operation', 'chat_id'),
 ]
 
 # WP-554 Ф12: (schema, table, column) of bot-written learning-pool tables keyed by the
