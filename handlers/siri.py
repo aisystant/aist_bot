@@ -16,6 +16,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from config.settings import WEBHOOK_URL
+from core.voice_access import voice_enabled_for
 from db.queries.iwe_extension import NOTES_SHORTCUT_SERVICE, generate_extension_token, get_extension_token
 from helpers.dual_write import resolve_ory_id_from_chat
 
@@ -64,6 +65,9 @@ async def cmd_siri(message: Message, command: CommandObject) -> None:
     if message.from_user is None:
         return
     chat_id = message.from_user.id
+    if not voice_enabled_for(chat_id):
+        await message.answer("Заметки через Siri пока доступны не всем. Мы сообщим, когда откроем их.")
+        return
     ory_id = await resolve_ory_id_from_chat(chat_id)
     if not ory_id:
         await message.answer("Сначала привяжи аккаунт Aisystant — команда /link")

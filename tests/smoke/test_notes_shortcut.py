@@ -31,6 +31,13 @@ def _clear_rate_limit():
     oauth_server._notes_rate_limit.clear()
 
 
+@pytest.fixture(autouse=True)
+def _voice_enabled():
+    with patch("core.voice_access.voice_enabled_for", return_value=True) as endpoint_gate, \
+         patch("handlers.siri.voice_enabled_for", return_value=True) as command_gate:
+        yield endpoint_gate, command_gate
+
+
 def _request(body, token=TOKEN):
     request = MagicMock()
     request.headers = {"X-IWE-Api-Key": token} if token is not None else {}
@@ -147,6 +154,17 @@ async def test_endpoint_rejects_bad_text(body, status):
 
 
 @pytest.mark.asyncio
+async def test_endpoint_refuses_chat_without_voice_access(_voice_enabled):
+    endpoint_gate, _command_gate = _voice_enabled
+    endpoint_gate.return_value = False
+    response, _validate, save, _bot = await _post({"text": "x"})
+    assert response.status == 403
+    assert _payload(response)["ok"] is False
+    endpoint_gate.assert_called_once_with(777)
+    save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_endpoint_unlinked_account():
     response, _validate, save, _bot = await _post({"text": "x"}, chat_id=None)
     assert response.status == 404
@@ -243,6 +261,16 @@ async def test_siri_issues_key_when_none_exists():
     message, _get_key, new_key = await _siri(existing=None)
     new_key.assert_awaited_once()
     assert "new-key" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_siri_unavailable_without_voice_access(_voice_enabled):
+    _endpoint_gate, command_gate = _voice_enabled
+    command_gate.return_value = False
+    message, get_key, new_key = await _siri()
+    assert "Siri" in message.answer.call_args[0][0]
+    get_key.assert_not_awaited()
+    new_key.assert_not_awaited()
 
 
 @pytest.mark.asyncio

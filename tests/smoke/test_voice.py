@@ -10,12 +10,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from aiogram.dispatcher.event.bases import SkipHandler
+
 from handlers.voice import (
     TranscriptionError,
     on_voice,
     on_voice_consent_grant,
     split_spoken_question,
+    voice_claimable,
 )
+
+
+@pytest.fixture(autouse=True)
+def _bot_not_waiting_for_reply():
+    with patch("handlers.voice._bot_awaits_reply", new_callable=AsyncMock, return_value=False) as waiting:
+        yield waiting
 
 
 def _voice_message(duration: int = 10, chat_type: str = "private") -> MagicMock:
@@ -24,6 +33,7 @@ def _voice_message(duration: int = 10, chat_type: str = "private") -> MagicMock:
     msg.chat.id = 12345
     msg.chat.type = chat_type
     msg.from_user.id = 12345
+    msg.reply_to_message = None
     msg.voice.duration = duration
     msg.voice.file_id = "voice_file_id"
     msg.answer = AsyncMock()
@@ -60,11 +70,39 @@ def test_split_spoken_question(transcript, expected):
     assert split_spoken_question(transcript) == expected
 
 
+def _reply_to(is_bot: bool) -> MagicMock:
+    replied = MagicMock()
+    replied.from_user.is_bot = is_bot
+    return replied
+
+
+@pytest.mark.parametrize(
+    ("chat_type", "reply_to", "allowed", "expected"),
+    [
+        ("private", None, True, True),
+        ("private", "own", True, True),
+        ("private", "bot", True, False),
+        ("private", None, False, False),
+        ("supergroup", None, True, False),
+    ],
+)
+def test_voice_claimable(chat_type, reply_to, allowed, expected):
+    msg = _voice_message(chat_type=chat_type)
+    msg.reply_to_message = None if reply_to is None else _reply_to(is_bot=reply_to == "bot")
+    with patch("handlers.voice.voice_enabled_for", return_value=allowed) as enabled:
+        assert voice_claimable(msg) is expected
+    if chat_type == "private" and reply_to != "bot":
+        enabled.assert_called_once_with(12345)
+
+
 @pytest.mark.asyncio
-async def test_voice_ignored_in_group():
-    msg = _voice_message(chat_type="supergroup")
-    await on_voice(msg)
+async def test_voice_skipped_when_bot_awaits_reply(_bot_not_waiting_for_reply):
+    _bot_not_waiting_for_reply.return_value = True
+    msg = _voice_message()
+    with pytest.raises(SkipHandler):
+        await on_voice(msg)
     msg.answer.assert_not_awaited()
+    msg.bot.download.assert_not_awaited()
 
 
 @pytest.mark.asyncio
