@@ -1,29 +1,29 @@
-"""WP-384: voice messages -> text -> note + the same answer a typed question gets.
+"""WP-384: voice messages -> text -> the same path the typed text would take.
 
 Implements DP.SC.178 "IWE voice channel (input)":
-- voice is an edge channel: the transcript takes the same path as a typed
-  "?" question (consultation via the state machine), no voice-only logic in the core;
-- always-capture: the transcript is saved as a note in the personal guide when one
-  is connected; without it the user still gets the echo and the answer;
-- the audio is not stored (transcribe-and-discard) and the transcript is not logged;
+- voice is an edge channel: the transcript is routed exactly like typed text,
+  no voice-only logic in the core;
+- default: the transcript becomes a fleeting note, the same as a typed ".text" note
+  (handlers.github.handle_fleeting_note -> fleeting-notes.md in the user's repo);
+- a transcript that starts with the word «вопрос» becomes a typed "?" question
+  (consultation via the state machine);
+- the audio is not stored and the transcript is not logged;
 - a separate consent gate for voice processing (scope voice_processing).
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+import re
 
 import aiohttp
 from aiogram import F, Router
 from aiogram.enums import ContentType
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from clients.github_app import write_file
 from config import STT_API_KEY, STT_BASE_URL, STT_MODEL, VOICE_MAX_DURATION_SEC
 from db.queries import get_intern
 from db.queries.consent import get_consent_grant, set_consent_grant
-from db.queries.github_app import get_app_installation
 from helpers.dual_write import resolve_ory_id_from_chat
 
 logger = logging.getLogger(__name__)
@@ -31,10 +31,13 @@ logger = logging.getLogger(__name__)
 voice_router = Router(name="voice")
 
 _VOICE_CONSENT_SCOPE = "voice_processing"
-_VOICE_CONSENT_VERSION = "v1.1"
+_VOICE_CONSENT_VERSION = "v1.2"
 _STT_TIMEOUT_SEC = 30
-# Same trigger as the "consultation" global event in config/transitions.yaml.
+# Typed-text triggers: ".text" saves a fleeting note, "?text" asks a question
+# (the "consultation" global event in config/transitions.yaml).
+_NOTE_PREFIX = "."
 _QUESTION_PREFIX = "?"
+_SPOKEN_QUESTION_RE = re.compile(r"^\s*вопрос\b[\s,.:;!?\-–—]*", re.IGNORECASE)
 
 
 class TranscriptionError(RuntimeError):
@@ -62,47 +65,35 @@ async def _transcribe_voice(audio: bytes) -> str:
     return str(data.get("text") or "").strip()
 
 
-async def _save_voice_note(chat_id: int, transcript: str) -> bool:
-    """Save the transcript as a note in the personal guide. False when not saved."""
-    installation = await get_app_installation(chat_id)
-    if not installation:
-        return False
-    repo = installation.get("app_repo_full_name")
-    installation_id = installation.get("app_installation_id")
-    if not repo or not installation_id:
-        return False
-
-    now = datetime.now(timezone(timedelta(hours=3)))
-    date_str = now.strftime("%Y-%m-%d")
-    path = f"history/{date_str}-voice-{now.strftime('%H%M%S')}.md"
-    content = (
-        f"# Голосовая заметка — {date_str}\n\n"
-        f"{transcript}\n\n"
-        f"---\n"
-        f"*Источник: voice* | *Тег: voice-log*\n"
-    )
-    result = await write_file(
-        installation_id=int(installation_id),
-        repo_full_name=repo,
-        path=path,
-        content=content,
-        message=f"voice: {date_str} — заметка из бота",
-    )
-    if not result.success:
-        logger.warning("[voice] save note failed for chat_id=%s: %s", chat_id, result.error)
-    return bool(result.success)
+def split_spoken_question(transcript: str) -> str | None:
+    """Question text when the transcript starts with «вопрос», otherwise None."""
+    match = _SPOKEN_QUESTION_RE.match(transcript)
+    if not match:
+        return None
+    return transcript[match.end():].strip() or None
 
 
-async def _answer_as_typed_question(message: Message, transcript: str) -> bool:
-    """Route the transcript exactly like a typed "?" question. False when not routed."""
+def _as_typed(message: Message, text: str) -> Message:
+    """The same message as if the user had typed `text` instead of speaking."""
+    return message.model_copy(update={"text": text, "voice": None})
+
+
+async def _save_as_note(message: Message, transcript: str) -> None:
+    """Route the transcript exactly like a typed ".text" fleeting note."""
+    from handlers.github import handle_fleeting_note
+
+    await handle_fleeting_note(_as_typed(message, f"{_NOTE_PREFIX}{transcript}"))
+
+
+async def _ask_as_question(message: Message, question: str) -> bool:
+    """Route the question exactly like a typed "?" question. False when not routed."""
     from handlers import get_dispatcher
 
     dispatcher = get_dispatcher()
     intern = await get_intern(message.chat.id)
     if not dispatcher or not dispatcher.is_sm_active or not intern or not intern.get("onboarding_completed"):
         return False
-    as_text = message.model_copy(update={"text": f"{_QUESTION_PREFIX}{transcript}", "voice": None})
-    await dispatcher.route_message(intern, as_text)
+    await dispatcher.route_message(intern, _as_typed(message, f"{_QUESTION_PREFIX}{question}"))
     return True
 
 
@@ -130,17 +121,35 @@ async def on_voice_consent_grant(callback: CallbackQuery) -> None:
     await callback.answer("✅ Голосовые включены. Отправь голосовое сообщение.", show_alert=True)
 
 
+async def _transcript_or_reply(message: Message) -> str | None:
+    """Download and transcribe the voice; on failure tell the user and return None."""
+    try:
+        downloaded = await message.bot.download(message.voice)
+        audio = downloaded.read() if downloaded else b""
+    except Exception:
+        logger.exception("[voice] download failed for chat_id=%s", message.chat.id)
+        await message.answer("⚠️ Не удалось получить голосовое. Попробуй ещё раз.")
+        return None
+    try:
+        transcript = await _transcribe_voice(audio)
+    except Exception as exc:
+        logger.warning("[voice] transcription failed for chat_id=%s: %s", message.chat.id, type(exc).__name__)
+        await message.answer("🎤 Не смог распознать голосовое. Повтори или напиши текстом.")
+        return None
+    if not transcript:
+        await message.answer("🎤 Расшифровка пустая. Скажи ещё раз или напиши текстом.")
+        return None
+    return transcript
+
+
 @voice_router.message(F.content_type == ContentType.VOICE)
 async def on_voice(message: Message) -> None:
-    """Voice message -> echo of the transcript -> note -> answer."""
-    if message.chat.type in ("channel", "group", "supergroup") or message.from_user is None:
+    """Voice message -> echo of the transcript -> note (default) or question («вопрос …»)."""
+    if message.chat.type in ("channel", "group", "supergroup") or message.from_user is None or not message.voice:
         return
     chat_id = message.from_user.id
-    voice = message.voice
-    if not voice:
-        return
 
-    if (voice.duration or 0) > VOICE_MAX_DURATION_SEC:
+    if (message.voice.duration or 0) > VOICE_MAX_DURATION_SEC:
         await message.answer(
             f"⚠️ Голосовое длиннее {VOICE_MAX_DURATION_SEC} сек. Разбей на части или напиши текстом."
         )
@@ -157,9 +166,9 @@ async def on_voice(message: Message) -> None:
     if not await get_consent_grant(account_id, _VOICE_CONSENT_SCOPE):
         await message.answer(
             "🎤 <b>Голосовые сообщения</b>\n\n"
-            "Запись распознаётся сервисом распознавания речи OpenAI (через OpenRouter) "
-            "и не хранится. Текст расшифровки сохранится заметкой в твоём личном руководстве, "
-            "если оно подключено, а на сам вопрос ответит Наставник.\n\n"
+            "Запись распознаётся сервисом распознавания речи OpenAI (через OpenRouter) и не хранится. "
+            "Текст сохраняется заметкой туда же, куда заметки, начатые с точки. "
+            "Если начать голосовое со слова «вопрос», ответит Наставник.\n\n"
             "Нужно твоё согласие на обработку голоса.",
             reply_markup=_consent_keyboard(),
             parse_mode="HTML",
@@ -171,35 +180,19 @@ async def on_voice(message: Message) -> None:
         await message.answer("⚠️ Голосовые временно недоступны. Напиши текстом или попробуй позже.")
         return
 
+    transcript = await _transcript_or_reply(message)
+    if transcript is None:
+        return
+    await message.answer(f"🎤 {transcript}")
+
+    question = split_spoken_question(transcript)
+    if question is None:
+        await _save_as_note(message, transcript)
+        return
     try:
-        downloaded = await message.bot.download(voice)
-        audio = downloaded.read() if downloaded else b""
+        routed = await _ask_as_question(message, question)
     except Exception:
-        logger.exception("[voice] download failed for chat_id=%s", chat_id)
-        await message.answer("⚠️ Не удалось получить голосовое. Попробуй ещё раз.")
-        return
-
-    try:
-        transcript = await _transcribe_voice(audio)
-    except Exception as exc:
-        logger.warning("[voice] transcription failed for chat_id=%s: %s", chat_id, type(exc).__name__)
-        await message.answer("🎤 Не смог распознать голосовое. Повтори или напиши текстом.")
-        return
-    finally:
-        del audio
-
-    if not transcript:
-        await message.answer("🎤 Расшифровка пустая. Скажи ещё раз или напиши текстом.")
-        return
-
-    saved = await _save_voice_note(chat_id, transcript)
-    note_line = "Записал заметкой в личное руководство." if saved else "Заметку не сохранил: личное руководство не подключено (/settings)."
-    await message.answer(f"🎤 {transcript}\n\n{note_line}")
-
-    try:
-        routed = await _answer_as_typed_question(message, transcript)
-    except Exception:
-        logger.exception("[voice] answer routing failed for chat_id=%s", chat_id)
+        logger.exception("[voice] question routing failed for chat_id=%s", chat_id)
         routed = False
     if not routed:
-        await message.answer("Ответить на голосовое сейчас не получилось. Задай вопрос текстом, начав с «?».")
+        await message.answer("Ответить на вопрос сейчас не получилось. Задай его текстом, начав с «?».")
