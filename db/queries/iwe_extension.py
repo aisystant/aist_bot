@@ -1,8 +1,12 @@
 """
-WP-327 Phase 4: IWE Browser Extension token management.
+Personal API tokens for external IWE clients.
 
-Хранение: persona.user_integrations (service='iwe_extension').
-Токен: 32-byte hex, генерируется один раз, не логируется.
+WP-327 Phase 4: IWE Browser Extension (service='iwe_extension', scope 'typing').
+WP-384: notes shortcut for Siri / iOS Shortcuts (service='iwe_notes_shortcut', scope 'notes').
+
+Storage: persona.user_integrations, one row per (account_id, service).
+Token: 32-byte hex, encrypted at rest, never logged. A token is valid only for
+the service it was issued for.
 """
 from __future__ import annotations
 
@@ -14,8 +18,11 @@ from db.queries.token_crypto import encrypt_text_token, decrypt_text_token
 
 logger = get_logger(__name__)
 
+EXTENSION_SERVICE = "iwe_extension"
+NOTES_SHORTCUT_SERVICE = "iwe_notes_shortcut"
 
-async def validate_extension_token(token: str) -> str | None:
+
+async def validate_extension_token(token: str, service: str = EXTENSION_SERVICE) -> str | None:
     """Проверить X-IWE-Api-Key и вернуть account_id или None.
 
     WP-554 Б4: access_token теперь хранится зашифрованным (pgp_sym_encrypt,
@@ -35,9 +42,10 @@ async def validate_extension_token(token: str) -> str | None:
                 """
                 SELECT account_id::text AS account_id, access_token
                 FROM public.user_integrations
-                WHERE service = 'iwe_extension'
+                WHERE service = $1
                   AND active = TRUE
-                """
+                """,
+                service,
             )
             for row in rows:
                 stored = row["access_token"]
@@ -62,7 +70,7 @@ async def validate_extension_token(token: str) -> str | None:
         raise
 
 
-async def get_extension_token(account_id: str) -> str | None:
+async def get_extension_token(account_id: str, service: str = EXTENSION_SERVICE) -> str | None:
     """Вернуть существующий токен для account_id или None если нет."""
     try:
         pool = await get_persona_pool()
@@ -71,11 +79,12 @@ async def get_extension_token(account_id: str) -> str | None:
                 """
                 SELECT access_token
                 FROM public.user_integrations
-                WHERE service = 'iwe_extension'
+                WHERE service = $2
                   AND account_id = $1::uuid
                   AND active = TRUE
                 """,
                 account_id,
+                service,
             )
             if not row:
                 return None
@@ -86,8 +95,10 @@ async def get_extension_token(account_id: str) -> str | None:
         raise
 
 
-async def generate_extension_token(account_id: str) -> str | None:
-    """Создать (или обновить) IWE Extension токен для account_id.
+async def generate_extension_token(
+    account_id: str, service: str = EXTENSION_SERVICE, scope: str = "typing"
+) -> str | None:
+    """Создать (или обновить) токен сервиса `service` для account_id.
 
     Возвращает новый токен (32-byte hex) или None если таблица недоступна.
     """
@@ -101,7 +112,7 @@ async def generate_extension_token(account_id: str) -> str | None:
                 INSERT INTO public.user_integrations
                     (account_id, service, access_token, scope, metadata,
                      connected_at, updated_at, active)
-                VALUES ($1::uuid, 'iwe_extension', $2, 'typing', '{}'::jsonb,
+                VALUES ($1::uuid, $3, $2, $4, '{}'::jsonb,
                         NOW(), NOW(), TRUE)
                 ON CONFLICT (account_id, service) DO UPDATE SET
                     access_token = $2,
@@ -110,11 +121,23 @@ async def generate_extension_token(account_id: str) -> str | None:
                 """,
                 account_id,
                 stored_token,
+                service,
+                scope,
             )
-        logger.info("[iwe_extension] token issued for account_id=%s", account_id)
+        logger.info("[iwe_extension] %s token issued for account_id=%s", service, account_id)
     except Exception as exc:
         if "does not exist" in str(exc):
             logger.warning("[iwe_extension] user_integrations not available: %s", exc)
             return None  # не возвращать несохранённый токен
         raise
     return token
+
+
+async def get_telegram_id_for_account(account_id: str) -> int | None:
+    """Telegram chat of the token owner (persona.ory_identity), or None when not linked."""
+    pool = await get_persona_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT telegram_id FROM public.ory_identity WHERE account_id = $1::uuid",
+            account_id,
+        )
