@@ -1005,15 +1005,15 @@ async def _send_practice_nudges():
             logger.info(f"[PracticeNudge] Queued {nudge_slot} nudge for {chat_id} day {day}")
 
 
-async def _send_marathon_weekly_digest():
-    """WP-330 P2: еженедельный digest для активных участников (воскресенье 18:00).
-
-    Деdup через notification_log: один digest в неделю (§10.10).
-    """
+async def _send_marathon_weekly_digest(*, retry: bool = False):
+    """Deliver Sunday's digest through exactly one route per recipient and week."""
+    from core.marathon_digest_delivery import DigestCenter, finish_digest, plan_digest
     from db.queries.marathon_newcomer import get_active_marathon_users, get_checkins
-    from db.queries.notifications import try_insert_notification
 
     if not _bot_token:
+        return
+    center = DigestCenter.load()
+    if retry and center is None:
         return
 
     users = await get_active_marathon_users()
@@ -1021,62 +1021,59 @@ async def _send_marathon_weekly_digest():
         return
 
     bot = Bot(token=_bot_token)
-    now = moscow_now()
-    week_str = now.strftime('%Y-W%W')
+    week = moscow_now().strftime('%Y-W%W')
+    direct = center_completed = failed = 0
     try:
         for user in users:
             chat_id = user['user_id']
             current_day = user['current_day']
-            total_checkins = user['total_checkins']
-
-            # Один digest в неделю на участника (§10.10 dedup)
-            digest_key = f"marathon_digest:{chat_id}:{week_str}"
-            if not await try_insert_notification(chat_id, 'marathon_digest', digest_key):
-                continue
-
-            checkins = await get_checkins(chat_id)
-            if checkins:
-                last_state = checkins[-1]['state']
-                state_labels = {
-                    'chaos': '😵 Хаос',
-                    'stuck': '🧱 Тупик',
-                    'turn': '🔁 Поворот',
-                }
-                last_state_label = state_labels.get(last_state, last_state)
-            else:
-                last_state_label = "ещё нет"
-
-            missed = max(0, current_day - total_checkins)
-
             if current_day == 0:
-                logger.info(f"[MarathonDigest] Skipping {chat_id}: not started yet (current_day=0)")
                 continue
-
-            text = (
-                f"📊 *Итоги недели марафона*\n\n"
-                f"📅 День марафона: {current_day} / 14\n"
-                f"🌙 Чек-инов: {total_checkins}\n"
-                f"❌ Пропущено чек-инов: {missed}\n"
-                f"🎯 Последнее состояние: {last_state_label}\n\n"
-            )
-
-            if missed == 0 and current_day > 0:
-                text += "Отличная неделя! Ритм выдержан. 💪"
-            elif missed <= 2:
-                text += "Неплохо, но можно добавить стабильности. Продолжаем?"
-            else:
-                text += "Было сложно, но ты всё ещё в марафоне. Важно — не останавливаться."
-
             try:
-                await bot.send_message(chat_id, text, parse_mode="Markdown")
-                logger.info(f"[MarathonDigest] Sent to {chat_id}")
-            except Exception as e:
-                if _is_user_unavailable(e):
+                plan = await plan_digest(center, chat_id, week, retry=retry)
+                if plan is None:
+                    continue
+                route, account_id = plan
+                checkins = await get_checkins(chat_id)
+                last_state = checkins[-1]['state'] if checkins else None
+                state_labels = {'chaos': '😵 Хаос', 'stuck': '🧱 Тупик', 'turn': '🔁 Поворот'}
+                last_state_label = state_labels.get(last_state, last_state) if last_state else "ещё нет"
+                total_checkins = user['total_checkins']
+                missed = max(0, current_day - total_checkins)
+                body = (
+                    f"📅 День марафона: {current_day} / 14\n"
+                    f"🌙 Чек-инов: {total_checkins}\n"
+                    f"❌ Пропущено чек-инов: {missed}\n"
+                    f"🎯 Последнее состояние: {last_state_label}\n\n"
+                )
+                if missed == 0:
+                    body += "Отличная неделя! Ритм выдержан. 💪"
+                elif missed <= 2:
+                    body += "Неплохо, но можно добавить стабильности. Продолжаем?"
+                else:
+                    body += "Было сложно, но ты всё ещё в марафоне. Важно — не останавливаться."
+
+                if route == "center":
+                    assert center is not None and account_id is not None
+                    await center.submit(week, account_id, "📊 Итоги недели марафона", body)
+                    await finish_digest(chat_id, week, account_id)
+                    center_completed += 1
+                else:
+                    await bot.send_message(chat_id, f"📊 *Итоги недели марафона*\n\n{body}", parse_mode="Markdown")
+                    direct += 1
+            except Exception as exc:
+                failed += 1
+                if _is_user_unavailable(exc):
                     await _handle_unavailable_user(chat_id, "marathon digest")
                 else:
-                    logger.warning(f"[MarathonDigest] Failed to send to {chat_id}: {e}")
+                    logger.warning("[MarathonDigest] Delivery attempt failed (%s)", type(exc).__name__)
     finally:
         await bot.session.close()
+    if not retry or direct or center_completed or failed:
+        logger.info(
+            "[MarathonDigest] Week %s: direct=%d center_completed=%d failed=%d",
+            week, direct, center_completed, failed,
+        )
 
 
 async def _send_mentorship_disclaimer():
@@ -1355,6 +1352,10 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
+    _scheduler.add_job(
+        _send_marathon_weekly_digest, 'cron', day_of_week='sun', hour='18-23', minute='15,30,45',
+        kwargs={'retry': True}, max_instances=1,
+    )
     _scheduler.add_job(_check_marathon_split_delivery, 'cron', hour='4,5,6', minute='5,35', id='marathon_split_watchdog', max_instances=1)  # WP-330 С5: split rollout watchdog (auto-noop вне 31.05 04:00-06:30 МСК)
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)

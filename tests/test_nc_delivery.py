@@ -149,6 +149,30 @@ async def test_success_uses_payload_returned_by_consume(env):
     bot.send_message.assert_awaited_once_with(42, "Authoritative\n\nFrom center", parse_mode=None)
 
 
+@pytest.mark.parametrize("hint", ["bold_title", None])
+async def test_digest_title_uses_only_the_centers_rendering_hint(env, hint):
+    title = "📊 Итоги недели марафона"
+    payload = dict(consumed(), kind="digest", payload={"title": title, "body": "Текст * и < без разметки."})
+    if hint:
+        payload["format_hint"] = hint
+    bot = SimpleNamespace(send_message=AsyncMock(return_value=telegram_message()))
+    with (
+        patch("core.nc_delivery._consume", new=AsyncMock(return_value=payload)),
+        patch("core.nc_delivery.get_persona_pool", new=AsyncMock(return_value=Pool(42))),
+        patch("oauth_server._bot_instance", bot),
+    ):
+        response = await nc_delivery.nc_deliver_handler(request(body={"kind": "digest"}))
+    assert response.status == 200
+    args = bot.send_message.await_args
+    assert args.args == (42, f"{title}\n\nТекст * и < без разметки.")
+    assert args.kwargs["parse_mode"] is None
+    if hint:
+        (bold,) = args.kwargs["entities"]
+        assert (bold.type, bold.offset, bold.length) == ("bold", 0, len(title) + 1)
+    else:
+        assert "entities" not in args.kwargs
+
+
 @pytest.mark.parametrize(
     "date, expected",
     [

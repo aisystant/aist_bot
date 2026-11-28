@@ -15,6 +15,7 @@ import aiohttp
 import asyncpg
 import pytz
 from aiohttp import web
+from aiogram.types import MessageEntity
 
 from db.connection import get_persona_pool, get_pool
 
@@ -232,7 +233,11 @@ async def nc_deliver_handler(request: web.Request) -> web.Response:
         text += f"\n{payload['link']}"
 
     try:
-        message = await _bot_instance.send_message(chat_id, text, parse_mode=None)
+        options: dict = {"parse_mode": None}
+        if consumed.get("kind") == "digest" and consumed.get("format_hint") == "bold_title":
+            title_units = len(payload["title"].encode("utf-16-le")) // 2
+            options["entities"] = [MessageEntity(type="bold", offset=0, length=title_units)]
+        message = await _bot_instance.send_message(chat_id, text, **options)
         delivered_at = _telegram_delivered_at(message)
         if delivered_at is None:
             return _consumed_reply(attempt_id, "unknown", reason="invalid_delivery_time")

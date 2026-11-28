@@ -157,7 +157,7 @@ INITIATIVE_PENDING: frozenset[tuple[str, str]] = frozenset({
     ("core/scheduler.py", "_discourse_scheduled_publish"),
     ("core/scheduler.py", "_notify_retry_exhausted"),
     ("core/scheduler.py", "_process_marathon_queue"),
-    ("core/scheduler.py", "_send_marathon_weekly_digest"),
+    ("core/scheduler.py", "_send_marathon_weekly_digest"),  # legacy recipients during the Center cutover
     ("core/scheduler.py", "_send_mentorship_disclaimer"),
     ("core/scheduler.py", "_smart_publisher_scan_unlocked"),
     ("core/scheduler.py", "pre_generate_feed_digest"),
