@@ -37,8 +37,12 @@ def _fresh_limits():
 
 @pytest.fixture(autouse=True)
 def _voice_enabled():
-    with patch("core.voice_access.voice_enabled_for", return_value=True) as endpoint_gate, \
-         patch("handlers.siri.voice_enabled_for", return_value=True) as command_gate:
+    with (
+        patch(
+            "core.voice_access.voice_enabled_for", return_value=True
+        ) as endpoint_gate,
+        patch("handlers.siri.voice_enabled_for", return_value=True) as command_gate,
+    ):
         yield endpoint_gate, command_gate
 
 
@@ -57,17 +61,34 @@ def _payload(response):
     return json.loads(response.text)
 
 
-async def _post(body, token=TOKEN, account="acc-1", chat_id=777, outcome=SAVED, **request_kwargs):
+async def _post(
+    body, token=TOKEN, account="acc-1", chat_id=777, outcome=SAVED, **request_kwargs
+):
     bot = MagicMock(send_message=AsyncMock())
-    with patch("db.queries.iwe_extension.validate_notes_key", new_callable=AsyncMock, return_value=account) as validate, \
-         patch("db.queries.iwe_extension.get_telegram_id_for_account", new_callable=AsyncMock, return_value=chat_id), \
-         patch("core.fleeting_notes.save_fleeting_note", new_callable=AsyncMock, return_value=outcome) as save, \
-         patch.object(oauth_server, "_bot_instance", bot):
+    with (
+        patch(
+            "db.queries.iwe_extension.validate_notes_key",
+            new_callable=AsyncMock,
+            return_value=account,
+        ) as validate,
+        patch(
+            "db.queries.iwe_extension.get_telegram_id_for_account",
+            new_callable=AsyncMock,
+            return_value=chat_id,
+        ),
+        patch(
+            "core.fleeting_notes.save_fleeting_note",
+            new_callable=AsyncMock,
+            return_value=outcome,
+        ) as save,
+        patch.object(oauth_server, "_bot_instance", bot),
+    ):
         response = await notes_shortcut_handler(_request(body, token, **request_kwargs))
     return response, validate, save, bot
 
 
 # --- POST /api/notes -----------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_endpoint_saves_a_siri_note_and_names_the_repo():
@@ -130,9 +151,18 @@ async def test_a_valid_key_does_not_count_as_a_failure():
 
 
 def test_client_address_is_the_last_forwarded_entry_not_a_forged_first_one():
-    assert oauth_server._client_address(_request({}, forwarded="6.6.6.6, 203.0.113.7")) == "203.0.113.7"
-    assert oauth_server._client_address(_request({}, forwarded=None, remote="10.0.0.1")) == "10.0.0.1"
-    assert oauth_server._client_address(_request({}, forwarded="", remote=None)) == "unknown"
+    assert (
+        oauth_server._client_address(_request({}, forwarded="6.6.6.6, 203.0.113.7"))
+        == "203.0.113.7"
+    )
+    assert (
+        oauth_server._client_address(_request({}, forwarded=None, remote="10.0.0.1"))
+        == "10.0.0.1"
+    )
+    assert (
+        oauth_server._client_address(_request({}, forwarded="", remote=None))
+        == "unknown"
+    )
 
 
 @pytest.mark.asyncio
@@ -145,7 +175,10 @@ async def test_endpoint_rate_limits_the_same_account():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("body", "status"), [({"text": "   "}, 400), ({}, 400), ([], 400), ({"text": "x" * 4001}, 413)])
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [({"text": "   "}, 400), ({}, 400), ([], 400), ({"text": "x" * 4001}, 413)],
+)
 async def test_endpoint_rejects_bad_text(body, status):
     response, _validate, save, _bot = await _post(body)
     assert response.status == status
@@ -183,7 +216,9 @@ async def test_endpoint_unlinked_account():
     ],
 )
 async def test_endpoint_speaks_the_reason_a_note_was_not_saved(status, words):
-    response, _validate, _save, bot = await _post({"text": "x"}, outcome=NoteOutcome(status))
+    response, _validate, _save, bot = await _post(
+        {"text": "x"}, outcome=NoteOutcome(status)
+    )
     assert response.status == 200
     payload = _payload(response)
     assert payload["ok"] is False
@@ -192,6 +227,7 @@ async def test_endpoint_speaks_the_reason_a_note_was_not_saved(status, words):
 
 
 # --- the key: only a fingerprint is stored -------------------------------------
+
 
 def _persona_pool(conn):
     pool = MagicMock()
@@ -209,7 +245,11 @@ def test_fingerprint_is_a_prefixed_sha256_and_never_the_key():
 @pytest.mark.asyncio
 async def test_issue_stores_only_the_fingerprint_and_returns_the_key_once():
     conn = MagicMock(execute=AsyncMock())
-    with patch("db.queries.iwe_extension.get_persona_pool", new_callable=AsyncMock, return_value=_persona_pool(conn)):
+    with patch(
+        "db.queries.iwe_extension.get_persona_pool",
+        new_callable=AsyncMock,
+        return_value=_persona_pool(conn),
+    ):
         token = await iwe_extension.issue_notes_key("acc-1")
     assert len(token) == 64
     _sql, account, service, stored = conn.execute.call_args[0]
@@ -222,7 +262,11 @@ async def test_issue_stores_only_the_fingerprint_and_returns_the_key_once():
 @pytest.mark.asyncio
 async def test_issue_replaces_the_previous_key_for_the_account():
     conn = MagicMock(execute=AsyncMock())
-    with patch("db.queries.iwe_extension.get_persona_pool", new_callable=AsyncMock, return_value=_persona_pool(conn)):
+    with patch(
+        "db.queries.iwe_extension.get_persona_pool",
+        new_callable=AsyncMock,
+        return_value=_persona_pool(conn),
+    ):
         first = await iwe_extension.issue_notes_key("acc-1")
         second = await iwe_extension.issue_notes_key("acc-1")
     assert first != second
@@ -232,19 +276,30 @@ async def test_issue_replaces_the_previous_key_for_the_account():
 @pytest.mark.asyncio
 async def test_validate_is_one_lookup_by_the_fingerprint():
     conn = MagicMock(fetchval=AsyncMock(return_value="acc-1"))
-    with patch("db.queries.iwe_extension.get_persona_pool", new_callable=AsyncMock, return_value=_persona_pool(conn)):
+    with patch(
+        "db.queries.iwe_extension.get_persona_pool",
+        new_callable=AsyncMock,
+        return_value=_persona_pool(conn),
+    ):
         account = await iwe_extension.validate_notes_key(TOKEN)
     assert account == "acc-1"
     conn.fetchval.assert_awaited_once()
     _sql, service, fingerprint = conn.fetchval.call_args[0]
-    assert (service, fingerprint) == ("iwe_notes_shortcut", iwe_extension.notes_key_fingerprint(TOKEN))
+    assert (service, fingerprint) == (
+        "iwe_notes_shortcut",
+        iwe_extension.notes_key_fingerprint(TOKEN),
+    )
     assert "active = TRUE" in conn.fetchval.call_args[0][0]
 
 
 @pytest.mark.asyncio
 async def test_has_key_counts_only_hashed_keys_so_an_old_encrypted_key_gets_replaced():
     conn = MagicMock(fetchval=AsyncMock(return_value=None))
-    with patch("db.queries.iwe_extension.get_persona_pool", new_callable=AsyncMock, return_value=_persona_pool(conn)):
+    with patch(
+        "db.queries.iwe_extension.get_persona_pool",
+        new_callable=AsyncMock,
+        return_value=_persona_pool(conn),
+    ):
         assert await iwe_extension.has_notes_key("acc-1") is False
     assert conn.fetchval.call_args[0][3] == "sha256:%"
 
@@ -253,7 +308,11 @@ async def test_has_key_counts_only_hashed_keys_so_an_old_encrypted_key_gets_repl
 @pytest.mark.parametrize(("updated", "expected"), [(1, True), (None, False)])
 async def test_revoke_switches_the_key_off(updated, expected):
     conn = MagicMock(fetchval=AsyncMock(return_value=updated))
-    with patch("db.queries.iwe_extension.get_persona_pool", new_callable=AsyncMock, return_value=_persona_pool(conn)):
+    with patch(
+        "db.queries.iwe_extension.get_persona_pool",
+        new_callable=AsyncMock,
+        return_value=_persona_pool(conn),
+    ):
         assert await iwe_extension.revoke_notes_key("acc-1") is expected
     assert "active = FALSE" in conn.fetchval.call_args[0][0]
 
@@ -261,29 +320,70 @@ async def test_revoke_switches_the_key_off(updated, expected):
 @pytest.mark.asyncio
 async def test_extension_key_functions_keep_their_own_service():
     conn = MagicMock(fetch=AsyncMock(return_value=[]))
-    with patch("db.queries.iwe_extension.get_persona_pool", new_callable=AsyncMock, return_value=_persona_pool(conn)):
+    with patch(
+        "db.queries.iwe_extension.get_persona_pool",
+        new_callable=AsyncMock,
+        return_value=_persona_pool(conn),
+    ):
         assert await iwe_extension.validate_extension_token(TOKEN) is None
     assert "iwe_extension" in conn.fetch.call_args[0][0]
 
 
 # --- /siri ---------------------------------------------------------------------
 
+
 def _siri_message():
     message = MagicMock()
     message.from_user.id = 777
+    message.chat.type = "private"
     message.answer = AsyncMock()
     return message
 
 
-async def _siri(args=None, ory_id="acc-1", has_key=False, issued="new-key", revoked=True):
+async def _siri(
+    args=None,
+    ory_id="acc-1",
+    has_key=False,
+    issued="new-key",
+    revoked=True,
+    chat_type="private",
+):
     message = _siri_message()
-    with patch("handlers.siri.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value=ory_id), \
-         patch("handlers.siri.has_notes_key", new_callable=AsyncMock, return_value=has_key) as has, \
-         patch("handlers.siri.issue_notes_key", new_callable=AsyncMock, return_value=issued) as issue, \
-         patch("handlers.siri.revoke_notes_key", new_callable=AsyncMock, return_value=revoked) as revoke, \
-         patch("handlers.siri.WEBHOOK_URL", "https://bot.example/"):
+    message.chat.type = chat_type
+    with (
+        patch(
+            "handlers.siri.resolve_ory_id_from_chat",
+            new_callable=AsyncMock,
+            return_value=ory_id,
+        ),
+        patch(
+            "handlers.siri.has_notes_key", new_callable=AsyncMock, return_value=has_key
+        ) as has,
+        patch(
+            "handlers.siri.issue_notes_key", new_callable=AsyncMock, return_value=issued
+        ) as issue,
+        patch(
+            "handlers.siri.revoke_notes_key",
+            new_callable=AsyncMock,
+            return_value=revoked,
+        ) as revoke,
+        patch("handlers.siri.WEBHOOK_URL", "https://bot.example/"),
+    ):
         await cmd_siri(message, MagicMock(args=args))
     return message, has, issue, revoke
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chat_type", ["group", "supergroup", "channel"])
+@pytest.mark.parametrize("arg", [None, "new", "off"])
+async def test_siri_outside_private_chat_does_not_read_or_mutate_keys(chat_type, arg):
+    message, has, issue, revoke = await _siri(args=arg, chat_type=chat_type)
+    has.assert_not_awaited()
+    issue.assert_not_awaited()
+    revoke.assert_not_awaited()
+    text = message.answer.call_args[0][0]
+    assert "личном диалоге" in text and "https://t.me/" in text
+    assert "new-key" not in text
 
 
 @pytest.mark.asyncio
@@ -331,7 +431,9 @@ async def test_siri_off_without_a_key_says_so():
 
 
 @pytest.mark.asyncio
-async def test_siri_unavailable_without_voice_access_shows_the_telegram_id(_voice_enabled):
+async def test_siri_unavailable_without_voice_access_shows_the_telegram_id(
+    _voice_enabled,
+):
     _endpoint_gate, command_gate = _voice_enabled
     command_gate.return_value = False
     message, has, issue, _revoke = await _siri()

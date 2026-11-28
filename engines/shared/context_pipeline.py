@@ -158,7 +158,7 @@ async def collect_pre_search(
             "поиска с ИЗМЕНЁННЫМ запросом, если текущих результатов недостаточно."
         )
         auth_note = "" if telegram_user_id else " [anon fallback]"
-        logger.info(f"Pre-search{auth_note}: {len(parts)} results, {len(section)} chars for question '{question[:50]}...'")
+        logger.info("Pre-search%s: %d results, %d chars", auth_note, len(parts), len(section))
         return ("knowledge_section", section)
     except Exception as e:
         logger.warning(f"Pre-search error: {e}")

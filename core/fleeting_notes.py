@@ -19,6 +19,7 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,10 @@ class NoteSource(str, Enum):
 
 
 # Shown in the note itself (the date line); typed notes stay unmarked, as before.
-_SOURCE_LABELS: dict[NoteSource, str] = {NoteSource.VOICE: "голос", NoteSource.SIRI: "Siri"}
+_SOURCE_LABELS: dict[NoteSource, str] = {
+    NoteSource.VOICE: "голос",
+    NoteSource.SIRI: "Siri",
+}
 
 
 class NoteStatus(Enum):
@@ -49,7 +53,8 @@ class NoteOutcome:
     status: NoteStatus
     url: str | None = None
     repo: str | None = None
-    undo_ref: str | None = None  # "<block fingerprint>:<block lines>", see remove_note_block
+    undo_ref: str | None = None
+    write_ref: dict | None = None
 
 
 async def notes_blocker(telegram_user_id: int) -> NoteStatus | None:
@@ -72,20 +77,56 @@ async def write_note(
     source: NoteSource = NoteSource.TEXT,
     *,
     message_id: int | None = None,
+    operation_id: str | None = None,
+    target=None,
+    created_at=None,
+    bind_block_hash=None,
+    queue_retry: bool = True,
 ) -> NoteOutcome:
     """Append the note to the user's fleeting notes, leave the platform trace, log a metric."""
     from clients.github_api import github_notes
     from clients.github_auth import GitHubAuthUnavailable
 
     started = time.monotonic()
-    result = None
+
+    async def after_attempt(result, attempt_started):
+        _finish_note(
+            telegram_user_id, text, source, message_id, result, attempt_started
+        )
+
+    async def can_retry():
+        return await notes_blocker(telegram_user_id) is None
+
     try:
-        result = await github_notes.append_note(telegram_user_id, text, _SOURCE_LABELS.get(source))
+        result = await github_notes.append_note(
+            telegram_user_id,
+            text,
+            _SOURCE_LABELS.get(source),
+            operation_id=operation_id,
+            target=target,
+            created_at=created_at,
+            bind_block_hash=bind_block_hash,
+            after_attempt=after_attempt,
+            can_retry=can_retry,
+            queue_retry=queue_retry,
+        )
     except GitHubAuthUnavailable as exc:
-        logger.warning("[fleeting_notes] auth unavailable for chat_id=%s: %s", telegram_user_id, exc)
+        logger.warning(
+            "[fleeting_notes] auth unavailable for chat_id=%s: %s",
+            telegram_user_id,
+            exc,
+        )
         outcome = NoteOutcome(NoteStatus.RECONNECT)
-    else:
-        outcome = _saved_outcome(result) if result else NoteOutcome(NoteStatus.FAILED)
+        _log_metric(source, outcome.status, len(text), started)
+        return outcome
+    return _finish_note(telegram_user_id, text, source, message_id, result, started)
+
+
+def _finish_note(
+    telegram_user_id, text, source, message_id, result, started
+) -> NoteOutcome:
+    """Common completion of an initial write and a queued retry, with the original source."""
+    outcome = _saved_outcome(result) if result else NoteOutcome(NoteStatus.FAILED)
 
     _log_metric(source, outcome.status, len(text), started)
     if outcome.status is NoteStatus.SAVED:
@@ -117,28 +158,46 @@ async def save_fleeting_note(
     return await write_note(telegram_user_id, text, source, message_id=message_id)
 
 
-def _log_metric(source: NoteSource, status: NoteStatus, chars: int, started: float) -> None:
+def _log_metric(
+    source: NoteSource, status: NoteStatus, chars: int, started: float
+) -> None:
     """One line per note attempt, to count notes by source and outcome."""
     logger.info(
         "[note-metric] source=%s outcome=%s chars=%d ms=%d",
-        source.value, status.value, chars, (time.monotonic() - started) * 1000,
+        source.value,
+        status.value,
+        chars,
+        (time.monotonic() - started) * 1000,
     )
 
 
 def _saved_outcome(result: dict) -> NoteOutcome:
+    from clients.github_api import NoteRef
+
     repo = result["repo"]
     branch = result.get("branch", "main")
+    undo_ref = None
+    if result.get("content_matches", True) and all(
+        result.get(key) for key in ("operation_id", "block_hash", "target_hash")
+    ):
+        undo_ref = NoteRef(
+            result["operation_id"], result["block_hash"], result["target_hash"]
+        ).encode()
     return NoteOutcome(
         NoteStatus.SAVED,
         url=f"https://github.com/{repo}/blob/{branch}/{result['path']}",
         repo=repo,
-        undo_ref=f"{result['block_hash']}:{result['block_len']}" if result.get("block_hash") else None,
+        undo_ref=undo_ref,
+        write_ref=result,
     )
 
 
 # --- platform trace (WP-427, sensor bot_note) ---------------------------------
 
-def build_note_payload(note_text: str, source: NoteSource, source_ref: dict | None) -> dict:
+
+def build_note_payload(
+    note_text: str, source: NoteSource, source_ref: dict | None
+) -> dict:
     """Trace content respecting the 64 KiB limit: full text, or the reference only."""
     base: dict = {"source": source.value}
     if source_ref:
@@ -149,14 +208,23 @@ def build_note_payload(note_text: str, source: NoteSource, source_ref: dict | No
             "sha": source_ref.get("sha"),
             "branch": source_ref.get("branch"),
             "line_start": source_ref.get("line_start"),
+            "operation_id": source_ref.get("operation_id"),
         }
 
+    if source_ref and (
+        not source_ref.get("content_matches", True)
+        or not source_ref.get("input_matches", True)
+    ):
+        return {**base, "text": None}
     candidate = {**base, "text": note_text}
     size = len(json.dumps(candidate, ensure_ascii=False).encode("utf-8"))
     if size <= _TRACE_PAYLOAD_LIMIT:
         return candidate
 
-    logger.info("bot_note payload oversized (%d bytes); falling back to reference-only for note", size)
+    logger.info(
+        "bot_note payload oversized (%d bytes); falling back to reference-only for note",
+        size,
+    )
     return {**base, "text": None}
 
 
@@ -170,20 +238,26 @@ async def capture_note_trace(
 ) -> None:
     """Best-effort fire-and-forget: record the saved note as a trace for the platform.
 
-    The external id lets a repeat of the same note dedup on the backend: a Telegram
-    message id when there is one, otherwise the note block fingerprint (Siri).
+    A repeated operation keeps its external id. Two separate Siri notes have distinct
+    operation ids even when their text and timestamp are identical.
     """
     try:
         from clients.gateway_mcp import gateway_mcp
 
         if not gateway_mcp.is_connected(telegram_user_id):
-            logger.info("capture_trace(bot_note) skipped: user %s not connected to Aisystant", telegram_user_id)
+            logger.info(
+                "capture_trace(bot_note) skipped: user %s not connected to Aisystant",
+                telegram_user_id,
+            )
             return
 
-        if message_id is not None:
+        operation_id = (source_ref or {}).get("operation_id")
+        if operation_id:
+            external_id = f"note_{operation_id}"
+        elif message_id is not None:
             external_id = f"tg_note_{message_id}"
         else:
-            external_id = f"{source.value}_note_{(source_ref or {}).get('block_hash') or int(time.time() * 1000)}"
+            external_id = f"{source.value}_note_{uuid4().hex}"
 
         await gateway_mcp.capture_trace(
             sensor_id="bot_note",
@@ -192,5 +266,9 @@ async def capture_note_trace(
             telegram_user_id=telegram_user_id,
             external_id=external_id,
         )
-    except Exception as exc:
-        logger.warning("capture_trace(bot_note) failed for user %s: %s", telegram_user_id, exc)
+    except Exception as exc:  # noqa: BLE001 — best-effort trace must not undo a saved note
+        logger.warning(
+            "capture_trace(bot_note) failed for user %s: %s",
+            telegram_user_id,
+            type(exc).__name__,
+        )

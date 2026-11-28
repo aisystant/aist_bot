@@ -481,7 +481,9 @@ async def handle_fleeting_note(message: Message):
     await process_fleeting_note(message, NoteSource.TEXT)
 
 
-async def process_fleeting_note(message: Message, source: NoteSource) -> None:
+async def process_fleeting_note(
+    message: Message, source: NoteSource, *, operation_id=None, target=None, created_at=None, bind_block_hash=None, queue_retry=True,
+) -> NoteOutcome | None:
     """Заметка из сообщения, текст которого начинается с точки (набранного или надиктованного).
 
     Сценарии:
@@ -526,8 +528,14 @@ async def process_fleeting_note(message: Message, source: NoteSource) -> None:
             _pending_forwards[telegram_user_id] = (None, time.time())
             return
 
-    outcome = await write_note(telegram_user_id, note_text, source, message_id=message.message_id)
+    write_options = {}
+    if operation_id is not None or target is not None or created_at is not None or bind_block_hash is not None or not queue_retry:
+        write_options = {"operation_id": operation_id, "target": target, "created_at": created_at, "bind_block_hash": bind_block_hash, "queue_retry": queue_retry}
+    outcome = await write_note(
+        telegram_user_id, note_text, source, message_id=message.message_id, **write_options,
+    )
     await _answer_written(message, outcome, lang, source)
+    return outcome
 
 
 @github_router.message(F.forward_origin | F.forward_date)

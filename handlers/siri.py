@@ -16,7 +16,7 @@ from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
-from config.settings import WEBHOOK_URL
+from config.settings import BOT_USERNAME, WEBHOOK_URL
 from core.voice_access import voice_enabled_for
 from db.queries.iwe_extension import has_notes_key, issue_notes_key, revoke_notes_key
 from helpers.dual_write import resolve_ory_id_from_chat
@@ -76,6 +76,15 @@ async def cmd_siri(message: Message, command: CommandObject) -> None:
     """Issue the personal notes key (once) and show the shortcut setup steps."""
     if message.from_user is None:
         return
+    if message.chat.type != "private":
+        username = BOT_USERNAME.lstrip("@")
+        await message.answer(
+            'Настройте Siri в <a href="https://t.me/'
+            + html.escape(username, quote=True)
+            + '">личном диалоге с ботом</a>: отправьте там /siri. Ключ показывается только вам.',
+            parse_mode="HTML",
+        )
+        return
     chat_id = message.from_user.id
     if not voice_enabled_for(chat_id):
         await message.answer(
@@ -94,7 +103,8 @@ async def cmd_siri(message: Message, command: CommandObject) -> None:
         revoked = await revoke_notes_key(ory_id)
         await message.answer(
             "Заметки через Siri отключены, ключ больше не работает. Новый ключ: /siri new."
-            if revoked else "Активного ключа нет. Выдать ключ: /siri."
+            if revoked
+            else "Активного ключа нет. Выдать ключ: /siri."
         )
         return
 
