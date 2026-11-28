@@ -380,7 +380,7 @@ async def test_a_kind_authorized_by_center_is_delivered_without_local_kind_polic
             request(body={"kind": "marathon_reminders", "delivery_place": "f" * 64})
         )
     assert json.loads(response.body)["outcome"] == "sent"
-    consume.assert_awaited_once_with(ACCOUNT, ATTEMPT, "dG9rZW4", 42)
+    consume.assert_awaited_once_with(ACCOUNT, ATTEMPT, "dG9rZW4", 42, None)
     bot.send_message.assert_awaited_once_with(42, "Authoritative\n\nFrom center", parse_mode=None)
 
 
@@ -430,6 +430,69 @@ async def test_consume_signs_the_place_derived_from_resolved_chat(env):
     assert headers["X-NC-Signature"] == expected
     changed = json.dumps({**sent, "delivery_place": "f" * 64}, separators=(",", ":")).encode()
     assert nc_delivery._signature(bytes(32), headers["X-NC-Key-Id"], headers["X-NC-Timestamp"], changed) != expected
+
+
+@pytest.mark.parametrize("stored", ["Asia/Tokyo", "Europe/Berlin", "UTC", None, "", "Mars/Olympus", "+03:00"])
+async def test_signed_consume_uses_only_timezone_from_the_bound_bot_profile(env, stored):
+    profile = SimpleNamespace(fetchval=AsyncMock(return_value=stored))
+    bot = SimpleNamespace(send_message=AsyncMock(return_value=telegram_message()))
+    client, post = center_http_response(200, consumed())
+    with (
+        patch("core.nc_delivery.aiohttp.ClientSession", return_value=client),
+        patch("core.nc_delivery.get_persona_pool", new=AsyncMock(return_value=Pool(42))),
+        patch("core.nc_delivery.get_pool", new=AsyncMock(return_value=profile)),
+        patch("oauth_server._bot_instance", bot),
+    ):
+        response = await nc_delivery.nc_deliver_handler(
+            request(body={"request_recipient_timezone": True, "recipient_timezone": "Australia/Sydney"})
+        )
+    assert json.loads(response.body)["outcome"] == "sent"
+    query, account, chat = profile.fetchval.await_args.args
+    assert "WHERE ory_id = $1::uuid AND telegram_id = $2" in query
+    assert (account, chat) == (ACCOUNT, 42)
+    raw = post.call_args.kwargs["data"]
+    headers = post.call_args.kwargs["headers"]
+    assert (
+        nc_delivery._signature(bytes(32), headers["X-NC-Key-Id"], headers["X-NC-Timestamp"], raw)
+        == headers["X-NC-Signature"]
+    )
+    signed = json.loads(raw)
+    if stored in ("Asia/Tokyo", "Europe/Berlin", "UTC"):
+        assert signed["recipient_timezone"] == stored
+    else:
+        assert "recipient_timezone" not in signed
+    assert b"Australia/Sydney" not in raw
+    assert "chat_id" not in signed
+
+
+async def test_dispatch_without_profile_request_does_not_read_or_disclose_timezone(env):
+    client, post = center_http_response(200, consumed())
+    with (
+        patch("core.nc_delivery.aiohttp.ClientSession", return_value=client),
+        patch("core.nc_delivery.get_persona_pool", new=AsyncMock(return_value=Pool(42))),
+        patch("core.nc_delivery.get_pool", new=AsyncMock()) as profile,
+        patch("oauth_server._bot_instance", SimpleNamespace(send_message=AsyncMock(return_value=telegram_message()))),
+    ):
+        response = await nc_delivery.nc_deliver_handler(request(body={"recipient_timezone": "Australia/Sydney"}))
+    assert json.loads(response.body)["outcome"] == "sent"
+    profile.assert_not_awaited()
+    assert "recipient_timezone" not in json.loads(post.call_args.kwargs["data"])
+
+
+async def test_temporary_profile_failure_is_retried_before_permit_and_send(env):
+    bot = SimpleNamespace(send_message=AsyncMock())
+    with (
+        patch("core.nc_delivery.get_persona_pool", new=AsyncMock(return_value=Pool(42))),
+        patch("core.nc_delivery.get_pool", new=AsyncMock(side_effect=TimeoutError())),
+        patch("core.nc_delivery._consume", new=AsyncMock()) as consume,
+        patch("oauth_server._bot_instance", bot),
+    ):
+        response = await nc_delivery.nc_deliver_handler(request(body={"request_recipient_timezone": True}))
+    assert response.status == 429
+    assert response.headers["Retry-After"] == "5"
+    assert "permit_consumed" not in json.loads(response.body)
+    consume.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.parametrize("header", ["1", "43200", "86400", "86401", "172800", "176400", "259200"])

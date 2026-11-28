@@ -12,9 +12,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
+import asyncpg
+import pytz
 from aiohttp import web
 
-from db.connection import get_persona_pool
+from db.connection import get_persona_pool, get_pool
 
 _KIND_RE = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -93,20 +95,34 @@ def _cap_retry_after(value: str | None) -> int | None:
     return seconds if 1 <= seconds <= _MAX_CAP_RETRY_SECONDS else None
 
 
-async def _consume(account_id: str, attempt_id: str, token: str, chat_id: int) -> dict[str, Any] | None:
+async def _recipient_timezone(account_id: str, chat_id: int) -> str | None:
+    # public.users is the bot's profile source. A relinked chat must not use
+    # the previous account's timezone. Missing or invalid data has no hint.
+    pool = await get_pool()
+    value = await pool.fetchval(
+        "SELECT timezone FROM public.users WHERE ory_id = $1::uuid AND telegram_id = $2",
+        account_id,
+        chat_id,
+    )
+    return value if isinstance(value, str) and value in pytz.all_timezones_set else None
+
+
+async def _consume(
+    account_id: str, attempt_id: str, token: str, chat_id: int, recipient_timezone: str | None = None
+) -> dict[str, Any] | None:
     base_url = os.getenv("NC_CENTER_BASE_URL", "").strip().rstrip("/")
     secret = _secret()
     if not base_url or not secret:
         return {"_transport_error": True}
-    raw = json.dumps(
-        {
-            "account_id": account_id,
-            "attempt_id": attempt_id,
-            "token": token,
-            "delivery_place": hashlib.sha256(b"notification-center:telegram:v1:" + str(chat_id).encode()).hexdigest(),
-        },
-        separators=(",", ":"),
-    ).encode()
+    payload = {
+        "account_id": account_id,
+        "attempt_id": attempt_id,
+        "token": token,
+        "delivery_place": hashlib.sha256(b"notification-center:telegram:v1:" + str(chat_id).encode()).hexdigest(),
+    }
+    if recipient_timezone is not None:
+        payload["recipient_timezone"] = recipient_timezone
+    raw = json.dumps(payload, separators=(",", ":")).encode()
     key_id = "nck_botmailman000001"
     timestamp = str(int(time.time()))
     headers = {
@@ -183,7 +199,15 @@ async def nc_deliver_handler(request: web.Request) -> web.Response:
     if delay > 0:
         return _reply(attempt_id, "rate_limited", status=429, retry_after=max(1, int(delay + 0.999)), source="local")
 
-    consumed = await _consume(account_id, attempt_id, body["token"], chat_id)
+    recipient_timezone = None
+    if body.get("request_recipient_timezone") is True:
+        # A temporary profile failure is not evidence that the timezone is
+        # unknown. Return before consuming a permit so the center can retry.
+        try:
+            recipient_timezone = await asyncio.wait_for(_recipient_timezone(account_id, chat_id), timeout=2)
+        except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, asyncio.TimeoutError):
+            return _reply(attempt_id, "rate_limited", status=429, retry_after=5, source="profile")
+    consumed = await _consume(account_id, attempt_id, body["token"], chat_id, recipient_timezone)
     if consumed and consumed.get("_cap_exceeded"):
         return _reply(attempt_id, "rate_limited", status=429, retry_after=consumed["retry_after"], source="center_cap")
     if consumed and consumed.get("_transport_error"):
