@@ -8,15 +8,20 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
+import asyncpg
+import pytz
 from aiohttp import web
 
-from db.connection import get_persona_pool
+from db.connection import get_persona_pool, get_pool
 
-_ALLOWED_KINDS = {"test_owner_ping", "test_platform_ping", "onboarding_lifecycle"}
+_KIND_RE = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+# UTC reset, then a local quiet-hours window, including a daylight-saving transition.
+_MAX_CAP_RETRY_SECONDS = 3 * 24 * 60 * 60
 
 
 def _signature(secret: bytes, key_id: str, timestamp: str, raw: bytes) -> str:
@@ -70,16 +75,54 @@ def _reply(attempt_id: str, outcome: str, status: int = 200, **fields: Any) -> w
     return web.json_response({"attempt_id": attempt_id, "outcome": outcome, **fields}, status=status, headers=headers)
 
 
-async def _consume(account_id: str, attempt_id: str, token: str) -> dict[str, Any] | None:
+def _consumed_reply(attempt_id: str, outcome: str, status: int = 200, **fields: Any) -> web.Response:
+    """Only the handler that consumed and verified this attempt may prove it."""
+    return _reply(attempt_id, outcome, status, permit_consumed=True, **fields)
+
+
+def _telegram_delivered_at(message: Any) -> str | None:
+    """Use Telegram's timestamp, never the queue or this process's clock."""
+    delivered_at = getattr(message, "date", None)
+    if not isinstance(delivered_at, datetime) or delivered_at.utcoffset() is None:
+        return None
+    return delivered_at.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _cap_retry_after(value: str | None) -> int | None:
+    if value is None or not re.fullmatch(r"[0-9]{1,6}", value):
+        return None
+    seconds = int(value)
+    return seconds if 1 <= seconds <= _MAX_CAP_RETRY_SECONDS else None
+
+
+async def _recipient_timezone(account_id: str, chat_id: int) -> str | None:
+    # public.users is the bot's profile source. A relinked chat must not use
+    # the previous account's timezone. Missing or invalid data has no hint.
+    pool = await get_pool()
+    value = await pool.fetchval(
+        "SELECT timezone FROM public.users WHERE ory_id = $1::uuid AND telegram_id = $2",
+        account_id,
+        chat_id,
+    )
+    return value if isinstance(value, str) and value in pytz.all_timezones_set else None
+
+
+async def _consume(
+    account_id: str, attempt_id: str, token: str, chat_id: int, recipient_timezone: str | None = None
+) -> dict[str, Any] | None:
     base_url = os.getenv("NC_CENTER_BASE_URL", "").strip().rstrip("/")
     secret = _secret()
     if not base_url or not secret:
         return {"_transport_error": True}
-    raw = json.dumps({
+    payload = {
         "account_id": account_id,
         "attempt_id": attempt_id,
         "token": token,
-    }, separators=(",", ":")).encode()
+        "delivery_place": hashlib.sha256(b"notification-center:telegram:v1:" + str(chat_id).encode()).hexdigest(),
+    }
+    if recipient_timezone is not None:
+        payload["recipient_timezone"] = recipient_timezone
+    raw = json.dumps(payload, separators=(",", ":")).encode()
     key_id = "nck_botmailman000001"
     timestamp = str(int(time.time()))
     headers = {
@@ -93,9 +136,13 @@ async def _consume(account_id: str, attempt_id: str, token: str) -> dict[str, An
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(f"{base_url}/internal/nc/consume", data=raw, headers=headers) as response:
                 body = await response.json()
+                if response.status == 429 and isinstance(body, dict) and body.get("error") == "daily_cap_exceeded":
+                    retry_after = _cap_retry_after(response.headers.get("Retry-After"))
+                    if retry_after is not None:
+                        return {"_cap_exceeded": True, "retry_after": retry_after}
                 if response.status != 200:
                     return None if response.status in (400, 409) else {"_transport_error": True}
-                return body
+                return body if isinstance(body, dict) else {"_transport_error": True}
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
         return {"_transport_error": True}
 
@@ -122,12 +169,14 @@ async def nc_deliver_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "invalid_request"}, status=400)
     attempt_id = body.get("attempt_id")
     account_id = body.get("account_id")
+    kind = body.get("kind")
     if (
         not isinstance(attempt_id, str)
         or not _UUID_RE.fullmatch(attempt_id)
         or not isinstance(account_id, str)
         or not _UUID_RE.fullmatch(account_id)
-        or body.get("kind") not in _ALLOWED_KINDS
+        or not isinstance(kind, str)
+        or not _KIND_RE.fullmatch(kind)
         or not isinstance(body.get("token"), str)
     ):
         return web.json_response({"error": "invalid_request"}, status=400)
@@ -135,6 +184,7 @@ async def nc_deliver_handler(request: web.Request) -> web.Response:
     account_id = account_id.lower()
     attempt_id = attempt_id.lower()
     from oauth_server import _bot_instance
+
     if _bot_instance is None:
         return _reply(attempt_id, "rate_limited", status=429, retry_after=5, source="bot_not_ready")
     pool = await get_persona_pool()
@@ -149,33 +199,58 @@ async def nc_deliver_handler(request: web.Request) -> web.Response:
     if delay > 0:
         return _reply(attempt_id, "rate_limited", status=429, retry_after=max(1, int(delay + 0.999)), source="local")
 
-    consumed = await _consume(account_id, attempt_id, body["token"])
+    recipient_timezone = None
+    if body.get("request_recipient_timezone") is True:
+        # A temporary profile failure is not evidence that the timezone is
+        # unknown. Return before consuming a permit so the center can retry.
+        try:
+            recipient_timezone = await asyncio.wait_for(_recipient_timezone(account_id, chat_id), timeout=2)
+        except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, asyncio.TimeoutError):
+            return _reply(attempt_id, "rate_limited", status=429, retry_after=5, source="profile")
+    consumed = await _consume(account_id, attempt_id, body["token"], chat_id, recipient_timezone)
+    if consumed and consumed.get("_cap_exceeded"):
+        return _reply(attempt_id, "rate_limited", status=429, retry_after=consumed["retry_after"], source="center_cap")
     if consumed and consumed.get("_transport_error"):
         return _reply(attempt_id, "rate_limited", status=429, retry_after=5, source="center")
     if not consumed:
-        return _reply(attempt_id, "failed", phase="pre_send", reason="permit_not_consumed", retryable=False)
+        return _reply(attempt_id, "unknown", phase="pre_send", reason="permit_not_consumed", retryable=False)
     if (
         consumed.get("attempt_id") != attempt_id
         or consumed.get("account_id") != account_id
-        or consumed.get("kind") != body["kind"]
+        or consumed.get("kind") != kind
     ):
         return _reply(attempt_id, "failed", phase="pre_send", reason="consume_mismatch", retryable=False)
     payload = consumed.get("payload")
-    if not isinstance(payload, dict) or not isinstance(payload.get("title"), str) or not isinstance(payload.get("body"), str):
-        return _reply(attempt_id, "failed", phase="pre_send", reason="invalid_payload", retryable=False)
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("title"), str)
+        or not isinstance(payload.get("body"), str)
+    ):
+        return _consumed_reply(attempt_id, "failed", phase="pre_send", reason="invalid_payload", retryable=False)
     text = f"{payload['title']}\n\n{payload['body']}"
     if isinstance(payload.get("link"), str):
         text += f"\n{payload['link']}"
 
     try:
         message = await _bot_instance.send_message(chat_id, text, parse_mode=None)
-        return _reply(attempt_id, "sent", telegram_message_id=message.message_id)
+        delivered_at = _telegram_delivered_at(message)
+        if delivered_at is None:
+            return _consumed_reply(attempt_id, "unknown", reason="invalid_delivery_time")
+        return _consumed_reply(attempt_id, "sent", telegram_message_id=message.message_id, delivered_at=delivered_at)
     except Exception as error:
-        from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter, TelegramUnauthorizedError
+        from aiogram.exceptions import (
+            TelegramBadRequest,
+            TelegramForbiddenError,
+            TelegramRetryAfter,
+            TelegramUnauthorizedError,
+        )
+
         if isinstance(error, TelegramRetryAfter):
-            return _reply(attempt_id, "rate_limited", status=429, retry_after=error.retry_after, source="telegram")
+            return _consumed_reply(
+                attempt_id, "rate_limited", status=429, retry_after=error.retry_after, source="telegram"
+            )
         if isinstance(error, TelegramForbiddenError):
-            return _reply(attempt_id, "blocked")
+            return _consumed_reply(attempt_id, "blocked")
         if isinstance(error, (TelegramBadRequest, TelegramUnauthorizedError)):
-            return _reply(attempt_id, "failed", phase="telegram", reason=type(error).__name__, retryable=False)
-        return _reply(attempt_id, "unknown", reason=type(error).__name__)
+            return _consumed_reply(attempt_id, "failed", phase="telegram", reason=type(error).__name__, retryable=False)
+        return _consumed_reply(attempt_id, "unknown", reason=type(error).__name__)

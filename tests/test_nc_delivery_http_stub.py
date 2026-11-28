@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -60,7 +61,10 @@ class TelegramClient:
             async with session.post(self.url, json={"chat_id": chat_id, "text": text, "parse_mode": parse_mode}) as response:
                 body = await response.json()
                 if response.status == 200:
-                    return SimpleNamespace(message_id=body["result"]["message_id"])
+                    return SimpleNamespace(
+                        message_id=body["result"]["message_id"],
+                        date=datetime.fromtimestamp(body["result"]["date"], timezone.utc),
+                    )
                 if response.status == 429:
                     raise TelegramRetryAfter(method=None, message=body["description"], retry_after=body["parameters"]["retry_after"])
                 if response.status == 403:
@@ -68,7 +72,7 @@ class TelegramClient:
                 raise TelegramBadRequest(method=None, message=body["description"])
 
 
-def signed_request():
+def signed_request(*, request_timezone=False):
     raw = json.dumps({
         "order_id": "cccccccc-3333-4333-8333-cccccccccccc",
         "attempt_id": ATTEMPT,
@@ -77,6 +81,7 @@ def signed_request():
         "kind": "test_owner_ping",
         "payload": {"title": "Untrusted", "body": "Request payload"},
         "scheduled_for": None,
+        **({"request_recipient_timezone": True} if request_timezone else {}),
     }).encode()
     timestamp = str(int(time.time()))
     key_id = "nck_center_dispatcher"
@@ -129,7 +134,7 @@ async def test_bot_delivery_against_http_stubs(monkeypatch, scenario, expected_s
         body = await request.json()
         telegram_calls.append(body)
         if scenario == "sent":
-            return web.json_response({"ok": True, "result": {"message_id": 123}})
+            return web.json_response({"ok": True, "result": {"message_id": 123, "date": 1760000000}})
         if scenario == "blocked":
             return web.json_response({"ok": False, "description": "Forbidden: bot was blocked"}, status=403)
         if scenario == "rate_limited":
@@ -147,7 +152,9 @@ async def test_bot_delivery_against_http_stubs(monkeypatch, scenario, expected_s
     monkeypatch.setenv("NC_DELIVERY_SECRET", SECRET)
     monkeypatch.setenv("NC_CENTER_BASE_URL", center_url)
     try:
-        raw, headers = signed_request()
+        raw, headers = signed_request(request_timezone=scenario == "sent")
+        profile = SimpleNamespace(fetchval=AsyncMock(return_value="Asia/Tokyo"))
+        monkeypatch.setattr(nc_delivery, "get_pool", AsyncMock(return_value=profile))
         with patch("core.nc_delivery._LIMITER.admit", new=AsyncMock(return_value=0.0)), \
              patch("core.nc_delivery.get_persona_pool", new=AsyncMock(return_value=Pool(None if scenario == "no_channel" else 42))), \
              patch("oauth_server._bot_instance", TelegramClient(telegram_url + "/sendMessage", scenario)):
@@ -167,6 +174,9 @@ async def test_bot_delivery_against_http_stubs(monkeypatch, scenario, expected_s
         assert len(telegram_calls) == expected_calls
         if scenario == "sent":
             assert telegram_calls[0] == {"chat_id": 42, "text": "Authoritative\n\nFrom center", "parse_mode": None}
+            assert consume_calls[0]["recipient_timezone"] == "Asia/Tokyo"
+        else:
+            profile.fetchval.assert_not_awaited()
     finally:
         await bot_runner.cleanup()
         await telegram_runner.cleanup()
