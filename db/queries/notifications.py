@@ -153,6 +153,24 @@ async def was_notification_sent(idempotency_key: str) -> bool:
         return row is not None
 
 
+async def get_marathon_digest_route(key: str):
+    """Read the route claimed under the legacy unique key and its completion."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            """SELECT event.account_id, event.payload->>'route' AS route,
+                      event.payload->>'sender_id' AS sender_id,
+                      EXISTS (
+                          SELECT 1 FROM public.domain_event done
+                           WHERE done.source='aist-bot'
+                             AND done.external_id=$2
+                      ) AS finished
+                 FROM public.domain_event event
+                WHERE event.source='aist-bot' AND event.external_id=$1""",
+            f"notification-{key}", f"marathon-digest-completed:{key.removeprefix('marathon_digest:')}",
+        )
+
+
 async def get_notification_sent_at(idempotency_key: str) -> Optional[datetime]:
     """When the notification with this key was journaled as sent (UTC), or None.
 
