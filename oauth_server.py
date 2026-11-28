@@ -2618,9 +2618,27 @@ async def discourse_webhook_handler(request: web.Request) -> web.Response:
 
 
 _typing_rate_limit: dict[str, float] = {}  # token → last_request_ts (WP-327 Phase 4)
-_notes_rate_limit: dict[str, float] = {}  # token → last_request_ts (WP-384 notes shortcut)
+_notes_rate_limit: dict[str, float] = {}  # account_id → last_request_ts (WP-384 notes shortcut)
 _NOTES_MIN_INTERVAL_SEC = 5.0
 _NOTES_MAX_CHARS = 4000
+_NOTES_MAX_BAD_KEYS = 20
+_NOTES_BAD_KEY_WINDOW_SEC = 600.0
+
+
+def _make_notes_failure_limiter():
+    from core.attempt_limiter import FailureLimiter
+
+    return FailureLimiter(_NOTES_MAX_BAD_KEYS, _NOTES_BAD_KEY_WINDOW_SEC)
+
+
+_notes_bad_keys = _make_notes_failure_limiter()  # client address → recent wrong keys
+
+
+def _client_address(request: web.Request) -> str:
+    """The address the platform proxy saw: the LAST X-Forwarded-For entry (the first can be forged by the client)."""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    last = forwarded.split(",")[-1].strip() if forwarded else ""
+    return last or request.remote or "unknown"
 
 
 def _notes_say(outcome) -> str:
@@ -2646,7 +2664,8 @@ def _notes_reply(ok: bool, say: str, status: int = 200, url: str | None = None) 
 async def notes_shortcut_handler(request: web.Request) -> web.Response:
     """POST /api/notes - a fleeting note from Siri / iOS Shortcuts (WP-384).
 
-    Auth: X-IWE-Api-Key, the personal notes key from /siri (scope "notes" only).
+    Auth: X-IWE-Api-Key, the personal notes key from /siri (valid for notes only; the
+    server keeps only its fingerprint). Wrong keys are counted per client address.
     Body JSON: {"text": "<note>"}. Response JSON: {"ok", "say", "url"}, where "say"
     is the phrase the shortcut speaks back (it names the notes repo). No chat
     message is sent: proactive messages go only through the notification layer.
@@ -2654,23 +2673,24 @@ async def notes_shortcut_handler(request: web.Request) -> web.Response:
     """
     import time
 
-    from core.fleeting_notes import NoteStatus, save_fleeting_note
+    from core.fleeting_notes import NoteSource, NoteStatus, save_fleeting_note
     from core.voice_access import voice_enabled_for
-    from db.queries.iwe_extension import (
-        NOTES_SHORTCUT_SERVICE,
-        get_telegram_id_for_account,
-        validate_extension_token,
-    )
+    from db.queries.iwe_extension import get_telegram_id_for_account, validate_notes_key
+
+    address = _client_address(request)
+    if _notes_bad_keys.blocked(address):
+        return _notes_reply(False, "Слишком много неверных ключей. Подождите несколько минут.", status=429)
 
     token = request.headers.get("X-IWE-Api-Key", "").strip()
-    account_id = await validate_extension_token(token, NOTES_SHORTCUT_SERVICE) if token else None
+    account_id = await validate_notes_key(token) if token else None
     if not account_id:
+        _notes_bad_keys.record(address)
         return _notes_reply(False, "Ключ не подошёл. Получите новый в боте командой сири.", status=401)
 
     now = time.monotonic()
-    if now - _notes_rate_limit.get(token, 0.0) < _NOTES_MIN_INTERVAL_SEC:
+    if now - _notes_rate_limit.get(account_id, 0.0) < _NOTES_MIN_INTERVAL_SEC:
         return _notes_reply(False, "Слишком часто. Подождите несколько секунд.", status=429)
-    _notes_rate_limit[token] = now
+    _notes_rate_limit[account_id] = now
     for stale in [k for k, v in _notes_rate_limit.items() if v < now - 3600]:
         _notes_rate_limit.pop(stale, None)
 
@@ -2690,8 +2710,7 @@ async def notes_shortcut_handler(request: web.Request) -> web.Response:
     if not voice_enabled_for(chat_id):
         return _notes_reply(False, "Заметки через Siri пока недоступны.", status=403)
 
-    outcome = await save_fleeting_note(chat_id, text)
-    logger.info("[NotesShortcut] chat_id=%s status=%s", chat_id, outcome.status.value)
+    outcome = await save_fleeting_note(chat_id, text, NoteSource.SIRI)
     return _notes_reply(outcome.status is NoteStatus.SAVED, _notes_say(outcome), url=outcome.url)
 
 

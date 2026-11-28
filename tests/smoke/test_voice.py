@@ -1,21 +1,29 @@
 """Smoke tests: voice_router (WP-384, DP.SC.178).
 
-Voice message -> speech-to-text -> echo -> the path typed text would take:
-a ".text" fleeting note by default, a "?text" question when it starts with «вопрос».
+Voice message -> speech-to-text -> echo -> the path typed text would take: a ".text"
+fleeting note by default (marked as spoken, with an undo button), «заметка …» forces a note,
+«вопрос …» asks the mentor ("?" question). A voice message sent before the consent is
+processed right after the user agrees.
 """
 
 import io
+import logging
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from aiogram.dispatcher.event.bases import SkipHandler
 
+from clients.github_api import RemoveStatus, github_notes
+from clients.github_auth import GitHubAuthUnavailable
+from core.fleeting_notes import NoteSource
 from handlers.voice import (
     TranscriptionError,
+    cmd_voice_off,
+    on_note_undo,
     on_voice,
     on_voice_consent_grant,
+    split_spoken_note,
     split_spoken_question,
     voice_claimable,
 )
@@ -37,6 +45,7 @@ def _voice_message(duration: int = 10, chat_type: str = "private") -> MagicMock:
     msg.voice.duration = duration
     msg.voice.file_id = "voice_file_id"
     msg.answer = AsyncMock()
+    msg.reply = AsyncMock()
     msg.bot = MagicMock()
     msg.bot.download = AsyncMock(return_value=io.BytesIO(b"fake-ogg-bytes"))
     msg.model_copy = MagicMock(side_effect=lambda update: MagicMock(text=update["text"], voice=update["voice"]))
@@ -50,7 +59,7 @@ def _ready_user(transcript="купить молоко", routed=True):
          patch("handlers.voice.get_consent_grant", new_callable=AsyncMock, return_value=True), \
          patch("handlers.voice.STT_API_KEY", "stt-test"), \
          patch("handlers.voice._transcribe_voice", new_callable=AsyncMock, return_value=transcript) as stt, \
-         patch("handlers.github.handle_fleeting_note", new_callable=AsyncMock) as note, \
+         patch("handlers.github.process_fleeting_note", new_callable=AsyncMock) as note, \
          patch("handlers.voice._ask_as_question", new_callable=AsyncMock, return_value=routed) as ask:
         yield stt, note, ask
 
@@ -68,6 +77,20 @@ def _ready_user(transcript="купить молоко", routed=True):
 )
 def test_split_spoken_question(transcript, expected):
     assert split_spoken_question(transcript) == expected
+
+
+@pytest.mark.parametrize(
+    ("transcript", "expected"),
+    [
+        ("Заметка: вопрос к Андрею про Neon", "вопрос к Андрею про Neon"),
+        ("заметка, купить молоко", "купить молоко"),
+        ("заметка", None),
+        ("заметки со встречи", None),
+        ("купить молоко", None),
+    ],
+)
+def test_split_spoken_note(transcript, expected):
+    assert split_spoken_note(transcript) == expected
 
 
 def _reply_to(is_bot: bool) -> MagicMock:
@@ -123,22 +146,25 @@ async def test_voice_requires_account():
 
 
 @pytest.mark.asyncio
-async def test_voice_requires_consent():
+async def test_voice_requires_consent_asked_as_a_reply_with_honest_text():
     msg = _voice_message()
     with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
          patch("handlers.voice.get_consent_grant", new_callable=AsyncMock, return_value=False):
         await on_voice(msg)
-    msg.answer.assert_awaited_once()
-    args, kwargs = msg.answer.call_args
-    assert "согласие" in args[0].lower()
-    assert "OpenRouter" in args[0]
-    assert "с точки" in args[0]
+    msg.reply.assert_awaited_once()
+    msg.answer.assert_not_awaited()
+    args, kwargs = msg.reply.call_args
+    text = args[0]
+    assert "согласие" in text.lower()
+    assert "OpenRouter" in text and "правилам хранения" in text
+    assert "копия текста заметки" in text
+    assert "/voice_off" in text
     assert kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "voice_consent_grant"
     msg.bot.download.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_voice_default_is_dot_note():
+async def test_voice_default_is_a_voice_marked_dot_note():
     msg = _voice_message()
     with _ready_user(transcript="купить молоко") as (stt, note, ask):
         await on_voice(msg)
@@ -146,9 +172,22 @@ async def test_voice_default_is_dot_note():
     stt.assert_awaited_once_with(b"fake-ogg-bytes")
     assert msg.answer.call_args_list[0][0][0] == "🎤 купить молоко"
     note.assert_awaited_once()
-    typed = note.call_args[0][0]
+    typed, source = note.call_args[0]
     assert typed.text == ".купить молоко"
     assert typed.voice is None
+    assert source is NoteSource.VOICE
+    ask.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_spoken_note_prefix_is_removed_and_keeps_a_question_word_in_the_note():
+    msg = _voice_message()
+    with _ready_user(transcript="Заметка: вопрос к Андрею про Neon") as (_stt, note, ask):
+        await on_voice(msg)
+
+    typed, source = note.call_args[0]
+    assert typed.text == ".вопрос к Андрею про Neon"
+    assert source is NoteSource.VOICE
     ask.assert_not_awaited()
 
 
@@ -205,6 +244,183 @@ async def test_voice_without_stt_key_reports_unavailable():
     msg.bot.download.assert_not_awaited()
 
 
+# --- metrics -------------------------------------------------------------------
+
+def _metric_lines(caplog):
+    return [r.getMessage() for r in caplog.records if r.getMessage().startswith("[voice-metric]")]
+
+
+@pytest.mark.asyncio
+async def test_one_metric_line_per_voice_message_with_outcome_and_timing(caplog):
+    msg = _voice_message(duration=7)
+    with caplog.at_level(logging.INFO, logger="handlers.voice"), _ready_user(transcript="купить молоко"):
+        await on_voice(msg)
+
+    lines = _metric_lines(caplog)
+    assert len(lines) == 1
+    assert "outcome=note" in lines[0]
+    assert "voice_sec=7" in lines[0]
+    assert "chars=13" in lines[0]
+    assert "купить молоко" not in lines[0]
+    assert "stt_ms=-" not in lines[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outcome", "setup"),
+    [
+        ("too_long", {"duration": 120}),
+        ("stt_failed", {"stt_error": True}),
+        ("empty", {"transcript": ""}),
+        ("question", {"transcript": "вопрос как дела"}),
+    ],
+)
+async def test_metric_outcomes(caplog, outcome, setup):
+    msg = _voice_message(duration=setup.get("duration", 10))
+    with caplog.at_level(logging.INFO, logger="handlers.voice"), \
+         _ready_user(transcript=setup.get("transcript", "купить молоко")) as (stt, _note, _ask):
+        if setup.get("stt_error"):
+            stt.side_effect = TranscriptionError("boom")
+        await on_voice(msg)
+    assert f"outcome={outcome}" in _metric_lines(caplog)[0]
+
+
+# --- consent: the first voice message is not lost ------------------------------
+
+def _consent_callback(voice_message):
+    cb = MagicMock()
+    cb.from_user.id = 12345
+    cb.data = "voice_consent_grant"
+    cb.answer = AsyncMock()
+    cb.message.reply_to_message = voice_message
+    return cb
+
+
+@pytest.mark.asyncio
+async def test_consent_grant_records_consent_and_processes_the_waiting_voice():
+    waiting = _voice_message()
+    cb = _consent_callback(waiting)
+    with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
+         patch("handlers.voice.set_consent_grant", new_callable=AsyncMock) as mock_set, \
+         patch("handlers.voice.voice_claimable", return_value=True), \
+         patch("handlers.voice._handle_voice", new_callable=AsyncMock) as handle:
+        await on_voice_consent_grant(cb)
+
+    kwargs = mock_set.call_args.kwargs
+    assert kwargs["account_id"] == "ory-uuid-123"
+    assert kwargs["scope"] == "voice_processing"
+    assert kwargs["granted"] is True
+    assert kwargs["consent_version"] == "v1.3"
+    assert "Обрабатываю" in cb.answer.call_args[0][0]
+    handle.assert_awaited_once_with(waiting)
+
+
+@pytest.mark.asyncio
+async def test_consent_grant_without_a_waiting_voice_only_confirms():
+    cb = _consent_callback(None)
+    with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
+         patch("handlers.voice.set_consent_grant", new_callable=AsyncMock), \
+         patch("handlers.voice._handle_voice", new_callable=AsyncMock) as handle:
+        await on_voice_consent_grant(cb)
+    assert "Отправь голосовое" in cb.answer.call_args[0][0]
+    handle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_consent_grant_ignores_a_voice_of_another_user():
+    other = _voice_message()
+    other.from_user.id = 999
+    cb = _consent_callback(other)
+    with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
+         patch("handlers.voice.set_consent_grant", new_callable=AsyncMock), \
+         patch("handlers.voice._handle_voice", new_callable=AsyncMock) as handle:
+        await on_voice_consent_grant(cb)
+    handle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_consent_grant_requires_a_linked_account():
+    cb = _consent_callback(None)
+    with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value=None), \
+         patch("handlers.voice.set_consent_grant", new_callable=AsyncMock) as mock_set:
+        await on_voice_consent_grant(cb)
+    mock_set.assert_not_awaited()
+    assert "аккаунт" in cb.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_voice_off_withdraws_the_consent():
+    msg = MagicMock()
+    msg.from_user.id = 12345
+    msg.answer = AsyncMock()
+    with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
+         patch("handlers.voice.set_consent_grant", new_callable=AsyncMock) as mock_set:
+        await cmd_voice_off(msg)
+    assert mock_set.call_args.kwargs["granted"] is False
+    assert mock_set.call_args.kwargs["scope"] == "voice_processing"
+    assert "отключены" in msg.answer.call_args[0][0]
+
+
+# --- undo ----------------------------------------------------------------------
+
+def _undo_callback(data="nu:0123456789:6"):
+    cb = MagicMock()
+    cb.from_user.id = 12345
+    cb.data = data
+    cb.answer = AsyncMock()
+    cb.message.edit_text = AsyncMock()
+    return cb
+
+
+async def _undo(cb, status=None, error=None):
+    remove = AsyncMock(return_value=status, side_effect=error)
+    with patch.object(github_notes, "remove_note_block", remove):
+        await on_note_undo(cb)
+    return remove
+
+
+@pytest.mark.asyncio
+async def test_undo_removes_exactly_that_note_and_replaces_the_message():
+    cb = _undo_callback()
+    remove = await _undo(cb, RemoveStatus.REMOVED)
+    remove.assert_awaited_once_with(12345, "0123456789", 6)
+    cb.message.edit_text.assert_awaited_once_with("↩️ Заметка отменена.")
+
+
+@pytest.mark.asyncio
+async def test_undo_of_an_edited_note_leaves_the_file_and_says_so():
+    cb = _undo_callback()
+    await _undo(cb, RemoveStatus.NOT_FOUND)
+    assert "Не нашёл" in cb.message.edit_text.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_undo_failure_keeps_the_button():
+    cb = _undo_callback()
+    await _undo(cb, RemoveStatus.FAILED)
+    assert "Не получилось отменить" in cb.answer.call_args[0][0]
+    cb.message.edit_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_undo_asks_to_reconnect_github():
+    cb = _undo_callback()
+    await _undo(cb, error=GitHubAuthUnavailable("gone"))
+    assert "/github" in cb.answer.call_args[0][0]
+    cb.message.edit_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("data", ["nu:", "nu:zzzzzzzzzz:6", "nu:0123456789", "nu:0123456789:0", "nu:0123456789:abc", "nu:01234:6"])
+async def test_undo_rejects_malformed_button_data(data):
+    cb = _undo_callback(data)
+    remove = await _undo(cb, RemoveStatus.REMOVED)
+    remove.assert_not_awaited()
+    assert "устарела" in cb.answer.call_args[0][0]
+
+
+# --- question routing ----------------------------------------------------------
+
 @pytest.mark.asyncio
 async def test_ask_as_question_routes_prefixed_text():
     from handlers.voice import _ask_as_question
@@ -233,20 +449,3 @@ async def test_ask_as_question_skips_not_onboarded():
          patch("handlers.voice.get_intern", new_callable=AsyncMock, return_value={"onboarding_completed": False}):
         assert await _ask_as_question(msg, "вопрос") is False
     dispatcher.route_message.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_voice_consent_grant_callback():
-    cb = MagicMock()
-    cb.from_user.id = 12345
-    cb.data = "voice_consent_grant"
-    cb.answer = AsyncMock()
-    with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
-         patch("handlers.voice.set_consent_grant", new_callable=AsyncMock) as mock_set:
-        await on_voice_consent_grant(cb)
-
-    kwargs = mock_set.call_args.kwargs
-    assert kwargs["account_id"] == "ory-uuid-123"
-    assert kwargs["scope"] == "voice_processing"
-    assert kwargs["granted"] is True
-    cb.answer.assert_awaited_once()

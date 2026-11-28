@@ -16,8 +16,10 @@ GitHub Contents API — запись файлов в репозитории.
 """
 
 import base64
+import hashlib
 import re
 from datetime import datetime, timezone, timedelta
+from enum import Enum
 
 from config import get_logger
 from clients.github_auth import AuthContext, GitHubAuthUnavailable, OperationClass, resolve_auth_context
@@ -34,13 +36,37 @@ MONTHS_RU = {
 }
 
 
+class RemoveStatus(Enum):
+    REMOVED = "removed"
+    NOT_FOUND = "not_found"
+    FAILED = "failed"
+
+
+def note_block_hash(block: list[str]) -> str:
+    """Short fingerprint of a note block (the exact lines written to the file)."""
+    return hashlib.sha1("\n".join(block).encode("utf-8")).hexdigest()[:10]
+
+
+def find_note_block(lines: list[str], wanted_hash: str, length: int) -> int | None:
+    """Index of the note block of `length` lines whose fingerprint is `wanted_hash`.
+
+    A block always starts with the "---" separator line. Returns None when the note
+    is not in the file any more or was edited after it was saved.
+    """
+    for i in range(len(lines) - length + 1):
+        if lines[i] == "---" and note_block_hash(lines[i:i + length]) == wanted_hash:
+            return i
+    return None
+
+
 class GitHubNotesClient:
     """Клиент для записи заметок в GitHub."""
 
     _MAX_RETRIES = 3
 
     def __init__(self):
-        self._pending: list[tuple[int, str, int]] = []  # (user_id, text, attempt)
+        # (user_id, text, attempt, source_label)
+        self._pending: list[tuple[int, str, int, str | None]] = []
 
     @staticmethod
     def _extract_title(text: str, max_words: int = 7) -> tuple[str, str]:
@@ -71,10 +97,11 @@ class GitHubNotesClient:
         return title, clean.strip()
 
     @staticmethod
-    def _format_note_lines(text: str, now: datetime) -> list[str]:
+    def _format_note_lines(text: str, now: datetime, source_label: str | None = None) -> list[str]:
         """Форматирует заметку как markdown-блок.
 
-        Формат: ---\\n\\n**Title**\\n<sub>date</sub>\\n\\nBody
+        Формат: ---\\n\\n**Title**\\n<sub>date[ · source]</sub>\\n\\nBody
+        source_label (например «голос», «Siri») помечает заметку, надиктованную, а не набранную.
         """
         title, body = GitHubNotesClient._extract_title(text)
 
@@ -82,6 +109,8 @@ class GitHubNotesClient:
         month = MONTHS_RU[now.month]
         time_str = now.strftime("%H:%M")
         date_str = f"{day} {month}, {time_str}"
+        if source_label:
+            date_str = f"{date_str} · {source_label}"
 
         lines = ["---", "", f"**{title}**", f"<sub>{date_str}</sub>"]
         if body:
@@ -137,12 +166,14 @@ class GitHubNotesClient:
         return i if i < len(lines) else len(lines)
 
     async def append_note(
-        self, telegram_user_id: int, text: str
+        self, telegram_user_id: int, text: str, source_label: str | None = None
     ) -> dict | None:
         """Добавляет заметку в файл fleeting-notes.md.
 
         Returns:
-            {"repo": "owner/repo", "path": "inbox/...", "sha": "..."} или None.
+            {"repo", "path", "branch", "sha", "line_start", "block_hash", "block_len"}
+            или None. block_hash и block_len нужны, чтобы потом найти и удалить ровно эту
+            заметку (remove_note_block).
 
         Raises:
             GitHubAuthUnavailable: нет валидного источника авторизации для
@@ -155,12 +186,22 @@ class GitHubNotesClient:
             logger.warning(f"No target repo for user {telegram_user_id}")
             return None
 
+        result = await self._write_note(telegram_user_id, repo, text, source_label)
+        if not result:
+            self._pending.append((telegram_user_id, text, 1, source_label))
+            logger.warning(f"Note queued for retry (1/{self._MAX_RETRIES}): {len(text)} chars")
+        return result
+
+    async def _write_note(
+        self, telegram_user_id: int, repo: str, text: str, source_label: str | None
+    ) -> dict | None:
+        """One write attempt of a note into `repo`; never queues a retry itself."""
         path = await github_oauth.get_notes_path(telegram_user_id)
         auth_ctx = await resolve_auth_context(telegram_user_id, OperationClass.WRITE)
         branch = await github_oauth.get_default_branch(telegram_user_id)
 
         now = datetime.now(MOSCOW_TZ)
-        note_lines = self._format_note_lines(text, now)
+        note_lines = self._format_note_lines(text, now, source_label)
 
         result = await self._append_to_file(
             auth_ctx=auth_ctx,
@@ -170,12 +211,9 @@ class GitHubNotesClient:
             commit_message=f"note: {text[:50]}",
             branch=branch,
         )
-
         if not result:
-            self._pending.append((telegram_user_id, text, 1))
-            logger.warning(f"Note queued for retry (1/{self._MAX_RETRIES}): {len(text)} chars")
-
-        return result
+            return None
+        return {**result, "block_hash": note_block_hash(note_lines), "block_len": len(note_lines)}
 
     async def _append_to_file(
         self,
@@ -320,6 +358,103 @@ class GitHubNotesClient:
 
         return None
 
+    async def remove_note_block(self, telegram_user_id: int, block_hash: str, block_len: int) -> RemoveStatus:
+        """Delete the note block written by append_note (identified by its fingerprint).
+
+        Only the exact lines that were written are removed. A note edited, moved out of
+        the file or already deleted is reported as NOT_FOUND and the file is left alone.
+
+        Raises:
+            GitHubAuthUnavailable: no valid authorization for writing (see append_note).
+        """
+        repo = await github_oauth.get_target_repo(telegram_user_id)
+        if not repo:
+            return RemoveStatus.FAILED
+        path = await github_oauth.get_notes_path(telegram_user_id)
+        auth_ctx = await resolve_auth_context(telegram_user_id, OperationClass.WRITE)
+        branch = await github_oauth.get_default_branch(telegram_user_id)
+
+        for _attempt in range(self._MAX_RETRIES):
+            fetched = await self._fetch_file(auth_ctx, repo, path, branch)
+            if fetched is None:
+                return RemoveStatus.FAILED
+            content, sha = fetched
+            lines = content.split("\n")
+            start = find_note_block(lines, block_hash, block_len)
+            if start is None:
+                return RemoveStatus.NOT_FOUND
+            del lines[start:start + block_len]
+            outcome = await self._put_file(auth_ctx, repo, path, branch, "\n".join(lines), sha, "undo: note removed")
+            if outcome == "ok":
+                logger.info(f"Note removed from {repo}/{path}")
+                return RemoveStatus.REMOVED
+            if outcome == "error":
+                return RemoveStatus.FAILED
+        return RemoveStatus.FAILED
+
+    @staticmethod
+    def _api_headers(auth_ctx: AuthContext) -> dict:
+        return {
+            "Authorization": auth_ctx.auth_header,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    async def _fetch_file(
+        self, auth_ctx: AuthContext, repo: str, path: str, branch: str
+    ) -> tuple[str, str] | None:
+        """(content, sha) of a file through the Contents API, or None on any failure."""
+        import aiohttp
+
+        url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers=self._api_headers(auth_ctx),
+                    params={"ref": branch},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.error(f"GitHub GET {path}: {resp.status}")
+                        return None
+                    data = await resp.json()
+            return base64.b64decode(data["content"]).decode("utf-8"), data["sha"]
+        except Exception as exc:
+            logger.error(f"GitHub GET {path} failed: {type(exc).__name__}")
+            return None
+
+    async def _put_file(
+        self, auth_ctx: AuthContext, repo: str, path: str, branch: str, content: str, sha: str, message: str
+    ) -> str:
+        """Write a file through the Contents API: "ok", "conflict" (SHA moved) or "error"."""
+        import aiohttp
+
+        url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        body = {
+            "message": message,
+            "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            "branch": branch,
+            "sha": sha,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.put(
+                    url,
+                    headers=self._api_headers(auth_ctx),
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status in (200, 201):
+                        return "ok"
+                    if resp.status == 409:
+                        return "conflict"
+                    logger.error(f"GitHub PUT {path}: {resp.status}")
+                    return "error"
+        except Exception as exc:
+            logger.error(f"GitHub PUT {path} failed: {type(exc).__name__}")
+            return "error"
+
     async def retry_pending(self):
         """Повторная отправка неотправленных заметок."""
         if not self._pending:
@@ -328,16 +463,20 @@ class GitHubNotesClient:
         pending = self._pending.copy()
         self._pending.clear()
 
-        for user_id, text, attempt in pending:
+        for user_id, text, attempt, source_label in pending:
+            repo = await github_oauth.get_target_repo(user_id)
+            if not repo:
+                logger.warning(f"Note retry dropped, no target repo: user={user_id}, {len(text)} chars")
+                continue
             try:
-                result = await self.append_note(user_id, text)
+                result = await self._write_note(user_id, repo, text, source_label)
             except GitHubAuthUnavailable as e:
                 logger.warning(f"Note retry dropped, no auth ({e}): user={user_id}, {len(text)} chars")
                 continue
             if result:
                 logger.info(f"Retry succeeded: user={user_id}, {len(text)} chars")
             elif attempt < self._MAX_RETRIES:
-                self._pending.append((user_id, text, attempt + 1))
+                self._pending.append((user_id, text, attempt + 1, source_label))
                 logger.warning(f"Note retry {attempt + 1}/{self._MAX_RETRIES}: user={user_id}, {len(text)} chars")
             else:
                 logger.error(f"Note dropped after {self._MAX_RETRIES} retries: user={user_id}, {len(text)} chars")

@@ -26,6 +26,7 @@
 | P-17 | [GitHub App Install — Privacy Enforcement](process-17-github-app-install-privacy-enforcement.md) | Проверка и принудительная приватность репозитория после установки GitHub App в `/connect_guide` | `clients/github_app.py`, `oauth_server.py` |
 | P-18 | [Контракт выпуска — pilot → production](process-18-release-contract.md) | Смысл дрейфа, разрешённые различия сред, классификация дельт, audit-trail `incident-ok` (WP-562 Ф1) | `.githooks/pre-push`, `release-governance/incident-ok/` |
 | P-20 | [Свободный чат через агента платформы](process-20-interlocutor-flag.md) | Флаг: вопрос владельца уходит в агента `iwe-interlocutor` с пропуском человека, запасной путь прежний (РП-262 Ф4) | `engines/shared/interlocutor_client.py`, `states/common/consultation.py` |
+| P-21 | [Единая запись быстрой заметки](process-21-fleeting-note-save-path.md) | Заметка с точкой, пересланная, голосовая и от Siri пишется одной функцией: те же проверки, пометка источника, один след для платформы, отмена голосовой, строка замера (WP-384) | `core/fleeting_notes.py` |
 
 ---
 
@@ -45,3 +46,4 @@
 | 2026-01-23 | Создание раздела |
 | 2026-02-03 | Обновлены ссылки на файлы State Machine |
 | 2026-09-09 | +P-18 (контракт выпуска pilot → production, WP-562 Ф1) |
+| 2026-11-28 | +P-21 (единая запись быстрой заметки, WP-384) |

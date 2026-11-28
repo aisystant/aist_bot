@@ -9,8 +9,6 @@ from __future__ import annotations
 - Сообщения с "." — исчезающие заметки
 """
 
-import asyncio
-import json
 import logging
 import os
 import time
@@ -26,9 +24,11 @@ from aiogram.filters import Command
 
 from clients.github_auth import GitHubAuthUnavailable
 from config import GITHUB_APP_NOTES_ENABLED
+from core.fleeting_notes import NoteOutcome, NoteSource, NoteStatus, notes_blocker, write_note
 from db.queries import get_intern
 from db.queries.github_app import get_app_installation
 from i18n import t
+from integrations.telegram.keyboards import kb_note_undo
 
 logger = logging.getLogger(__name__)
 
@@ -447,9 +447,42 @@ async def callback_github_disconnect(callback: CallbackQuery):
     )
 
 
+_NOTE_BLOCKER_REPLIES = {
+    NoteStatus.NO_GITHUB: 'github.note_needs_github',
+    NoteStatus.NO_REPO: 'github.repo_not_selected',
+}
+
+
+async def _answer_blocker(message: Message, status: NoteStatus, lang: str) -> None:
+    """Tell the user why the note was not saved (no access, no GitHub, no notes repo)."""
+    if status is NoteStatus.NO_ACCESS:
+        from core.access import access_layer
+
+        text, keyboard = await access_layer.get_paywall('notes', lang)
+        await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+        return
+    await message.answer(t(_NOTE_BLOCKER_REPLIES[status], lang))
+
+
+async def _answer_written(message: Message, outcome: NoteOutcome, lang: str, source: NoteSource) -> None:
+    """Answer after a write attempt; a voice note also gets an undo button (recognition can be wrong)."""
+    if outcome.status is NoteStatus.SAVED:
+        keyboard = kb_note_undo(outcome.undo_ref) if source is NoteSource.VOICE and outcome.undo_ref else None
+        await message.answer(t('github.note_saved', lang, url=outcome.url), reply_markup=keyboard)
+    elif outcome.status is NoteStatus.RECONNECT:
+        await message.answer(t('github.reconnect_required', lang))
+    else:
+        await message.answer(t('github.note_error', lang))
+
+
 @github_router.message(F.text.startswith("."))
 async def handle_fleeting_note(message: Message):
-    """Обработка исчезающих заметок.
+    """Обработка исчезающих заметок: набранный текст, начатый с точки."""
+    await process_fleeting_note(message, NoteSource.TEXT)
+
+
+async def process_fleeting_note(message: Message, source: NoteSource) -> None:
+    """Заметка из сообщения, текст которого начинается с точки (набранного или надиктованного).
 
     Сценарии:
     A. reply на сообщение (с текстом после точки или без) — объединить, записать
@@ -457,34 +490,15 @@ async def handle_fleeting_note(message: Message):
     C. "." (голая точка) → forward — ждать пересылку (TTL), записать forwarded
     D. ".текст" (без reply/forward) — записать немедленно
     """
-    from clients.github_oauth import github_oauth
-    from clients.github_api import github_notes
-
     telegram_user_id = message.chat.id
-
-    # Проверяем доступ (подписка/триал)
-    from core.access import access_layer
-    if not await access_layer.has_access(telegram_user_id, 'notes'):
-        intern = await get_intern(telegram_user_id)
-        lang = _lang(intern)
-        text, keyboard = await access_layer.get_paywall('notes', lang)
-        await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
-        return
-
-    if not await github_oauth.is_connected(telegram_user_id):
-        intern = await get_intern(telegram_user_id)
-        lang = _lang(intern)
-        await message.answer(t('github.note_needs_github', lang))
-        return
-    target_repo = await github_oauth.get_target_repo(telegram_user_id)
-    if not target_repo:
-        intern = await get_intern(telegram_user_id)
-        lang = _lang(intern)
-        await message.answer(t('github.repo_not_selected', lang))
-        return
-
     intern = await get_intern(telegram_user_id)
     lang = _lang(intern)
+
+    blocker = await notes_blocker(telegram_user_id)
+    if blocker is not None:
+        await _answer_blocker(message, blocker, lang)
+        return
+
     note_text = (message.text or "")[1:].strip()
 
     # Сценарий A: reply на сообщение (с текстом после точки или без)
@@ -511,37 +525,14 @@ async def handle_fleeting_note(message: Message):
         if not note_text:
             _pending_forwards[telegram_user_id] = (None, time.time())
             return
-        # note_text непустой — сохраняем сразу (falls through to append_note)
 
-    # Сценарий 1 и 2: записываем
-    try:
-        result = await github_notes.append_note(telegram_user_id, note_text)
-    except GitHubAuthUnavailable as e:
-        logger.warning("append_note auth unavailable for chat_id=%d: %s", telegram_user_id, e)
-        await message.answer(t('github.reconnect_required', lang))
-        return
-
-    if result:
-        branch = result.get('branch', 'main')
-        url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
-        await message.answer(t('github.note_saved', lang, url=url))
-        asyncio.create_task(
-            _capture_note_trace(
-                telegram_user_id, note_text,
-                message.message_id,
-                source_ref=result,
-            )
-        )
-    else:
-        await message.answer(t('github.note_error', lang))
+    outcome = await write_note(telegram_user_id, note_text, source, message_id=message.message_id)
+    await _answer_written(message, outcome, lang, source)
 
 
 @github_router.message(F.forward_origin | F.forward_date)
 async def handle_forwarded_message(message: Message):
     """Обработка пересланных сообщений → заметки."""
-    from clients.github_oauth import github_oauth
-    from clients.github_api import github_notes
-
     telegram_user_id = message.chat.id
 
     # Вариант 1: "." или ". комментарий" → forward (pending точка существует)
@@ -549,10 +540,7 @@ async def handle_forwarded_message(message: Message):
     if pending_info:
         pending_comment, pending_time = pending_info
         if (time.time() - pending_time) <= _FORWARD_TTL_SECONDS:
-            if not await github_oauth.is_connected(telegram_user_id):
-                return
-            target_repo = await github_oauth.get_target_repo(telegram_user_id)
-            if not target_repo:
+            if await notes_blocker(telegram_user_id) is not None:
                 return
 
             intern = await get_intern(telegram_user_id)
@@ -567,26 +555,8 @@ async def handle_forwarded_message(message: Message):
             else:
                 note_text = pending_comment or fwd_text
 
-            try:
-                result = await github_notes.append_note(telegram_user_id, note_text)
-            except GitHubAuthUnavailable as e:
-                logger.warning("append_note auth unavailable for chat_id=%d: %s", telegram_user_id, e)
-                await message.answer(t('github.reconnect_required', lang))
-                return
-
-            if result:
-                branch = result.get('branch', 'main')
-                url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
-                await message.answer(t('github.note_saved', lang, url=url))
-                asyncio.create_task(
-                    _capture_note_trace(
-                        telegram_user_id, note_text,
-                        message.message_id,
-                        source_ref=result,
-                    )
-                )
-            else:
-                await message.answer(t('github.note_error', lang))
+            outcome = await write_note(telegram_user_id, note_text, NoteSource.TEXT, message_id=message.message_id)
+            await _answer_written(message, outcome, lang, NoteSource.TEXT)
             return
 
     # Вариант 2: forward → "." (сохраняем forward, ждём точку)
@@ -621,82 +591,3 @@ def _extract_message_text(message: Message, lang: str = 'ru') -> str:
         parts.append(message.caption)
 
     return " ".join(parts).strip()
-
-
-async def _capture_note_trace(
-    telegram_user_id: int,
-    note_text: str,
-    message_id: int,
-    *,
-    source_ref: dict | None = None,
-) -> None:
-    """Best-effort fire-and-forget: record saved note as a trace (WP-427, sensor bot_note).
-
-    Strategy (pilot decision, F6.3):
-    1. Try full text + source_ref.
-    2. If payload exceeds 64 KiB, drop text and emit reference-only.
-    3. source_ref is enriched with line_start from github_api.append_note.
-    """
-    try:
-        from clients.gateway_mcp import gateway_mcp
-        if not gateway_mcp.is_connected(telegram_user_id):
-            logger.info(
-                "capture_trace(bot_note) skipped: user %s not connected to Aisystant",
-                telegram_user_id,
-            )
-            return
-
-        payload = _build_note_payload(note_text, source_ref)
-
-        await gateway_mcp.capture_trace(
-            sensor_id="bot_note",
-            event_type="note_created",
-            content=payload,
-            telegram_user_id=telegram_user_id,
-            external_id=f"tg_note_{message_id}",
-        )
-    except Exception as e:
-        logger.warning(
-            "capture_trace(bot_note) failed for user %s: %s",
-            telegram_user_id,
-            e,
-        )
-
-
-def _payload_size(payload: dict) -> int:
-    """UTF-8 byte length of JSON — what actually goes over the wire."""
-    return len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-
-
-def _build_note_payload(
-    note_text: str, source_ref: dict | None
-) -> dict:
-    """Build payload respecting the 64 KiB trace limit.
-
-    Returns full-text+ref if under limit; reference-only otherwise.
-    """
-    base = {}
-    if source_ref:
-        base["source_ref"] = {
-            "type": "github_blob",
-            "repo": source_ref.get("repo"),
-            "path": source_ref.get("path"),
-            "sha": source_ref.get("sha"),
-            "branch": source_ref.get("branch"),
-            "line_start": source_ref.get("line_start"),
-        }
-
-    candidate = {**base, "text": note_text}
-    if _payload_size(candidate) <= 65_536:
-        return candidate
-
-    # Oversized: reference-only fallback
-    ref_only = {**base, "text": None}
-    logger.info(
-        "bot_note payload oversized (%d bytes); falling back to reference-only for note",
-        _payload_size(candidate),
-    )
-    return ref_only
-
-
-# ─── end WP-427 F6.3 enrichment ───
