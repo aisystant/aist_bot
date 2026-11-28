@@ -66,7 +66,11 @@ async def cmd_siri(message: Message, command: CommandObject) -> None:
         return
     chat_id = message.from_user.id
     if not voice_enabled_for(chat_id):
-        await message.answer("Заметки через Siri пока доступны не всем. Мы сообщим, когда откроем их.")
+        await message.answer(
+            "Голосовые заметки и заметки через Siri пока в закрытой проверке.\n\n"
+            f"Ваш номер в Telegram: <code>{chat_id}</code>. По нему вас могут включить в проверку.",
+            parse_mode="HTML",
+        )
         return
     ory_id = await resolve_ory_id_from_chat(chat_id)
     if not ory_id:

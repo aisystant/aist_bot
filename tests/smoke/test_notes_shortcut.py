@@ -268,7 +268,9 @@ async def test_siri_unavailable_without_voice_access(_voice_enabled):
     _endpoint_gate, command_gate = _voice_enabled
     command_gate.return_value = False
     message, get_key, new_key = await _siri()
-    assert "Siri" in message.answer.call_args[0][0]
+    text = message.answer.call_args[0][0]
+    assert "Siri" in text
+    assert "<code>777</code>" in text
     get_key.assert_not_awaited()
     new_key.assert_not_awaited()
 
