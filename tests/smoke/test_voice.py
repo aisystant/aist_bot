@@ -1,7 +1,7 @@
 """Smoke tests: voice_router (WP-384, DP.SC.178).
 
-Voice message -> speech-to-text -> echo + note in the personal guide (when connected)
--> the same consultation path a typed "?" question takes.
+Voice message -> speech-to-text -> echo -> the path typed text would take:
+a ".text" fleeting note by default, a "?text" question when it starts with «вопрос».
 """
 
 import io
@@ -10,10 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from clients.github_app import WriteResult
-from handlers.voice import TranscriptionError, on_voice, on_voice_consent_grant
-
-_INSTALLATION = {"app_repo_full_name": "owner/personal-guide", "app_installation_id": "42"}
+from handlers.voice import (
+    TranscriptionError,
+    on_voice,
+    on_voice_consent_grant,
+    split_spoken_question,
+)
 
 
 def _voice_message(duration: int = 10, chat_type: str = "private") -> MagicMock:
@@ -32,17 +34,30 @@ def _voice_message(duration: int = 10, chat_type: str = "private") -> MagicMock:
 
 
 @contextmanager
-def _ready_user(installation=_INSTALLATION, transcript="тестовая расшифровка", routed=True):
+def _ready_user(transcript="купить молоко", routed=True):
     """Account linked, consent given, STT configured; yields the patched collaborators."""
     with patch("handlers.voice.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value="ory-uuid-123"), \
          patch("handlers.voice.get_consent_grant", new_callable=AsyncMock, return_value=True), \
          patch("handlers.voice.STT_API_KEY", "stt-test"), \
-         patch("handlers.voice.get_app_installation", new_callable=AsyncMock, return_value=installation), \
          patch("handlers.voice._transcribe_voice", new_callable=AsyncMock, return_value=transcript) as stt, \
-         patch("handlers.voice.write_file", new_callable=AsyncMock,
-               return_value=WriteResult(success=True, sha="abc123")) as write, \
-         patch("handlers.voice._answer_as_typed_question", new_callable=AsyncMock, return_value=routed) as answer:
-        yield stt, write, answer
+         patch("handlers.github.handle_fleeting_note", new_callable=AsyncMock) as note, \
+         patch("handlers.voice._ask_as_question", new_callable=AsyncMock, return_value=routed) as ask:
+        yield stt, note, ask
+
+
+@pytest.mark.parametrize(
+    ("transcript", "expected"),
+    [
+        ("Вопрос: что у меня в плане?", "что у меня в плане?"),
+        ("вопрос, как начать марафон", "как начать марафон"),
+        ("ВОПРОС — где мои заметки", "где мои заметки"),
+        ("вопрос", None),
+        ("вопросы стратегии на декабрь", None),
+        ("идея про экзоскелет мышления", None),
+    ],
+)
+def test_split_spoken_question(transcript, expected):
+    assert split_spoken_question(transcript) == expected
 
 
 @pytest.mark.asyncio
@@ -79,46 +94,41 @@ async def test_voice_requires_consent():
     args, kwargs = msg.answer.call_args
     assert "согласие" in args[0].lower()
     assert "OpenRouter" in args[0]
+    assert "с точки" in args[0]
     assert kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "voice_consent_grant"
     msg.bot.download.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_voice_happy_path_saves_note_echoes_and_routes_as_question():
+async def test_voice_default_is_dot_note():
     msg = _voice_message()
-    with _ready_user() as (stt, write, answer):
+    with _ready_user(transcript="купить молоко") as (stt, note, ask):
         await on_voice(msg)
 
     stt.assert_awaited_once_with(b"fake-ogg-bytes")
-    write_kwargs = write.call_args.kwargs
-    assert write_kwargs["repo_full_name"] == "owner/personal-guide"
-    assert write_kwargs["installation_id"] == 42
-    assert write_kwargs["path"].startswith("history/") and write_kwargs["path"].endswith(".md")
-    assert "тестовая расшифровка" in write_kwargs["content"]
-    assert "voice-log" in write_kwargs["content"]
+    assert msg.answer.call_args_list[0][0][0] == "🎤 купить молоко"
+    note.assert_awaited_once()
+    typed = note.call_args[0][0]
+    assert typed.text == ".купить молоко"
+    assert typed.voice is None
+    ask.assert_not_awaited()
 
-    echo = msg.answer.call_args_list[0][0][0]
-    assert "тестовая расшифровка" in echo
-    assert "Записал заметкой" in echo
-    answer.assert_awaited_once_with(msg, "тестовая расшифровка")
+
+@pytest.mark.asyncio
+async def test_voice_starting_with_question_word_asks_mentor():
+    msg = _voice_message()
+    with _ready_user(transcript="Вопрос: как начать марафон") as (_stt, note, ask):
+        await on_voice(msg)
+
+    ask.assert_awaited_once_with(msg, "как начать марафон")
+    note.assert_not_awaited()
     assert msg.answer.await_count == 1
 
 
 @pytest.mark.asyncio
-async def test_voice_without_personal_guide_still_answers():
+async def test_voice_question_not_routed_tells_user_to_type():
     msg = _voice_message()
-    with _ready_user(installation=None) as (_stt, write, answer):
-        await on_voice(msg)
-
-    write.assert_not_awaited()
-    assert "не подключено" in msg.answer.call_args_list[0][0][0]
-    answer.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_voice_not_routed_tells_user_to_type():
-    msg = _voice_message()
-    with _ready_user(routed=False):
+    with _ready_user(transcript="вопрос где мои заметки", routed=False):
         await on_voice(msg)
     assert msg.answer.await_count == 2
     assert "текстом" in msg.answer.call_args_list[1][0][0]
@@ -127,23 +137,23 @@ async def test_voice_not_routed_tells_user_to_type():
 @pytest.mark.asyncio
 async def test_voice_transcription_failure_falls_back_to_text():
     msg = _voice_message()
-    with _ready_user() as (stt, write, answer):
+    with _ready_user() as (stt, note, ask):
         stt.side_effect = TranscriptionError("STT HTTP 502")
         await on_voice(msg)
     msg.answer.assert_awaited_once()
     assert "Не смог распознать" in msg.answer.call_args[0][0]
-    write.assert_not_awaited()
-    answer.assert_not_awaited()
+    note.assert_not_awaited()
+    ask.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_voice_empty_transcript():
     msg = _voice_message()
-    with _ready_user(transcript="") as (_stt, write, answer):
+    with _ready_user(transcript="") as (_stt, note, ask):
         await on_voice(msg)
     assert "пустая" in msg.answer.call_args[0][0]
-    write.assert_not_awaited()
-    answer.assert_not_awaited()
+    note.assert_not_awaited()
+    ask.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -158,15 +168,15 @@ async def test_voice_without_stt_key_reports_unavailable():
 
 
 @pytest.mark.asyncio
-async def test_answer_as_typed_question_routes_prefixed_text():
-    from handlers.voice import _answer_as_typed_question
+async def test_ask_as_question_routes_prefixed_text():
+    from handlers.voice import _ask_as_question
 
     msg = _voice_message()
     dispatcher = MagicMock(is_sm_active=True, route_message=AsyncMock())
     intern = {"onboarding_completed": True}
     with patch("handlers.get_dispatcher", return_value=dispatcher), \
          patch("handlers.voice.get_intern", new_callable=AsyncMock, return_value=intern):
-        routed = await _answer_as_typed_question(msg, "что у меня в плане")
+        routed = await _ask_as_question(msg, "что у меня в плане")
 
     assert routed is True
     routed_intern, routed_msg = dispatcher.route_message.call_args[0]
@@ -176,14 +186,14 @@ async def test_answer_as_typed_question_routes_prefixed_text():
 
 
 @pytest.mark.asyncio
-async def test_answer_as_typed_question_skips_not_onboarded():
-    from handlers.voice import _answer_as_typed_question
+async def test_ask_as_question_skips_not_onboarded():
+    from handlers.voice import _ask_as_question
 
     msg = _voice_message()
     dispatcher = MagicMock(is_sm_active=True, route_message=AsyncMock())
     with patch("handlers.get_dispatcher", return_value=dispatcher), \
          patch("handlers.voice.get_intern", new_callable=AsyncMock, return_value={"onboarding_completed": False}):
-        assert await _answer_as_typed_question(msg, "вопрос") is False
+        assert await _ask_as_question(msg, "вопрос") is False
     dispatcher.route_message.assert_not_awaited()
 
 
