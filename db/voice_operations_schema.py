@@ -53,9 +53,9 @@ async def ensure_voice_operations(conn, runtime_roles=()) -> bool:
         raise RuntimeError("voice_operation schema is incompatible")
     keys = await conn.fetch(
         """SELECT c.contype::text AS contype, array_agg(a.attname::text ORDER BY k.ordinality) AS columns
-           FROM pg_constraint c
-           CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality)
-           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+           FROM pg_catalog.pg_constraint c
+           CROSS JOIN pg_catalog.unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality)
+           JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
            WHERE c.conrelid = 'development.voice_operation'::regclass AND c.contype IN ('p','u')
            GROUP BY c.oid, c.contype"""
     )
@@ -67,7 +67,7 @@ async def ensure_voice_operations(conn, runtime_roles=()) -> bool:
         raise RuntimeError("voice_operation identity constraints are missing")
     for role in runtime_roles:
         if not await conn.fetchval(
-            "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", role
+            "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1)", role
         ):
             raise ValueError("Unknown voice runtime role")
         quoted = '"' + role.replace('"', '""') + '"'
@@ -79,7 +79,7 @@ async def ensure_voice_operations(conn, runtime_roles=()) -> bool:
     permitted = await conn.fetchval(
         """SELECT has_schema_privilege(current_user, 'development', 'USAGE') AND
                   bool_and(has_table_privilege(current_user, 'development.voice_operation', privilege))
-           FROM unnest($1::text[]) AS privilege""",
+           FROM pg_catalog.unnest($1::text[]) AS privilege""",
         ["SELECT", "INSERT", "UPDATE", "DELETE"],
     )
     if not permitted:
