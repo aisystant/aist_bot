@@ -15,6 +15,13 @@ from typing import Mapping
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
+# WP-384: speech-to-text for voice messages (DP.SC.178). OpenAI-compatible
+# /audio/transcriptions endpoint; default provider is OpenRouter.
+STT_API_KEY = os.getenv("STT_API_KEY")
+STT_BASE_URL = os.getenv("STT_BASE_URL", "https://openrouter.ai/api/v1")
+STT_MODEL = os.getenv("STT_MODEL", "openai/gpt-4o-mini-transcribe")
+VOICE_MAX_DURATION_SEC = int(os.getenv("VOICE_MAX_DURATION_SEC", "60"))
+
 # Claude models: Sonnet для сложных задач, Haiku для простых
 CLAUDE_MODEL_OPUS = "claude-sonnet-4-6"
 CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"

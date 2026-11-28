@@ -76,6 +76,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .referral import referral_router
     from .external_session import external_session_router
     from .hermes import hermes_router
+    from .voice import voice_router
     from .byok import byok_router
     from .image import image_router
 
@@ -135,6 +136,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     # текст (Проводник для tier<T3, отказ для tier≥T3 — внешний Hermes отключён
     # 05.09), иначе активная Claude-сессия перехватила бы его первой.
     dp.include_router(hermes_router)
+    dp.include_router(voice_router)
     dp.include_router(byok_router)
     dp.include_router(external_session_router)
 
