@@ -18,6 +18,8 @@ from db.connection import get_persona_pool
 
 _KIND_RE = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+# UTC reset, then a local quiet-hours window, including a daylight-saving transition.
+_MAX_CAP_RETRY_SECONDS = 3 * 24 * 60 * 60
 
 
 def _signature(secret: bytes, key_id: str, timestamp: str, raw: bytes) -> str:
@@ -85,10 +87,10 @@ def _telegram_delivered_at(message: Any) -> str | None:
 
 
 def _cap_retry_after(value: str | None) -> int | None:
-    if value is None or not re.fullmatch(r"[0-9]{1,5}", value):
+    if value is None or not re.fullmatch(r"[0-9]{1,6}", value):
         return None
     seconds = int(value)
-    return seconds if 1 <= seconds <= 86_400 else None
+    return seconds if 1 <= seconds <= _MAX_CAP_RETRY_SECONDS else None
 
 
 async def _consume(account_id: str, attempt_id: str, token: str, chat_id: int) -> dict[str, Any] | None:

@@ -432,8 +432,8 @@ async def test_consume_signs_the_place_derived_from_resolved_chat(env):
     assert nc_delivery._signature(bytes(32), headers["X-NC-Key-Id"], headers["X-NC-Timestamp"], changed) != expected
 
 
-@pytest.mark.parametrize("header", ["1", "43200", "86400"])
-async def test_center_cap_preserves_retry_until_next_utc_day_without_sending(env, header):
+@pytest.mark.parametrize("header", ["1", "43200", "86400", "86401", "172800", "176400", "259200"])
+async def test_center_cap_preserves_retry_through_utc_reset_and_quiet_hours_without_sending(env, header):
     response, send, post = await deliver_with_center_reply(
         429, {"error": "daily_cap_exceeded"}, {"Retry-After": header}
     )
@@ -454,11 +454,13 @@ async def test_center_cap_preserves_retry_until_next_utc_day_without_sending(env
     [
         ("daily_cap_exceeded", None),
         ("daily_cap_exceeded", "0"),
-        ("daily_cap_exceeded", "86401"),
+        ("daily_cap_exceeded", "259201"),
+        ("daily_cap_exceeded", "1000000"),
         ("daily_cap_exceeded", "1.5"),
         ("daily_cap_exceeded", "-1"),
         ("daily_cap_exceeded", "tomorrow"),
         ("temporary_overload", "43200"),
+        ("temporary_overload", "259200"),
     ],
 )
 async def test_other_center_limits_use_short_transport_retry_without_sending(env, error, header):
